@@ -1,1 +1,3186 @@
-{"name":"AuditPro","short_name":"AuditPro","start_url":"/","display":"standalone","background_color":"#0d0f12","theme_color":"#0d0f12","icons":[{"src":"/icons/icon-192.png","sizes":"192x192","type":"image/png"},{"src":"/icons/icon-512.png","sizes":"512x512","type":"image/png"}]}
+<!DOCTYPE html>
+<!-- AuditPro Mobile v2.1 - 2026-04-18 -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AuditPro">
+<meta name="theme-color" content="#0d0f12">
+<title>AuditPro — Stock Count</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#0d0f12; --bg2:#141720; --bg3:#1c2030; --bg4:#242840;
+  --accent:#c8f064; --text:#eeeade; --text2:#9b9890; --text3:#5a5856;
+  --border:rgba(255,255,255,0.07); --border2:rgba(255,255,255,0.14);
+  --red:#f05050; --amber:#f0c040; --green:#5be3b4;
+  --font-ui:'Syne',sans-serif; --font-mono:'DM Mono',monospace;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bot: env(safe-area-inset-bottom, 0px);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size:15px;}
+
+/* SCREENS */
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg);transition:transform 0.3s cubic-bezier(.4,0,.2,1),opacity 0.3s;will-change:transform;}
+.screen.hidden{transform:translateX(100%);pointer-events:none;}
+.screen.back-hidden{transform:translateX(-30%);pointer-events:none;opacity:0.4;}
+
+/* HEADER */
+.hdr{padding:calc(var(--safe-top) + 14px) 18px 14px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-shrink:0;}
+.hdr-back{width:36px;height:36px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;}
+.hdr-back svg{width:18px;height:18px;}
+.hdr-title{flex:1;min-width:0;}
+.hdr-title h1{font-size:17px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.hdr-title p{font-size:12px;color:var(--text3);margin-top:1px;}
+.hdr-action{flex-shrink:0;}
+
+/* SCROLL AREA */
+.scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:calc(var(--safe-bot) + 90px);}
+.scroll::-webkit-scrollbar{display:none;}
+
+/* BOTTOM BAR */
+.bottom-bar{position:absolute;bottom:0;left:0;right:0;padding:12px 16px calc(var(--safe-bot) + 12px);background:var(--bg2);border-top:1px solid var(--border);flex-shrink:0;}
+
+/* CONNECT SCREEN */
+.connect-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:32px 24px;text-align:center;}
+.app-logo{width:72px;height:72px;background:var(--accent);border-radius:20px;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;}
+.app-logo svg{width:38px;height:38px;}
+.connect-title{font-size:24px;font-weight:700;color:var(--text);margin-bottom:8px;}
+.connect-sub{font-size:14px;color:var(--text3);margin-bottom:36px;line-height:1.6;}
+.connect-tabs{display:flex;gap:4px;background:var(--bg3);border-radius:12px;padding:4px;margin-bottom:24px;width:100%;}
+.connect-tab{flex:1;padding:10px;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;color:var(--text3);border:none;background:none;font-family:var(--font-ui);transition:all 0.15s;}
+.connect-tab.active{background:var(--bg2);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,0.4);}
+.qr-box{width:200px;height:200px;background:var(--bg3);border:2px dashed var(--border2);border-radius:16px;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;cursor:pointer;}
+.qr-box svg{width:48px;height:48px;color:var(--text3);}
+.code-input{width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:16px;color:var(--text);font-family:var(--font-mono);font-size:22px;text-align:center;letter-spacing:0.2em;outline:none;margin-bottom:12px;}
+.code-input:focus{border-color:var(--accent);}
+.btn{width:100%;padding:16px;border-radius:14px;font-family:var(--font-ui);font-size:15px;font-weight:700;cursor:pointer;border:none;transition:all 0.15s;}
+.btn-primary{background:var(--accent);color:#0d0f12;}
+.btn-primary:active{transform:scale(0.98);}
+.btn-secondary{background:var(--bg3);color:var(--text);border:1px solid var(--border2);}
+.btn-sm{width:auto;padding:9px 16px;font-size:13px;border-radius:10px;}
+
+/* AREA SCREEN */
+.area-list{padding:16px;}
+.area-card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:18px 16px;margin-bottom:10px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:all 0.15s;active:scale(0.98);}
+.area-card:active{transform:scale(0.98);background:var(--bg3);}
+.area-icon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;}
+.area-info{flex:1;}
+.area-name{font-size:15px;font-weight:600;color:var(--text);}
+.area-count{font-size:12px;color:var(--text3);margin-top:2px;}
+.area-chev{color:var(--text3);}
+.area-done{width:22px;height:22px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.area-del{width:34px;height:34px;border-radius:9px;background:rgba(240,80,80,0.1);border:1px solid rgba(240,80,80,0.2);color:var(--red);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px;line-height:1;}
+
+/* COUNT SCREEN */
+.count-summary{background:var(--bg2);border-bottom:1px solid var(--border);padding:12px 16px;display:flex;gap:12px;flex-shrink:0;}
+.count-stat{flex:1;text-align:center;}
+.count-stat-val{font-family:var(--font-mono);font-size:20px;font-weight:500;color:var(--accent);}
+.count-stat-label{font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-top:2px;}
+
+/* INPUT PANEL */
+.input-panel{background:var(--bg2);border-top:1px solid var(--border);padding:14px 16px calc(var(--safe-bot) + 14px);flex-shrink:0;}
+.method-tabs{display:flex;gap:6px;margin-bottom:14px;}
+.method-tab{flex:1;padding:9px 4px;border-radius:10px;font-size:11px;font-weight:600;cursor:pointer;color:var(--text3);border:1px solid var(--border2);background:var(--bg3);font-family:var(--font-ui);text-align:center;transition:all 0.15s;}
+.method-tab.active{background:rgba(200,240,100,0.12);color:var(--accent);border-color:rgba(200,240,100,0.3);}
+
+/* SCAN TAB */
+.scan-zone{background:var(--bg3);border:2px dashed var(--border2);border-radius:14px;padding:28px 20px;text-align:center;cursor:pointer;transition:all 0.2s;margin-bottom:10px;}
+.scan-zone:active{border-color:var(--accent);background:rgba(200,240,100,0.05);}
+.scan-zone svg{width:36px;height:36px;color:var(--text3);margin-bottom:10px;}
+.scan-zone p{font-size:14px;color:var(--text2);font-weight:500;}
+.scan-zone small{font-size:12px;color:var(--text3);display:block;margin-top:4px;}
+.scan-result{background:rgba(200,240,100,0.08);border:1px solid rgba(200,240,100,0.25);border-radius:12px;padding:12px 14px;display:none;margin-bottom:10px;}
+.scan-result.visible{display:block;}
+.scan-result-name{font-size:14px;font-weight:600;color:var(--text);}
+.scan-result-info{font-size:12px;color:var(--text3);margin-top:2px;}
+
+/* SEARCH TAB */
+.search-input-wrap{position:relative;margin-bottom:10px;}
+.search-input-wrap svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:18px;height:18px;color:var(--text3);}
+.search-field{width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:12px 12px 12px 40px;color:var(--text);font-family:var(--font-ui);font-size:15px;outline:none;}
+.search-field:focus{border-color:var(--accent);}
+.search-results{background:var(--bg3);border:1px solid var(--border2);border-radius:12px;overflow:hidden;margin-bottom:10px;display:none;}
+.search-results.visible{display:block;}
+.search-item{padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer;display:flex;justify-content:space-between;align-items:center;}
+.search-item:last-child{border-bottom:none;}
+.search-item:active{background:var(--bg4);}
+.search-item-name{font-size:14px;font-weight:500;color:var(--text);}
+.search-item-cat{font-size:11px;color:var(--text3);}
+
+/* WEIGHT TAB */
+.scale-display{background:var(--bg4);border-radius:14px;padding:12px;text-align:center;margin-bottom:12px;}
+.scale-reading{font-family:var(--font-mono);font-size:42px;font-weight:500;color:var(--accent);line-height:1;}
+.scale-unit{font-size:14px;color:var(--text3);margin-top:4px;}
+.scale-net{font-size:13px;color:var(--green);margin-top:8px;font-family:var(--font-mono);}
+.scale-status{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:8px;font-size:12px;color:var(--text3);}
+.scale-dot{width:8px;height:8px;border-radius:50%;background:var(--text3);}
+.scale-dot.connected{background:var(--green);animation:pulse 2s infinite;}
+@keyframes scanLine{0%{top:20%}50%{top:75%}100%{top:20%}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.tare-row{display:flex;gap:8px;margin-bottom:10px;}
+.tare-btn{flex:1;padding:10px;border-radius:10px;font-size:13px;font-weight:600;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);cursor:pointer;font-family:var(--font-ui);}
+.tare-btn:active{background:var(--bg4);}
+
+/* QUANTITY ROW — larger touch targets */
+.qty-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.qty-btn{width:56px;height:56px;border-radius:14px;background:var(--bg3);border:1px solid var(--border2);font-size:28px;color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;touch-action:manipulation;user-select:none;-webkit-user-select:none;}
+.qty-btn:active{background:var(--bg4);transform:scale(0.94);}
+.qty-input{flex:1;background:var(--bg3);border:1px solid var(--border2);border-radius:14px;padding:14px 10px;color:var(--text);font-family:var(--font-mono);font-size:28px;text-align:center;outline:none;min-width:0;}
+.qty-input:focus{border-color:var(--accent);}
+.unit-select{background:var(--bg3);border:1px solid var(--border2);border-radius:14px;padding:14px 12px;color:var(--text);font-family:var(--font-ui);font-size:14px;outline:none;cursor:pointer;touch-action:manipulation;}
+.fraction-row{display:flex;gap:6px;margin-bottom:12px;}
+.frac-btn{flex:1;padding:14px 6px;border-radius:12px;font-size:18px;font-weight:700;border:1px solid var(--border2);background:var(--bg3);color:var(--text);cursor:pointer;font-family:var(--font-mono);text-align:center;touch-action:manipulation;user-select:none;-webkit-user-select:none;}
+.frac-btn:active{background:rgba(200,240,100,0.18);color:var(--accent);border-color:rgba(200,240,100,0.4);}
+
+/* Fast-count mode indicator */
+.fast-mode-badge{display:inline-flex;align-items:center;gap:5px;background:rgba(200,240,100,0.12);border:1px solid rgba(200,240,100,0.3);border-radius:20px;padding:4px 10px;font-size:11px;font-weight:600;color:var(--accent);}
+
+/* PRODUCT ROW in list — taller for touchscreen */
+.item-row{background:var(--bg2);border-bottom:1px solid var(--border);padding:16px 16px;display:flex;align-items:center;gap:12px;min-height:58px;}
+.item-row:active{background:var(--bg3);}
+.item-cat-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.item-info{flex:1;min-width:0;}
+.item-name{font-size:15px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.item-sub{font-size:11px;color:var(--text3);margin-top:2px;}
+.item-qty{font-family:var(--font-mono);font-size:16px;font-weight:600;color:var(--accent);flex-shrink:0;}
+.item-del{width:40px;height:40px;border-radius:10px;background:rgba(240,80,80,0.1);border:1px solid rgba(240,80,80,0.2);color:var(--red);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;touch-action:manipulation;}
+
+/* SYNC SCREEN */
+.sync-wrap{padding:24px 20px;}
+.sync-card{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:14px;}
+.sync-card-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:14px;}
+.sync-stat-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;}
+.sync-stat-row:last-child{border-bottom:none;}
+.sync-stat-label{color:var(--text2);}
+.sync-stat-val{font-family:var(--font-mono);color:var(--accent);}
+.export-code{background:var(--bg4);border-radius:12px;padding:20px;text-align:center;margin-bottom:12px;}
+.export-code-val{font-family:var(--font-mono);font-size:36px;font-weight:500;letter-spacing:0.3em;color:var(--accent);}
+.export-code-label{font-size:12px;color:var(--text3);margin-top:6px;}
+.csv-preview{background:var(--bg4);border-radius:10px;padding:12px 14px;font-family:var(--font-mono);font-size:11px;color:var(--text3);line-height:1.8;overflow-x:auto;white-space:pre;margin-top:10px;}
+
+/* TOAST */
+.toast{position:fixed;bottom:calc(var(--safe-bot) + 100px);left:50%;transform:translateX(-50%) translateY(20px);background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:12px 20px;font-size:13px;font-weight:600;color:var(--text);box-shadow:0 8px 32px rgba(0,0,0,0.5);opacity:0;transition:all 0.25s;pointer-events:none;white-space:nowrap;z-index:999;}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.toast.success{border-color:rgba(91,227,180,0.3);color:var(--green);}
+/* MOBILE FORMS */
+.form-group-m{margin-bottom:12px;}
+.lbl-m{display:block;font-size:11px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:5px;font-weight:600;}
+.inp-m{width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:13px 14px;color:var(--text);font-family:var(--font-ui);font-size:15px;outline:none;-webkit-appearance:none;}
+.inp-m:focus{border-color:var(--accent);}
+select.inp-m{cursor:pointer;}
+/* Ingredient row */
+.mb-ing-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;}
+.mb-ing-row input{flex:2;min-width:0;}
+.mb-ing-row input.qty{flex:1;min-width:0;}
+.mb-ing-del{width:36px;height:36px;flex-shrink:0;border-radius:9px;background:rgba(240,80,80,0.1);border:1px solid rgba(240,80,80,0.2);color:var(--red);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px;touch-action:manipulation;}
+.review-section-hdr{padding:8px 16px 6px;display:flex;align-items:center;justify-content:space-between;background:var(--bg3);border-top:1px solid var(--border);border-bottom:1px solid var(--border);}
+.review-section-name{font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);font-weight:600;}
+.review-row{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg);}
+.review-row-info{flex:1;min-width:0;}
+.review-row-name{font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.review-row-sub{font-size:11px;color:var(--text3);margin-top:2px;}
+.review-row-qty{text-align:right;flex-shrink:0;}
+.review-row-current{font-family:var(--font-mono);font-size:16px;font-weight:500;color:var(--accent);}
+.review-row-prev{font-size:11px;color:var(--text3);margin-top:2px;font-family:var(--font-mono);}
+.review-row-flag{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;}
+.review-edit-btn{padding:5px 10px;border-radius:7px;font-size:11px;font-weight:600;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);cursor:pointer;font-family:var(--font-ui);flex-shrink:0;}
+.last-count-badge{display:inline-flex;align-items:center;gap:5px;background:var(--bg4);border:1px solid var(--border2);border-radius:7px;padding:4px 9px;font-size:11px;color:var(--text3);margin-top:6px;font-family:var(--font-mono);}
+.last-count-badge span{color:var(--text2);font-weight:600;}
+</style>
+</head>
+<body>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- ═══════════════════════════════════════
+     SCREEN 1 — CONNECT
+════════════════════════════════════════ -->
+<div class="screen" id="screen-connect">
+  <div class="connect-wrap">
+    <div class="app-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#0d0f12" stroke-width="2.5" stroke-linecap="round">
+        <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/>
+        <rect x="9" y="3" width="6" height="4" rx="1"/>
+        <path d="M9 12h6M9 16h4"/>
+      </svg>
+    </div>
+    <div class="connect-title">AuditPro</div>
+    <div class="connect-sub">Connect to a desktop session to begin counting. Use the QR code or type the session code shown on your desktop.</div>
+
+    <div class="connect-tabs">
+      <button class="connect-tab active" onclick="setConnectTab('qr',this)">Scan QR</button>
+      <button class="connect-tab" onclick="setConnectTab('code',this)">Enter code</button>
+    </div>
+
+    <!-- QR view -->
+    <div id="ct-qr" style="width:100%;">
+      <div class="qr-box" style="opacity:0.4;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <path d="M3 9V5a2 2 0 012-2h4M3 15v4a2 2 0 002 2h4M21 9V5a2 2 0 00-2-2h-4M21 15v4a2 2 0 01-2 2h-4"/>
+          <rect x="7" y="7" width="4" height="4" rx="0.5"/><rect x="13" y="7" width="4" height="4" rx="0.5"/>
+          <rect x="7" y="13" width="4" height="4" rx="0.5"/><line x1="13" y1="13" x2="13" y2="13"/><line x1="17" y1="13" x2="17" y2="13"/><line x1="17" y1="17" x2="17" y2="17"/>
+        </svg>
+      </div>
+      <p style="font-size:13px;color:var(--text3);margin-bottom:16px;">Point your camera at the QR code on the desktop stocktake screen.</p>
+      <button class="btn btn-primary" onclick="quickStart()" style="margin-bottom:10px;">▶ Start counting</button>
+      <button class="btn btn-secondary" style="font-size:12px;width:100%;" onclick="switchConnectTab('code',this)">Enter venue name & code manually</button>
+    </div>
+
+    <!-- Code view -->
+    <div id="ct-code" style="width:100%;display:none;">
+      <input class="code-input" id="session-code-input" placeholder="AP-0000" maxlength="7" oninput="formatCode(this)" style="margin-bottom:10px;">
+      <input class="code-input" id="session-client-input" placeholder="Venue name" maxlength="60"
+        style="font-size:16px;letter-spacing:0.05em;margin-bottom:10px;">
+      <button class="btn btn-primary" onclick="connectByCode()">Connect</button>
+    </div>
+
+    <p style="font-size:11px;color:var(--text3);margin-top:20px;line-height:1.6;">Data is stored on this device until you sync at the end of the count. No internet required during counting.</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     SCREEN 2 — AREA SELECT
+════════════════════════════════════════ -->
+<div class="screen hidden" id="screen-areas">
+  <div class="hdr">
+    <div style="flex:1;min-width:0;">
+      <!-- Tappable venue name — shows switcher -->
+      <button id="venue-switch-btn" onclick="toggleVenuePicker()" style="display:flex;align-items:center;gap:6px;background:none;border:none;padding:0;cursor:pointer;max-width:100%;">
+        <div style="font-size:17px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="area-client-name">The Harbour Bar</div>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;color:var(--text3);flex-shrink:0;"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div style="font-size:12px;color:var(--text3);">Select an area to count</div>
+    </div>
+    <div style="display:flex;gap:8px;flex-shrink:0;">
+      <button class="btn btn-sm btn-secondary" id="area-edit-btn" onclick="toggleAreaEdit()">Edit areas</button>
+      <button class="btn btn-sm btn-secondary" onclick="showSiteInfo()">ℹ Site</button>
+      <button class="btn btn-sm btn-secondary" onclick="showSync()">Sync</button>
+    </div>
+  </div>
+
+  <!-- Venue picker sheet -->
+  <div id="venue-picker" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.6);" onclick="closeVenuePicker()">
+    <div onclick="event.stopPropagation()" style="position:absolute;bottom:0;left:0;right:0;background:var(--bg2);border-radius:20px 20px 0 0;padding:20px 16px calc(env(safe-area-inset-bottom,0px) + 20px);max-height:70vh;overflow-y:auto;">
+      <div style="width:40px;height:4px;background:var(--border2);border-radius:2px;margin:0 auto 20px;"></div>
+      <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px;">Switch venue</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:18px;">Your current count will be saved</div>
+      <div id="venue-picker-list"></div>
+      <button onclick="closeVenuePicker()" style="width:100%;margin-top:12px;padding:14px;background:var(--bg3);border:1px solid var(--border2);border-radius:12px;color:var(--text2);font-family:var(--font-ui);font-size:15px;font-weight:600;cursor:pointer;">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Session info strip -->
+  <div style="background:rgba(200,240,100,0.07);border-bottom:1px solid rgba(200,240,100,0.15);padding:10px 16px;display:flex;align-items:center;gap:8px;flex-shrink:0;">
+    <div style="width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;"></div>
+    <span style="font-size:12px;color:var(--text2);">Session <span style="font-family:var(--font-mono);color:var(--accent);" id="session-code-display">AP-4821</span> · <span id="total-items-count">0 items counted</span></span>
+  </div>
+
+  <div class="scroll">
+    <div class="area-list" id="area-list"></div>
+    <div id="area-add-row" style="padding:0 16px 8px;display:none;">
+      <button class="btn btn-secondary" onclick="addCustomArea()" style="font-size:13px;padding:12px;width:100%;">+ Add custom area</button>
+    </div>
+  </div>
+
+  <div class="bottom-bar">
+    <button class="btn btn-primary" onclick="showSync()">Finish & sync to desktop</button>
+  </div>
+
+  <!-- FAB — quick create product / batch -->
+  <div style="position:absolute;bottom:calc(var(--safe-bot) + 80px);right:16px;display:flex;flex-direction:column;gap:10px;z-index:10;">
+    <div id="fab-options" style="display:none;flex-direction:column;gap:8px;align-items:flex-end;">
+      <button onclick="closeFab();showScreen('screen-new-product')" style="display:flex;align-items:center;gap:10px;padding:11px 16px;border-radius:14px;background:var(--bg2);border:1px solid var(--border2);color:var(--text);font-family:var(--font-ui);font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap;touch-action:manipulation;box-shadow:0 4px 16px rgba(0,0,0,0.4);">
+        <span style="font-size:18px;">🍾</span> New product
+      </button>
+      <button onclick="closeFab();showScreen('screen-new-batch')" style="display:flex;align-items:center;gap:10px;padding:11px 16px;border-radius:14px;background:var(--bg2);border:1px solid var(--border2);color:var(--text);font-family:var(--font-ui);font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap;touch-action:manipulation;box-shadow:0 4px 16px rgba(0,0,0,0.4);">
+        <span style="font-size:18px;">🍸</span> New batch
+      </button>
+    </div>
+    <button id="fab-btn" onclick="toggleFab()" style="width:52px;height:52px;border-radius:50%;background:var(--accent);border:none;font-size:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#0d0f12;box-shadow:0 4px 16px rgba(200,240,100,0.3);touch-action:manipulation;align-self:flex-end;">+</button>
+  </div>
+</div>
+════════════════════════════════════════ -->
+<div class="screen hidden" id="screen-count">
+  <div class="hdr">
+    <div class="hdr-back" onclick="saveAreaAndBack()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+    </div>
+    <div class="hdr-title">
+      <h1 id="count-area-name">Main bar</h1>
+      <p id="count-area-sub">0 items · tap method below to add</p>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <button onclick="openHWSettings()" style="width:36px;height:36px;border-radius:10px;border:1px solid var(--border2);background:var(--bg3);color:var(--text3);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:manipulation;" title="Hardware settings">⚙</button>
+      <button id="fast-mode-btn" onclick="toggleFastMode()" style="padding:7px 12px;border-radius:10px;font-size:11px;font-weight:600;border:1px solid var(--border2);background:var(--bg3);color:var(--text3);cursor:pointer;white-space:nowrap;touch-action:manipulation;">⚡ Fast</button>
+      <button class="btn btn-sm btn-primary" onclick="saveAreaAndBack()">Done</button>
+    </div>
+  </div>
+
+  <!-- Count summary -->
+  <div class="count-summary" id="count-summary">
+    <div class="count-stat"><div class="count-stat-val" id="cs-items">0</div><div class="count-stat-label">Items</div></div>
+    <div class="count-stat"><div class="count-stat-val" id="cs-lines">0</div><div class="count-stat-label">Lines</div></div>
+    <div class="count-stat"><div class="count-stat-val" id="cs-area">—</div><div class="count-stat-label">Area</div></div>
+  </div>
+
+  <!-- Item list -->
+  <div class="scroll" id="count-item-list" style="background:var(--bg);">
+    <div id="count-items-body"></div>
+    <div id="count-empty" style="text-align:center;padding:40px 20px;color:var(--text3);">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:36px;height:36px;margin-bottom:10px;opacity:0.3;"><path d="M20 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
+      <p style="font-size:14px;color:var(--text2);">No items yet</p>
+      <p style="font-size:12px;margin-top:4px;">Use the panel below to add items</p>
+    </div>
+  </div>
+
+  <!-- Input panel -->
+  <div class="input-panel">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+      <div class="method-tabs" style="flex:1;margin-bottom:0;">
+        <div class="method-tab active" id="tab-scan"   onclick="setMethod('scan',this)">📷 Scan</div>
+        <div class="method-tab"        id="tab-search" onclick="setMethod('search',this)">🔍 Search</div>
+        <div class="method-tab"        id="tab-weight" onclick="setMethod('weight',this)">⚖️ Weigh</div>
+      </div>
+      <!-- New product shortcut -->
+      <button onclick="openProductFormWithName('')"
+        title="New product"
+        style="flex-shrink:0;width:40px;height:40px;border-radius:10px;font-size:18px;border:1px solid var(--border2);background:var(--bg3);cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:manipulation;">🍾</button>
+      <!-- Scan→Weigh handoff toggle -->
+      <button id="handoff-btn" onclick="toggleHandoff()"
+        style="flex-shrink:0;padding:8px 11px;border-radius:10px;font-size:11px;font-weight:700;border:1px solid var(--border2);background:var(--bg3);color:var(--text3);cursor:pointer;white-space:nowrap;touch-action:manipulation;line-height:1.2;text-align:center;">
+        📷→⚖️<br><span style="font-size:9px;font-weight:400;opacity:0.7;">off</span>
+      </button>
+    </div>
+
+    <!-- SCAN METHOD -->
+    <div id="method-scan">
+      <!-- iOS SCANNER FIX: input must be visible (even 1px) for iOS to grant focus.
+           Wrapped in label so tapping the scan zone directly triggers focus. -->
+      <input type="text" id="barcode-capture"
+        autocomplete="off" autocorrect="off" autocapitalize="off"
+        spellcheck="false" inputmode="none" readonly
+        style="position:fixed;top:0;left:0;width:100%;height:2px;opacity:0.01;font-size:16px;border:none;background:transparent;color:transparent;outline:none;padding:0;z-index:-1;"
+        onkeydown="handleBarcodeKey(event)"
+        onblur="scheduleScannerRefocus()">
+
+      <!-- Scan mode toggle -->
+      <div style="display:flex;gap:6px;margin-bottom:10px;">
+        <button id="scan-mode-hw"  onclick="setScanMode('hardware')"
+          style="flex:1;padding:9px;border-radius:10px;font-size:12px;font-weight:700;border:1px solid var(--accent);background:rgba(200,240,100,0.1);color:var(--accent);cursor:pointer;touch-action:manipulation;">
+          📡 Hardware scanner
+        </button>
+        <button id="scan-mode-cam" onclick="setScanMode('camera')"
+          style="flex:1;padding:9px;border-radius:10px;font-size:12px;font-weight:700;border:1px solid var(--border2);background:var(--bg3);color:var(--text3);cursor:pointer;touch-action:manipulation;">
+          📷 Camera scan
+        </button>
+      </div>
+
+      <!-- HARDWARE SCANNER ZONE -->
+      <div id="hw-scan-zone">
+        <div class="scan-zone" id="scan-zone-tap" onclick="activateScanInput()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <path d="M3 9V5a2 2 0 012-2h4M3 15v4a2 2 0 002 2h4M21 9V5a2 2 0 00-2-2h-4M21 15v4a2 2 0 01-2 2h-4"/>
+            <line x1="8" y1="12" x2="16" y2="12"/>
+          </svg>
+          <p id="scan-zone-label">Tap to activate scanner</p>
+          <small id="scan-zone-sub">Linea Pro · Bluetooth · USB barcode scanner</small>
+          <!-- Visible scanner input rendered inside the zone — iOS requires visible input for focus -->
+          <input type="text" id="barcode-capture-ios"
+            autocomplete="off" autocorrect="off" autocapitalize="off"
+            spellcheck="false" inputmode="none"
+            placeholder="Waiting for scan…"
+            style="display:none;width:90%;margin-top:10px;padding:10px 14px;border-radius:10px;background:var(--bg3);border:2px solid var(--accent);color:var(--accent);font-family:var(--font-mono);font-size:14px;text-align:center;outline:none;caret-color:transparent;"
+            onkeydown="handleBarcodeKey(event)"
+            onblur="scheduleScannerRefocus()">
+        </div>
+      </div>
+
+      <!-- CAMERA SCANNER ZONE -->
+      <div id="cam-scan-zone" style="display:none;">
+        <div style="position:relative;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:4/3;margin-bottom:8px;">
+          <video id="cam-preview" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;display:block;"></video>
+          <!-- Targeting overlay -->
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">
+            <div style="width:65%;aspect-ratio:3/1;border:2px solid var(--accent);border-radius:8px;box-shadow:0 0 0 2000px rgba(0,0,0,0.35);">
+              <div style="position:absolute;top:0;left:0;width:18px;height:18px;border-top:3px solid var(--accent);border-left:3px solid var(--accent);border-radius:3px 0 0 0;"></div>
+              <div style="position:absolute;top:0;right:0;width:18px;height:18px;border-top:3px solid var(--accent);border-right:3px solid var(--accent);border-radius:0 3px 0 0;"></div>
+              <div style="position:absolute;bottom:0;left:0;width:18px;height:18px;border-bottom:3px solid var(--accent);border-left:3px solid var(--accent);border-radius:0 0 0 3px;"></div>
+              <div style="position:absolute;bottom:0;right:0;width:18px;height:18px;border-bottom:3px solid var(--accent);border-right:3px solid var(--accent);border-radius:0 0 3px 0;"></div>
+            </div>
+          </div>
+          <!-- Scanning line animation -->
+          <div id="cam-scan-line" style="position:absolute;left:17.5%;right:17.5%;height:2px;background:var(--accent);opacity:0.8;animation:scanLine 2s ease-in-out infinite;border-radius:1px;"></div>
+          <div id="cam-status" style="position:absolute;bottom:10px;left:0;right:0;text-align:center;font-size:12px;color:#fff;font-family:Syne,sans-serif;text-shadow:0 1px 4px rgba(0,0,0,0.8);">Point camera at barcode</div>
+        </div>
+        <button onclick="stopCamera()" style="width:100%;padding:11px;background:var(--bg3);border:1px solid var(--border2);border-radius:12px;color:var(--text2);font-family:Syne,sans-serif;font-size:14px;font-weight:600;cursor:pointer;touch-action:manipulation;">Stop camera</button>
+      </div>
+
+      <div class="scan-result" id="scan-result">
+        <div class="scan-result-name" id="scan-result-name">Jameson 700ml</div>
+        <div class="scan-result-info" id="scan-result-info">Spirits · 700ml</div>
+        <div class="last-count-badge" id="scan-last-count" style="display:none;">
+          🕐 Last count: <span id="scan-last-qty">—</span>
+        </div>
+      </div>
+      <div class="fraction-row" id="scan-fracs" style="display:none;">
+        <button class="frac-btn" onclick="setScanQty(1)">1</button>
+        <button class="frac-btn" onclick="setScanQty(6)">6</button>
+        <button class="frac-btn" onclick="setScanQty(12)">12</button>
+        <button class="frac-btn" onclick="setScanQty(24)">24</button>
+      </div>
+      <div class="qty-row" id="scan-qty-row" style="display:none;">
+        <button class="qty-btn" onclick="adjustQty(-1)">−</button>
+        <input class="qty-input" type="number" id="scan-qty" value="1" min="0" step="1" inputmode="numeric" pattern="[0-9]*">
+        <select class="unit-select" id="scan-unit"><option>Bottles</option><option>Cans</option><option>Cases</option><option>Kegs</option><option>Kg</option><option>Litres</option></select>
+        <button class="qty-btn" onclick="adjustQty(1)">+</button>
+      </div>
+      <!-- Number pad for quick entry -->
+      <div id="scan-numpad" style="display:none;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">
+        <button onclick="numpadPress('scan','1')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">1</button>
+        <button onclick="numpadPress('scan','2')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">2</button>
+        <button onclick="numpadPress('scan','3')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">3</button>
+        <button onclick="numpadPress('scan','4')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">4</button>
+        <button onclick="numpadPress('scan','5')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">5</button>
+        <button onclick="numpadPress('scan','6')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">6</button>
+        <button onclick="numpadPress('scan','7')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">7</button>
+        <button onclick="numpadPress('scan','8')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">8</button>
+        <button onclick="numpadPress('scan','9')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">9</button>
+        <button onclick="numpadPress('scan','⌫')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">⌫</button>
+        <button onclick="numpadPress('scan','0')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">0</button>
+        <button onclick="numpadPress('scan','✓')" style="padding:14px;border-radius:10px;background:var(--accent);border:none;color:#0d0f12;font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">✓</button>
+      </div>
+      <button class="btn btn-primary" id="scan-add-btn" style="display:none;" onclick="addScannedItem()">✓ Add to count</button>
+    </div>
+
+    <!-- SEARCH METHOD -->
+    <div id="method-search" style="display:none;">
+      <div class="search-input-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input class="search-field" id="search-field" type="text" placeholder="Search products…" oninput="searchProducts(this.value)" autocomplete="off">
+      </div>
+      <div class="search-results" id="search-results"></div>
+      <div class="fraction-row" id="search-fracs" style="display:none;">
+        <button class="frac-btn" onclick="setSearchQty(1)">1</button>
+        <button class="frac-btn" onclick="setSearchQty(6)">6</button>
+        <button class="frac-btn" onclick="setSearchQty(12)">12</button>
+        <button class="frac-btn" onclick="setSearchQty(24)">24</button>
+      </div>
+      <div class="qty-row" id="search-qty-row" style="display:none;">
+        <button class="qty-btn" onclick="adjustSearchQty(-1)">−</button>
+        <input class="qty-input" type="number" id="search-qty" value="1" min="0" step="1" inputmode="numeric" pattern="[0-9]*">
+        <select class="unit-select" id="search-unit"><option>Bottles</option><option>Cans</option><option>Cases</option><option>Kegs</option><option>Kg</option><option>Litres</option></select>
+        <button class="qty-btn" onclick="adjustSearchQty(1)">+</button>
+      </div>
+      <!-- Number pad -->
+      <div id="search-numpad" style="display:none;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">
+        <button onclick="numpadPress('search','1')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">1</button>
+        <button onclick="numpadPress('search','2')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">2</button>
+        <button onclick="numpadPress('search','3')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">3</button>
+        <button onclick="numpadPress('search','4')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">4</button>
+        <button onclick="numpadPress('search','5')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">5</button>
+        <button onclick="numpadPress('search','6')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">6</button>
+        <button onclick="numpadPress('search','7')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">7</button>
+        <button onclick="numpadPress('search','8')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">8</button>
+        <button onclick="numpadPress('search','9')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">9</button>
+        <button onclick="numpadPress('search','⌫')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">⌫</button>
+        <button onclick="numpadPress('search','0')" style="padding:14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">0</button>
+        <button onclick="numpadPress('search','✓')" style="padding:14px;border-radius:10px;background:var(--accent);border:none;color:#0d0f12;font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">✓</button>
+      </div>
+      <button class="btn btn-primary" id="search-add-btn" style="display:none;" onclick="addSearchItem()">✓ Add to count</button>
+    </div>
+
+    <!-- WEIGHT METHOD -->
+    <div id="method-weight" style="display:none;">
+      <!-- Scale connection bar -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div class="scale-status">
+          <div class="scale-dot" id="scale-dot"></div>
+          <span id="scale-status-text">No scale connected</span>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-sm btn-primary" id="bt-connect-btn" onclick="connectBluetoothScale()">Connect scale</button>
+          <button class="btn btn-sm btn-secondary" id="bt-disconnect-btn" style="display:none;" onclick="disconnectBluetoothScale()">Disconnect</button>
+        </div>
+      </div>
+
+      <!-- BT not supported warning -->
+      <div id="bt-unsupported" style="display:none;background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.2);border-radius:10px;padding:10px 12px;font-size:12px;color:var(--amber);margin-bottom:10px;line-height:1.6;">
+        ⚠ Web Bluetooth not supported in this browser.<br>
+        <strong>Android:</strong> use Chrome · <strong>iOS:</strong> use Bluefy or WebBLE app
+      </div>
+
+      <!-- 1. PRODUCT SEARCH — first so it's always visible -->
+      <div class="search-input-wrap" style="margin-bottom:8px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input class="search-field" id="weight-search" type="text" placeholder="1. Select product to weigh…" oninput="weightSearch(this.value)" autocomplete="off">
+      </div>
+      <div class="search-results" id="weight-results"></div>
+      <div id="weight-product-info" style="display:none;background:rgba(91,227,180,0.08);border:1px solid rgba(91,227,180,0.2);border-radius:10px;padding:10px 14px;margin-bottom:8px;font-size:13px;display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-weight:700;color:var(--text);" id="wp-name">—</div>
+          <div style="color:var(--text3);margin-top:2px;font-size:12px;" id="wp-tare">—</div>
+        </div>
+        <button onclick="clearWeightProduct()" style="background:none;border:none;color:var(--text3);font-size:18px;cursor:pointer;padding:4px;">×</button>
+      </div>
+
+      <!-- 2. SCALE READING -->
+      <div class="scale-display" style="margin-bottom:8px;">
+        <div style="font-size:11px;color:var(--text3);text-align:center;margin-bottom:6px;" id="weight-input-label">2. Place bottle on scale</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="number" id="scale-reading" inputmode="decimal" placeholder="0"
+            min="0" step="1"
+            style="flex:1;background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:8px 12px;color:var(--accent);font-family:var(--font-mono);font-size:36px;font-weight:700;outline:none;text-align:center;height:64px;"
+            onfocus="this.style.borderColor='var(--accent)'"
+            onblur="this.style.borderColor='var(--border2)'"
+            oninput="onManualWeightInput(this.value)"
+            onkeydown="if(event.key==='Enter') { addWeightItem(); }">
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <button id="unit-kg-btn" onclick="setScaleUnit('kg')"
+              style="padding:6px 12px;border-radius:8px;font-size:13px;font-weight:700;border:1px solid var(--border2);background:var(--bg3);color:var(--text3);cursor:pointer;touch-action:manipulation;">kg</button>
+            <button id="unit-g-btn" onclick="setScaleUnit('g')"
+              style="padding:6px 12px;border-radius:8px;font-size:13px;font-weight:700;border:1px solid rgba(200,240,100,0.4);background:rgba(200,240,100,0.12);color:var(--accent);cursor:pointer;touch-action:manipulation;">g</button>
+          </div>
+        </div>
+        <div class="scale-net" id="scale-net" style="display:none;text-align:center;margin-top:6px;"></div>
+
+        <!-- Debug panel -->
+        <div id="scale-debug-panel" style="display:none;margin-top:10px;background:rgba(200,240,100,0.05);border:1px solid rgba(200,240,100,0.2);border-radius:10px;padding:10px 12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <div style="font-size:11px;color:var(--accent);font-weight:700;">🔬 Raw bytes</div>
+            <button onclick="clearScaleDebug()" style="font-size:11px;color:var(--text3);background:none;border:none;cursor:pointer;padding:0;">Clear</button>
+          </div>
+          <div id="scale-debug-bytes" style="font-family:var(--font-mono);font-size:12px;color:var(--text);word-break:break-all;min-height:18px;margin-bottom:4px;"></div>
+          <div id="scale-debug-parsed" style="font-size:11px;color:var(--text3);margin-bottom:8px;"></div>
+          <button onclick="copyScaleDebug()" style="width:100%;padding:8px;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-family:var(--font-ui);font-size:13px;font-weight:600;cursor:pointer;">📋 Copy raw data</button>
+        </div>
+      </div>
+
+      <!-- 3. CAPTURE BUTTON — always visible, sticky at bottom -->
+      <button id="weight-add-btn" style="width:100%;padding:18px;background:var(--bg3);border:2px solid var(--border2);border-radius:14px;color:var(--text3);font-family:var(--font-ui);font-size:17px;font-weight:700;cursor:pointer;touch-action:manipulation;position:sticky;bottom:8px;z-index:5;transition:all 0.2s;" onclick="addWeightItem()">✓ Capture weight</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     SCREEN 4 — SYNC
+════════════════════════════════════════ -->
+<div class="screen hidden" id="screen-sync">
+  <div class="hdr">
+    <div class="hdr-back" onclick="goBack('screen-areas')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+    </div>
+    <div class="hdr-title">
+      <h1>Sync to desktop</h1>
+      <p>Transfer your count to AuditPro</p>
+    </div>
+  </div>
+
+  <div class="scroll">
+    <div class="sync-wrap">
+      <div class="sync-card">
+        <div class="sync-card-title">Count summary</div>
+        <div class="sync-stat-row"><span class="sync-stat-label">Client</span><span class="sync-stat-val" id="sync-client">—</span></div>
+        <div class="sync-stat-row"><span class="sync-stat-label">Areas counted</span><span class="sync-stat-val" id="sync-areas">—</span></div>
+        <div class="sync-stat-row"><span class="sync-stat-label">Total lines</span><span class="sync-stat-val" id="sync-lines">—</span></div>
+        <div class="sync-stat-row"><span class="sync-stat-label">Total items</span><span class="sync-stat-val" id="sync-total">—</span></div>
+        <div class="sync-stat-row"><span class="sync-stat-label">Session code</span><span class="sync-stat-val" id="sync-code-val">—</span></div>
+        <div id="sync-status-row" style="margin-top:10px;padding:10px 12px;border-radius:10px;background:rgba(91,227,180,0.08);border:1px solid rgba(91,227,180,0.2);font-size:13px;color:var(--green);display:none;"></div>
+      </div>
+      <div class="sync-card">
+        <div class="sync-card-title">Option 1 — Enter code on desktop</div>
+        <div class="export-code">
+          <div class="export-code-val" id="export-code-display">AP-4821</div>
+          <div class="export-code-label">Type this code into the desktop stocktake screen to import your count</div>
+        </div>
+        <button class="btn btn-secondary" onclick="copyCode()" style="font-size:13px;padding:12px;">Copy code</button>
+      </div>
+      <div class="sync-card">
+        <div class="sync-card-title">Option 2 — Download CSV</div>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:12px;">Download the count as a CSV file and import it on desktop.</p>
+        <div class="csv-preview" id="csv-preview"></div>
+        <button class="btn btn-primary" style="margin-top:12px;width:100%;" onclick="downloadCSV()">⬇ Download count CSV</button>
+      </div>
+      <div class="sync-card" style="border-color:rgba(240,80,80,0.2);background:rgba(240,80,80,0.03);">
+        <div class="sync-card-title" style="color:var(--red);">🗑 Reset for next audit</div>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:12px;">Clear all counts and start fresh. Only do this after the count has been successfully synced to desktop.</p>
+        <button class="btn btn-secondary" style="width:100%;color:var(--red);border-color:rgba(240,80,80,0.3);font-size:13px;" onclick="resetForNextAudit()">Reset all counts</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     SCREEN 5 — REVIEW
+════════════════════════════════════════ -->
+<div class="screen hidden" id="screen-review">
+  <div class="hdr">
+    <div class="hdr-back" onclick="goBack('screen-areas')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+    </div>
+    <div class="hdr-title">
+      <h1>Review count</h1>
+      <p id="review-sub">Check before syncing</p>
+    </div>
+  </div>
+
+  <!-- clean header only, no legend -->
+  <div class="scroll" id="review-body"></div>
+
+  <!-- Bottom: reject or accept -->
+  <div style="padding:12px 16px calc(var(--safe-bot) + 12px);background:var(--bg2);border-top:1px solid var(--border);display:flex;gap:10px;flex-shrink:0;">
+    <button class="btn btn-secondary" style="flex:1;font-size:14px;" onclick="goBack('screen-areas')">← Edit count</button>
+    <button class="btn btn-primary" style="flex:2;font-size:14px;" onclick="acceptAndSync()">Accept & sync →</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     SCREEN 6 — NEW PRODUCT
+════════════════════════════════════════ -->
+<div class="screen hidden" id="screen-new-product">
+  <div class="hdr">
+    <div class="hdr-back" onclick="goBack('screen-areas')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+    </div>
+    <div class="hdr-title">
+      <h1>New product</h1>
+      <p>Added to this session's catalogue</p>
+    </div>
+  </div>
+
+  <div class="scroll" style="padding:16px;">
+
+    <div class="form-group-m"><label class="lbl-m">Product name *</label>
+      <input class="inp-m" id="mp-name" type="text" placeholder="e.g. Jameson 700ml" autocomplete="off"></div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div class="form-group-m"><label class="lbl-m">Category *</label>
+        <select class="inp-m" id="mp-cat" onchange="updateMobileProdSubcats()">
+          <option value="">— select —</option>
+          <option>Spirits</option><option>Beer</option><option>Wine</option>
+          <option>Soft drinks</option><option>Food</option><option>Cocktails</option>
+        </select>
+      </div>
+      <div class="form-group-m"><label class="lbl-m">Subcategory</label>
+        <select class="inp-m" id="mp-subcat"><option value="">—</option></select>
+      </div>
+    </div>
+
+    <div class="form-group-m"><label class="lbl-m">Barcode (EAN)</label>
+      <div style="display:flex;gap:8px;">
+        <input class="inp-m" id="mp-barcode" type="text" placeholder="Scan or type barcode" style="font-family:var(--font-mono);flex:1;" autocomplete="off">
+        <button type="button" onclick="startBarcodeScanForField('mp-barcode')" style="padding:10px 14px;background:var(--bg3);border:1px solid var(--border2);border-radius:10px;color:var(--text2);font-size:18px;cursor:pointer;touch-action:manipulation;flex-shrink:0;">📷</button>
+      </div>
+      <div id="mp-barcode-cam-wrap" style="display:none;margin-top:8px;">
+        <video id="mp-barcode-cam" autoplay playsinline muted style="width:100%;border-radius:10px;background:#000;max-height:180px;object-fit:cover;"></video>
+        <button onclick="stopBarcodeScanForField()" style="width:100%;margin-top:6px;padding:8px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-size:13px;cursor:pointer;">Stop camera</button>
+      </div>
+    </div>
+
+    <!-- Volume -->
+    <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">Volume</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div class="form-group-m"><label class="lbl-m">Unit volume (ml) *</label>
+        <input class="inp-m" id="mp-unitvol" type="number" placeholder="e.g. 700" min="1" oninput="updateMobileProdPreview()"></div>
+      <div class="form-group-m"><label class="lbl-m">Serve size (ml) *</label>
+        <input class="inp-m" id="mp-servevol" type="number" placeholder="e.g. 30" min="1" oninput="updateMobileProdPreview()"></div>
+    </div>
+
+    <!-- Vessel weights -->
+    <div style="background:rgba(200,240,100,0.05);border:1px solid rgba(200,240,100,0.18);border-radius:12px;padding:14px;margin:4px 0 14px;">
+      <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:10px;">⚖ Vessel weights</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+        <div class="form-group-m" style="margin-bottom:0;"><label class="lbl-m">Empty tare (g)</label>
+          <input class="inp-m" id="mp-tareg" type="number" placeholder="e.g. 180" min="0" oninput="updateMobileProdPreview();autoCalcVesselWeights('mp')"></div>
+        <div class="form-group-m" style="margin-bottom:0;"><label class="lbl-m">Full weight (g)</label>
+          <input class="inp-m" id="mp-fullg" type="number" placeholder="e.g. 840" min="0" oninput="autoCalcFromFull('mp')"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group-m" style="margin-bottom:0;"><label class="lbl-m">Density</label>
+          <select class="inp-m" id="mp-density" onchange="autoCalcVesselWeights('mp')">
+            <option value="0.94">Spirits (0.94)</option>
+            <option value="1.00" selected>Beer/Wine (1.00)</option>
+            <option value="1.05">Liqueur (1.05)</option>
+          </select>
+        </div>
+        <div class="form-group-m" style="margin-bottom:0;">
+          <label class="lbl-m">Auto-calc</label>
+          <div id="mp-vessel-hint" style="font-size:11px;color:var(--text3);padding:13px 0;line-height:1.5;">
+            Fill tare + unit vol → full weight auto-fills.<br>Or weigh a full bottle → tare auto-fills.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pricing -->
+    <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border);">Pricing</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div class="form-group-m"><label class="lbl-m">Cost price ($)</label>
+        <input class="inp-m" id="mp-cost" type="number" placeholder="0.00" step="0.01" oninput="updateMobileProdPreview()"></div>
+      <div class="form-group-m"><label class="lbl-m">Sell price ($)</label>
+        <input class="inp-m" id="mp-sell" type="number" placeholder="0.00" step="0.01" oninput="updateMobileProdPreview()"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div class="form-group-m"><label class="lbl-m">Par level</label>
+        <input class="inp-m" id="mp-par" type="number" placeholder="e.g. 4" min="0"></div>
+      <div class="form-group-m"><label class="lbl-m">Par unit</label>
+        <select class="inp-m" id="mp-parunit">
+          <option>Bottles</option><option>Cases</option><option>Kegs</option><option>Cans</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Live preview -->
+    <div id="mp-preview" style="display:none;background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:14px;margin-bottom:16px;">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.07em;">Preview</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;">
+        <div><div style="font-size:10px;color:var(--text3);">Pour cost</div><div style="font-family:var(--font-mono);font-size:20px;font-weight:600;" id="mp-pc">—</div></div>
+        <div><div style="font-size:10px;color:var(--text3);">GP%</div><div style="font-family:var(--font-mono);font-size:20px;font-weight:600;" id="mp-gp">—</div></div>
+        <div><div style="font-size:10px;color:var(--text3);">Serves/unit</div><div style="font-family:var(--font-mono);font-size:16px;" id="mp-srv">—</div></div>
+        <div><div style="font-size:10px;color:var(--text3);">Scale</div><div style="font-size:12px;font-weight:600;" id="mp-scale">—</div></div>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" style="width:100%;margin-bottom:8px;" onclick="saveMobileProduct()">Add product</button>
+    <button class="btn btn-secondary" style="width:100%;" onclick="goBack('screen-areas')">Cancel</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     SCREEN 7 — NEW BATCH
+════════════════════════════════════════ -->
+<div class="screen hidden" id="screen-new-batch">
+  <div class="hdr">
+    <div class="hdr-back" onclick="goBack('screen-areas')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+    </div>
+    <div class="hdr-title">
+      <h1>New batch</h1>
+      <p>Cocktail or pre-batch recipe</p>
+    </div>
+  </div>
+
+  <div class="scroll" style="padding:16px;">
+
+    <div style="display:grid;grid-template-columns:1fr 56px;gap:10px;">
+      <div class="form-group-m"><label class="lbl-m">Batch name *</label>
+        <input class="inp-m" id="mb-name" type="text" placeholder="e.g. Espresso Martini" autocomplete="off"></div>
+      <div class="form-group-m"><label class="lbl-m">Icon</label>
+        <input class="inp-m" id="mb-icon" type="text" placeholder="🍸" maxlength="2" style="font-size:22px;text-align:center;"></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div class="form-group-m"><label class="lbl-m">Servings *</label>
+        <input class="inp-m" id="mb-servings" type="number" placeholder="e.g. 20" min="1" oninput="updateMobileBatchCalc()"></div>
+      <div class="form-group-m"><label class="lbl-m">Sell price ($)</label>
+        <input class="inp-m" id="mb-sell" type="number" placeholder="e.g. 18.00" step="0.01" oninput="updateMobileBatchCalc()"></div>
+    </div>
+
+    <div class="form-group-m"><label class="lbl-m">Description</label>
+      <input class="inp-m" id="mb-desc" type="text" placeholder="e.g. Pre-batched for weekend service"></div>
+
+    <!-- Vessel weights -->
+    <div style="background:rgba(200,240,100,0.05);border:1px solid rgba(200,240,100,0.18);border-radius:12px;padding:14px;margin:4px 0 14px;">
+      <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:10px;">⚖ Vessel weights</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+        <div class="form-group-m" style="margin-bottom:0;"><label class="lbl-m">Unit volume (ml)</label>
+          <input class="inp-m" id="mb-unitvol" type="number" placeholder="e.g. 1000" min="1" oninput="autoCalcVesselWeights('mb')"></div>
+        <div class="form-group-m" style="margin-bottom:0;"><label class="lbl-m">Empty tare (g)</label>
+          <input class="inp-m" id="mb-tareg" type="number" placeholder="e.g. 210" min="0" oninput="autoCalcVesselWeights('mb')"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group-m" style="margin-bottom:0;"><label class="lbl-m">Full weight (g)</label>
+          <input class="inp-m" id="mb-fullg" type="number" placeholder="e.g. 1210" min="0" oninput="autoCalcFromFull('mb')"></div>
+        <div class="form-group-m" style="margin-bottom:0;">
+          <label class="lbl-m">Auto-calc</label>
+          <div id="mb-vessel-hint" style="font-size:11px;color:var(--text3);padding:13px 0;line-height:1.5;">Fill tare + unit vol to auto-fill full weight</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ingredients -->
+    <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border);">Ingredients</div>
+    <div id="mb-ing-list" style="margin-bottom:10px;"></div>
+    <button class="btn btn-secondary" style="width:100%;font-size:13px;padding:12px;margin-bottom:14px;" onclick="addMobileIngRow()">+ Add ingredient</button>
+
+    <!-- Cost summary -->
+    <div style="background:var(--bg3);border-radius:10px;padding:12px 14px;margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+        <span style="color:var(--text2);">Total cost</span><span style="font-family:var(--font-mono);color:var(--text);" id="mb-total">$0.00</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+        <span style="color:var(--text2);">Cost per serve</span><span style="font-family:var(--font-mono);color:var(--text);" id="mb-per">$0.00</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;">
+        <span style="color:var(--text2);">Pour cost</span><span style="font-family:var(--font-mono);color:var(--accent);" id="mb-pc">—</span>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" style="width:100%;margin-bottom:8px;" onclick="saveMobileBatch()">Save batch</button>
+    <button class="btn btn-secondary" style="width:100%;" onclick="goBack('screen-areas')">Cancel</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
+     SCREEN 8 — SITE INFO
+════════════════════════════════════════ -->
+<div class="screen hidden" id="screen-siteinfo">
+  <div class="hdr">
+    <div class="hdr-back" onclick="goBack('screen-areas')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+    </div>
+    <div class="hdr-title">
+      <h1>Site info</h1>
+      <p id="siteinfo-venue-name">Venue details</p>
+    </div>
+  </div>
+  <div class="scroll">
+    <div style="padding:16px;">
+
+      <!-- Access details (sensitive — tap to reveal) -->
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);margin-bottom:10px;">🔐 Access</div>
+      <div id="siteinfo-access" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;"></div>
+
+      <!-- Contacts -->
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);margin-bottom:10px;">👤 Contacts</div>
+      <div id="siteinfo-contacts" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;"></div>
+
+      <!-- Storage areas -->
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);margin-bottom:10px;">📦 Storage areas</div>
+      <div id="siteinfo-storage" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;"></div>
+
+      <!-- Audit info -->
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);margin-bottom:10px;">📋 Audit setup</div>
+      <div id="siteinfo-audit" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;"></div>
+
+      <!-- Notes -->
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);margin-bottom:10px;">📝 Notes</div>
+      <div id="siteinfo-notes" style="background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:14px;font-size:14px;color:var(--text2);line-height:1.7;min-height:60px;margin-bottom:20px;"></div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── STATE ───────────────────────────────────────
+// lastCount = {qty, unit, date} from previous stocktake
+const PRODUCTS = [
+  {name:'Jameson 700ml',      cat:'Spirits',    vol:700,  tareG:180, fullMl:700,  barcode:'5010352104834', lastCount:{qty:12,   unit:'Bottles', date:'28 Feb'}},
+  {name:'Absolut Vodka 1L',   cat:'Spirits',    vol:1000, tareG:210, fullMl:1000, barcode:'7318690046096', lastCount:{qty:8,    unit:'Bottles', date:'28 Feb'}},
+  {name:'Tanqueray Gin 700ml',cat:'Spirits',    vol:700,  tareG:175, fullMl:700,  barcode:'5000289020023', lastCount:{qty:10,   unit:'Bottles', date:'28 Feb'}},
+  {name:'Baileys 1L',         cat:'Spirits',    vol:1000, tareG:220, fullMl:1000, barcode:'5011013100506', lastCount:{qty:6,    unit:'Bottles', date:'28 Feb'}},
+  {name:'Heineken 330ml',     cat:'Beer',       vol:330,  tareG:0,   fullMl:330,  barcode:'8714800020930', lastCount:{qty:120,  unit:'Bottles', date:'28 Feb'}},
+  {name:'Corona 355ml',       cat:'Beer',       vol:355,  tareG:0,   fullMl:355,  barcode:'7501062681269', lastCount:{qty:72,   unit:'Bottles', date:'28 Feb'}},
+  {name:'Steinlager 330ml',   cat:'Beer',       vol:330,  tareG:0,   fullMl:330,  lastCount:{qty:96,   unit:'Bottles', date:'28 Feb'}},
+  {name:'Marlborough SB 750ml',cat:'Wine',      vol:750,  tareG:390, fullMl:750,  barcode:'4056700002209', lastCount:{qty:18,   unit:'Bottles', date:'28 Feb'}},
+  {name:'Pinot Noir 750ml',   cat:'Wine',       vol:750,  tareG:390, fullMl:750,  barcode:'9414522000028', lastCount:{qty:24,   unit:'Bottles', date:'28 Feb'}},
+  {name:'Pinot Gris 750ml',   cat:'Wine',       vol:750,  tareG:390, fullMl:750,  barcode:'9414522000011', lastCount:{qty:12,   unit:'Bottles', date:'28 Feb'}},
+  {name:'Coca-Cola 330ml',    cat:'Soft drinks',vol:330,  tareG:0,   fullMl:330,  barcode:'5449000000996', lastCount:{qty:48,   unit:'Cans',    date:'28 Feb'}},
+  {name:'House Lager Keg',    cat:'Beer',       vol:50000,tareG:9000,fullMl:50000,lastCount:{qty:4,    unit:'Kegs',    date:'28 Feb'}},
+  {name:'Grey Goose 1L',      cat:'Spirits',    vol:1000, tareG:215, fullMl:1000, lastCount:{qty:8,    unit:'Bottles', date:'28 Feb'}},
+  {name:'Patron Silver 1L',   cat:'Spirits',    vol:1000, tareG:225, fullMl:1000, lastCount:{qty:6,    unit:'Bottles', date:'28 Feb'}},
+];
+
+const AREAS = [
+  {name:'Main bar',       icon:'🍺', color:'rgba(200,240,100,0.12)'},
+  {name:'Back of house',  icon:'📦', color:'rgba(91,156,240,0.12)'},
+  {name:'Cellar',         icon:'🍷', color:'rgba(240,136,74,0.12)'},
+  {name:'Kitchen',        icon:'🍽️', color:'rgba(91,227,180,0.12)'},
+  {name:'Walk-in fridge', icon:'❄️', color:'rgba(167,139,250,0.12)'},
+];
+
+const CAT_COLORS = {
+  Spirits:'#a78bfa', Beer:'#5b9cf0', Wine:'#f0884a',
+  'Soft drinks':'#5be3b4', Food:'#f0c040', Cocktails:'#f472b6'
+};
+
+let session = {
+  code: 'AP-4821',
+  client: 'The Harbour Bar',
+  counts: {}, // {areaName: [{name, cat, qty, unit, method}]}
+};
+
+// ─── PERSISTENCE ─────────────────────────────────
+const STORAGE_KEY = 'auditpro_mobile_v1';
+
+function saveToStorage() {
+  try {
+    const data = {
+      session: { code: session.code, client: session.client, clientId: session.clientId, counts: session.counts },
+      extraProducts: PRODUCTS.filter(p => p._userAdded),
+      savedAt: Date.now()
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch(e) { console.warn('Storage save failed:', e); }
+}
+
+function loadFromStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return false;
+    const data = JSON.parse(raw);
+    // Only restore if same client or no client set yet
+    if(data.session) {
+      if(data.session.counts) session.counts = data.session.counts;
+      if(data.session.code)   session.code   = data.session.code;
+      if(data.session.client) session.client = data.session.client;
+      if(data.session.clientId) session.clientId = data.session.clientId;
+    }
+    // Restore user-added products
+    if(data.extraProducts?.length) {
+      data.extraProducts.forEach(p => {
+        if(!PRODUCTS.find(x => x.name === p.name)) {
+          PRODUCTS.push({ ...p, _userAdded: true });
+        }
+      });
+    }
+    const age = Math.round((Date.now() - data.savedAt) / 60000);
+    console.log(`[AuditPro] Restored session from ${age}min ago — ${Object.values(session.counts).flat().length} lines`);
+    return true;
+  } catch(e) { console.warn('Storage load failed:', e); return false; }
+}
+
+function clearStorage() {
+  localStorage.removeItem(STORAGE_KEY);
+  toast('Session cleared');
+}
+
+let currentArea    = null;
+let currentMethod  = 'scan';
+let scannedProduct = null;
+let searchProduct  = null;
+let weightProduct  = null;
+let scaleReading   = 0;
+let taredWeight    = 0;
+let scaleConnected = false;
+let scaleUnit      = 'g'; // 'kg' or 'g' — default grams
+
+function setScaleUnit(unit) {
+  scaleUnit = unit;
+  const kgBtn = document.getElementById('unit-kg-btn');
+  const gBtn  = document.getElementById('unit-g-btn');
+  if (kgBtn) {
+    kgBtn.style.background  = unit==='kg' ? 'rgba(200,240,100,0.12)' : 'var(--bg3)';
+    kgBtn.style.color       = unit==='kg' ? 'var(--accent)'          : 'var(--text3)';
+    kgBtn.style.borderColor = unit==='kg' ? 'rgba(200,240,100,0.4)'  : 'var(--border2)';
+  }
+  if (gBtn) {
+    gBtn.style.background  = unit==='g' ? 'rgba(200,240,100,0.12)' : 'var(--bg3)';
+    gBtn.style.color       = unit==='g' ? 'var(--accent)'          : 'var(--text3)';
+    gBtn.style.borderColor = unit==='g' ? 'rgba(200,240,100,0.4)'  : 'var(--border2)';
+  }
+  // Reformat current reading in new unit
+  if (scaleReading > 0) {
+    const readingEl = document.getElementById('scale-reading');
+    if (readingEl) readingEl.value = formatScaleReading(scaleReading);
+  }
+  updateScaleNet();
+}
+
+// scaleReading is always stored internally in kg
+function formatScaleReading(kg) {
+  if (scaleUnit === 'g') {
+    const g = kg * 1000;
+    return g < 10 ? g.toFixed(1) : Math.round(g).toString();
+  }
+  return parseFloat(kg).toFixed(3);
+}
+
+// ─── SCREEN NAV ──────────────────────────────────
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => {
+    s.classList.remove('back-hidden');
+    if(s.id === id) { s.classList.remove('hidden'); }
+    else { s.classList.add('hidden'); }
+  });
+}
+
+function goBack(screenId) {
+  const cur = document.querySelector('.screen:not(.hidden)');
+  if(cur) cur.classList.add('hidden');
+  document.getElementById(screenId).classList.remove('hidden');
+  if(screenId==='screen-areas') renderAreas();
+}
+
+// ─── CONNECT ─────────────────────────────────────
+function setConnectTab(tab, btn) {
+  document.querySelectorAll('.connect-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('ct-qr').style.display   = tab==='qr'   ? 'block' : 'none';
+  document.getElementById('ct-code').style.display = tab==='code' ? 'block' : 'none';
+}
+
+function formatCode(el) {
+  let v = el.value.toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(v.length > 2 && v[2] !== '-') v = v.slice(0,2) + '-' + v.slice(2);
+  el.value = v.slice(0,7);
+}
+
+function simulateQRScan() {
+  toast('QR code scanned — connecting…');
+  setTimeout(()=>connectSession(), 800);
+}
+
+function connectByCode() {
+  const code   = document.getElementById('session-code-input').value.trim();
+  const client = document.getElementById('session-client-input').value.trim();
+  if(code.length < 5){ toast('Enter a valid session code'); return; }
+  session.code   = code;
+  session.client = client || session.client;
+  // clientId derived from slug so desktop can match it
+  session.clientId = 'c_' + session.client.toLowerCase().replace(/[^a-z0-9]/g,'_');
+  connectSession();
+}
+
+function quickStart() {
+  // Try to restore saved session first
+  const restored = loadFromStorage();
+  if(restored && session.client && session.client !== 'The Harbour Bar') {
+    connectSession();
+    return;
+  }
+  // Otherwise switch to code entry tab so user can enter venue name
+  switchConnectTab('code', document.querySelector('[onclick*="ct-code"]'));
+  setTimeout(() => document.getElementById('session-client-input')?.focus(), 300);
+  toast('Enter your venue name to start');
+}
+
+function connectSession() {
+  // Try to restore previous session from localStorage
+  const restored = loadFromStorage();
+
+  document.getElementById('area-client-name').textContent      = session.client;
+  document.getElementById('session-code-display').textContent  = session.code;
+  document.getElementById('export-code-display').textContent   = session.code;
+  renderAreas();
+  showScreen('screen-areas');
+
+  if(restored) {
+    const lines = Object.values(session.counts).flat().length;
+    if(lines > 0) toast(`↩ Restored ${lines} lines from last session`, true);
+    else toast('Connected to ' + session.client, true);
+  } else {
+    toast('Connected to ' + session.client, true);
+  }
+
+  // Load products from Supabase in background
+  loadProductsFromSupabase();
+}
+
+// ─── PRODUCT SYNC WITH SUPABASE ──────────────────
+async function loadProductsFromSupabase() {
+  if(!SUPABASE_URL || !SUPABASE_KEY) return;
+  try {
+    const slug = session.clientId || ('c_' + session.client.toLowerCase().replace(/[^a-z0-9]/g,'_'));
+
+    // Load client-specific products
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/ap_products?client_slug=eq.${encodeURIComponent(slug)}&select=data&order=id.asc`, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+    });
+
+    if(!res.ok) return;
+    const rows = await res.json();
+
+    // Also load master products (shared across all venues)
+    const masterRes = await fetch(`${SUPABASE_URL}/rest/v1/ap_master_products?select=data&order=id.asc`, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+    });
+    const masterRows = masterRes.ok ? await masterRes.json() : [];
+
+    let added = 0;
+    const allDbProds = [
+      ...rows.map(r => r.data),
+      ...masterRows.map(r => r.data)
+    ].filter(Boolean);
+
+    allDbProds.forEach(p => {
+      const name = p.n || p.name;
+      if(!name) return;
+      // Only add if not already in PRODUCTS array
+      if(!PRODUCTS.find(x => (x.name||x.n||'').toLowerCase() === name.toLowerCase())) {
+        PRODUCTS.push({
+          name:      name,
+          n:         name,
+          cat:       p.cat || 'Other',
+          subcat:    p.subcat || '',
+          vol:       p.unitVol || p.vol || 750,
+          unitVol:   p.unitVol || p.vol || 750,
+          serveVol:  p.serveVol || 30,
+          barcode:   p.barcode || '',
+          tareG:     p.tareG || 0,
+          fullG:     p.fullG || 0,
+          fullMl:    p.unitVol || p.vol || 750,
+          costPrice: p.costPrice || 0,
+          sellPrice: p.sellPrice || 0,
+          _fromDB:   true,
+        });
+        added++;
+      }
+    });
+
+    if(added > 0) {
+      saveToStorage(); // cache locally too
+      toast(`✓ ${added} products loaded from database`, true);
+    }
+  } catch(e) {
+    console.warn('Product load failed:', e);
+  }
+}
+
+async function pushProductToSupabase(prod) {
+  if(!SUPABASE_URL || !SUPABASE_KEY) return;
+  try {
+    const slug = session.clientId || ('c_' + session.client.toLowerCase().replace(/[^a-z0-9]/g,'_'));
+    const name = prod.n || prod.name || '';
+
+    // Save to client-specific products table
+    await fetch(`${SUPABASE_URL}/rest/v1/ap_products`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=minimal'
+      },
+      body: JSON.stringify({
+        client_slug: slug,
+        product_name: name,
+        data: prod
+      })
+    });
+
+    // Also save to master catalogue so other venues can see it
+    await fetch(`${SUPABASE_URL}/rest/v1/ap_master_products`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=minimal'
+      },
+      body: JSON.stringify({
+        slug: name.toLowerCase().replace(/[^a-z0-9]/g,'_'),
+        data: prod
+      })
+    });
+  } catch(e) {
+    console.warn('Product push failed:', e);
+  }
+}
+
+// ─── VENUE SWITCHER ───────────────────────────────
+// Venues list — matches desktop app clients
+const VENUES = [
+  { name: '1 Up Sports Bar',   color: '#c8f064' },
+  { name: 'The Harbour Bar',   color: '#f0884a' },
+  { name: 'Ponsonby Social',   color: '#5be3b4' },
+  { name: 'Sky Lounge',        color: '#a78bfa' },
+  { name: 'The Cellar Door',   color: '#f0c040' },
+];
+
+function toggleVenuePicker() {
+  const picker = document.getElementById('venue-picker');
+  if(picker.style.display === 'none') {
+    renderVenuePicker();
+    picker.style.display = 'block';
+  } else {
+    picker.style.display = 'none';
+  }
+}
+
+function closeVenuePicker() {
+  document.getElementById('venue-picker').style.display = 'none';
+}
+
+function renderVenuePicker() {
+  const list = document.getElementById('venue-picker-list');
+  if(!list) return;
+  list.innerHTML = VENUES.map(v => {
+    const isActive = v.name === session.client;
+    return `<button onclick="switchMobileVenue('${v.name.replace(/'/g,"\\'")}','${v.color}')"
+      style="width:100%;display:flex;align-items:center;gap:14px;padding:14px 12px;background:${isActive?'var(--bg3)':'none'};border:${isActive?'1px solid var(--border2)':'1px solid transparent'};border-radius:12px;margin-bottom:6px;cursor:pointer;">
+      <div style="width:12px;height:12px;border-radius:50%;background:${v.color};flex-shrink:0;"></div>
+      <span style="font-family:var(--font-ui);font-size:15px;font-weight:${isActive?'700':'500'};color:${isActive?'var(--text)':'var(--text2)'};flex:1;text-align:left;">${v.name}</span>
+      ${isActive ? '<span style="font-size:18px;">✓</span>' : ''}
+    </button>`;
+  }).join('') + `
+    <div style="border-top:1px solid var(--border);margin:8px 0 12px;"></div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">Or type a different venue name:</div>
+    <div style="display:flex;gap:8px;">
+      <input id="venue-custom-input" placeholder="Venue name…"
+        style="flex:1;background:var(--bg3);border:1px solid var(--border2);border-radius:10px;padding:12px 14px;color:var(--text);font-family:var(--font-ui);font-size:15px;outline:none;">
+      <button onclick="switchToCustomVenue()" style="padding:12px 16px;background:var(--accent);border:none;border-radius:10px;color:#0d0f12;font-family:var(--font-ui);font-size:14px;font-weight:700;cursor:pointer;">Go</button>
+    </div>`;
+}
+
+function switchMobileVenue(name, color) {
+  closeVenuePicker();
+  session.client   = name;
+  session.clientId = 'c_' + name.toLowerCase().replace(/[^a-z0-9]/g,'_');
+  document.getElementById('area-client-name').textContent = name;
+  toast('Switched to ' + name, true);
+  // Reload products for new venue
+  loadProductsFromSupabase();
+}
+
+function switchToCustomVenue() {
+  const name = document.getElementById('venue-custom-input')?.value.trim();
+  if(!name) return;
+  switchMobileVenue(name, '#c8f064');
+}
+
+// ─── AREAS ───────────────────────────────────────
+let areaEditMode = false;
+
+function toggleAreaEdit() {
+  areaEditMode = !areaEditMode;
+  const btn = document.getElementById('area-edit-btn');
+  const addRow = document.getElementById('area-add-row');
+  if(btn)    btn.textContent = areaEditMode ? 'Done' : 'Edit areas';
+  if(addRow) addRow.style.display = areaEditMode ? 'block' : 'none';
+  renderAreas();
+}
+
+function renderAreas() {
+  const list = document.getElementById('area-list');
+  const totalItems = Object.values(session.counts).reduce((s,rows)=>s+rows.length,0);
+  document.getElementById('total-items-count').textContent = totalItems + ' item' + (totalItems!==1?'s':'') + ' counted';
+
+  list.innerHTML = AREAS.map((a, idx) => {
+    const rows     = session.counts[a.name] || [];
+    const done     = rows.length > 0;
+    const totalQty = rows.reduce((s,r)=>s+parseFloat(r.qty),0).toFixed(2);
+    const rightEl  = areaEditMode
+      ? `<button class="area-del" onclick="event.stopPropagation();removeArea(${idx})">×</button>`
+      : done
+        ? '<div class="area-done"><svg viewBox="0 0 24 24" fill="none" stroke="#0d0f12" stroke-width="3" stroke-linecap="round" width="12" height="12"><polyline points="20 6 9 17 4 12"/></svg></div>'
+        : '<svg class="area-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="color:var(--text3)"><path d="M9 18l6-6-6-6"/></svg>';
+
+    return `<div class="area-card" onclick="${areaEditMode ? '' : `openArea('${a.name}','${a.icon}','${a.color}')`}" style="${areaEditMode ? 'cursor:default;opacity:0.85;' : ''}">
+      <div class="area-icon" style="background:${a.color};">${a.icon}</div>
+      <div class="area-info">
+        <div class="area-name">${a.name}</div>
+        <div class="area-count">${done ? rows.length+' line'+(rows.length!==1?'s':'')+' · '+totalQty+' total' : 'Not started'}</div>
+      </div>
+      ${rightEl}
+    </div>`;
+  }).join('');
+}
+
+function removeArea(idx) {
+  const area = AREAS[idx];
+  if(!area) return;
+  // If area has counts, confirm
+  const hasCounts = (session.counts[area.name] || []).length > 0;
+  if(hasCounts && !confirm(`Remove "${area.name}"? It has ${session.counts[area.name].length} counted items that will be lost.`)) return;
+  if(hasCounts) delete session.counts[area.name];
+  AREAS.splice(idx, 1);
+  renderAreas();
+  toast(area.name + ' removed');
+}
+
+function addCustomArea() {
+  const AREA_ICONS = ['🍺','📦','🍷','🍽️','❄️','🛒','🚪','📋','🔑','🏪'];
+  const name = prompt('New area name:');
+  if(!name || !name.trim()) return;
+  const trimmed = name.trim();
+  if(AREAS.find(a=>a.name===trimmed)) { toast('Area already exists'); return; }
+  const color = ['rgba(200,240,100,0.12)','rgba(91,156,240,0.12)','rgba(240,136,74,0.12)','rgba(91,227,180,0.12)','rgba(167,139,250,0.12)'][AREAS.length % 5];
+  AREAS.push({ name: trimmed, icon: '📍', color });
+  renderAreas();
+  toast(trimmed + ' added', true);
+}
+
+function openArea(name, icon, color) {
+  if(areaEditMode) return;
+  currentArea = name;
+  if(!session.counts[name]) session.counts[name] = [];
+  document.getElementById('count-area-name').textContent = icon + ' ' + name;
+  document.getElementById('cs-area').textContent = icon;
+  updateCountUI();
+  showScreen('screen-count');
+}
+
+// ─── QTY HELPERS ─────────────────────────────────
+function setScanQty(val) {
+  document.getElementById('scan-qty').value = val;
+}
+function setSearchQty(val) {
+  document.getElementById('search-qty').value = val;
+}
+// Legacy aliases kept for any references
+function setFrac(val)       { setScanQty(val); }
+function setSearchFrac(val) { setSearchQty(val); }
+
+// ─── COUNT UI ────────────────────────────────────
+function updateCountUI() {
+  const rows = session.counts[currentArea] || [];
+  const totalQty = rows.reduce((s,r)=>s+parseFloat(r.qty),0);
+  document.getElementById('cs-items').textContent = totalQty % 1 === 0 ? totalQty : totalQty.toFixed(2);
+  document.getElementById('cs-lines').textContent = rows.length;
+  document.getElementById('count-area-sub').textContent = rows.length + ' line' + (rows.length!==1?'s':'') + ' · tap method below to add';
+
+  const body = document.getElementById('count-items-body');
+  const empty = document.getElementById('count-empty');
+  if(!rows.length){ body.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+  body.innerHTML = rows.map((r,i)=>`
+    <div class="item-row">
+      <div class="item-cat-dot" style="background:${CAT_COLORS[r.cat]||'#9b9890'};"></div>
+      <div class="item-info">
+        <div class="item-name">${r.name}</div>
+        <div class="item-sub">${r.cat} · ${r.method==='weight'?'weighed':r.method} · ${currentArea}</div>
+      </div>
+      <div class="item-qty">${parseFloat(r.qty)%1===0?r.qty:parseFloat(r.qty).toFixed(2)} ${r.unit}</div>
+      <button class="item-del" onclick="removeItem(${i})">×</button>
+    </div>`).join('');
+}
+
+function removeItem(idx) {
+  session.counts[currentArea].splice(idx,1);
+  updateCountUI();
+}
+
+function saveAreaAndBack() {
+  stopCamera();
+  goBack('screen-areas');
+  toast(currentArea + ' saved ✓', true);
+}
+
+// ─── METHOD SWITCHER ─────────────────────────────
+function setMethod(method, btn) {
+  currentMethod = method;
+  document.querySelectorAll('.method-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('method-scan').style.display   = method==='scan'   ? 'block':'none';
+  document.getElementById('method-search').style.display = method==='search' ? 'block':'none';
+  document.getElementById('method-weight').style.display = method==='weight' ? 'block':'none';
+}
+
+// ─── SCAN METHOD ─────────────────────────────────
+const BARCODES = {
+  '5010352104834':'Jameson 700ml',
+  '7318690046096':'Absolut Vodka 1L',
+  '8714800020930':'Heineken 330ml',
+  '4056700002209':'Marlborough SB 750ml',
+  '5449000000996':'Coca-Cola 330ml',
+};
+const BARCODE_LIST = Object.keys(BARCODES);
+
+// ─── FAB ─────────────────────────────────────────
+let fabOpen = false;
+function toggleFab() {
+  fabOpen = !fabOpen;
+  const opts = document.getElementById('fab-options');
+  const btn  = document.getElementById('fab-btn');
+  if(opts) opts.style.display = fabOpen ? 'flex' : 'none';
+  if(btn)  btn.textContent    = fabOpen ? '×' : '+';
+}
+function closeFab() {
+  fabOpen = false;
+  const opts = document.getElementById('fab-options');
+  const btn  = document.getElementById('fab-btn');
+  if(opts) opts.style.display = 'none';
+  if(btn)  btn.textContent    = '+';
+}
+
+// ─── MOBILE PRODUCT FORM ─────────────────────────
+const MOB_SUBCATS = {
+  Spirits:['Whiskey','Vodka','Gin','Rum','Tequila','Brandy','Liqueur','Other'],
+  Beer:['Bottles','Cans','Draught'], Wine:['White','Red','Rosé','Sparkling','Dessert'],
+  'Soft drinks':['Mixers','Juices','Water','Other'], Food:['Bar snacks','Other'], Cocktails:['Classic','House','Batched','Other'],
+};
+
+// ─── VESSEL WEIGHT AUTO-CALC ─────────────────────
+// Called when tare or density changes → auto-fill full weight
+function autoCalcVesselWeights(prefix) {
+  const unitVol = parseFloat(document.getElementById(prefix+'-unitvol')?.value) || 0;
+  const tare    = parseFloat(document.getElementById(prefix+'-tareg')?.value)   || 0;
+  const density = parseFloat(document.getElementById(prefix+'-density')?.value) || 1.00;
+  const hint    = document.getElementById(prefix+'-vessel-hint');
+
+  if (unitVol > 0 && tare > 0) {
+    const fullG = Math.round(tare + unitVol * density);
+    const fullEl = document.getElementById(prefix+'-fullg');
+    if (fullEl && !fullEl.value) fullEl.value = fullG; // only auto-fill if empty
+    if (hint) {
+      hint.innerHTML = `<span style="color:var(--green);font-weight:600;">✓ Full: ${fullG}g · Empty: ${tare}g</span><br>
+        <span style="color:var(--text3);">Liquid: ${Math.round(unitVol*density)}g</span>`;
+    }
+  } else if (hint) {
+    hint.innerHTML = 'Fill tare + unit vol → full weight auto-fills.<br>Or weigh a full bottle → tare auto-fills.';
+    hint.style.color = 'var(--text3)';
+  }
+}
+
+// Called when full weight is entered → back-calculate tare
+function autoCalcFromFull(prefix) {
+  const unitVol = parseFloat(document.getElementById(prefix+'-unitvol')?.value) || 0;
+  const fullG   = parseFloat(document.getElementById(prefix+'-fullg')?.value)   || 0;
+  const density = parseFloat(document.getElementById(prefix+'-density')?.value) || 1.00;
+  const hint    = document.getElementById(prefix+'-vessel-hint');
+
+  if (unitVol > 0 && fullG > 0) {
+    const tare   = Math.round(fullG - unitVol * density);
+    const tareEl = document.getElementById(prefix+'-tareg');
+    if (tare > 0 && tareEl && !tareEl.value) {
+      tareEl.value = tare; // auto-fill tare if not already set
+    }
+    if (hint && tare > 0) {
+      hint.innerHTML = `<span style="color:var(--green);font-weight:600;">✓ Full: ${fullG}g · Empty: ${tare}g</span><br>
+        <span style="color:var(--text3);">Liquid: ${Math.round(unitVol*density)}g</span>`;
+    }
+    updateMobileProdPreview();
+  }
+}
+
+// ─── VESSEL WEIGHT HELPERS ───────────────────────
+// prefix = 'mp' (product) or 'mb' (batch)
+function autoCalcVesselWeights(prefix) {
+  const unitVol = parseFloat(document.getElementById(prefix+'-unitvol')?.value) || 0;
+  const tareG   = parseFloat(document.getElementById(prefix+'-tareg')?.value)   || 0;
+  const density = parseFloat(document.getElementById(prefix+'-density')?.value || '1.00');
+  const hintEl  = document.getElementById(prefix+'-vessel-hint');
+  const fullEl  = document.getElementById(prefix+'-fullg');
+  if(!fullEl) return;
+
+  if(unitVol > 0 && tareG > 0) {
+    const fullG = Math.round(tareG + unitVol * density);
+    // Only auto-fill if user hasn't typed a value
+    if(!fullEl.value) fullEl.value = fullG;
+    if(hintEl) {
+      hintEl.innerHTML = `<span style="color:var(--green);font-weight:600;">✓ Full: ${fullG}g</span><br>Net liquid: ${unitVol}ml`;
+    }
+  } else if(hintEl) {
+    hintEl.textContent = 'Fill tare + unit vol to auto-fill full weight';
+    hintEl.style.color = 'var(--text3)';
+  }
+}
+
+function autoCalcFromFull(prefix) {
+  // If user weighs a full bottle in hand, back-calculate tare
+  const unitVol = parseFloat(document.getElementById(prefix+'-unitvol')?.value) || 0;
+  const fullG   = parseFloat(document.getElementById(prefix+'-fullg')?.value)   || 0;
+  const density = parseFloat(document.getElementById(prefix+'-density')?.value || '1.00');
+  const hintEl  = document.getElementById(prefix+'-vessel-hint');
+  const tareEl  = document.getElementById(prefix+'-tareg');
+  if(!tareEl) return;
+
+  if(unitVol > 0 && fullG > 0) {
+    const liquidG  = Math.round(unitVol * density);
+    const calcTare = fullG - liquidG;
+    if(calcTare > 0 && !tareEl.value) {
+      tareEl.value = calcTare;
+      if(hintEl) {
+        hintEl.innerHTML = `<span style="color:var(--green);font-weight:600;">✓ Tare: ${calcTare}g</span><br>Liquid: ${liquidG}g`;
+      }
+    } else if(hintEl) {
+      hintEl.innerHTML = `Full: ${fullG}g · Liquid: ${liquidG}g`;
+      hintEl.style.color = 'var(--text3)';
+    }
+  }
+  if(prefix === 'mp') updateMobileProdPreview();
+}
+
+function updateMobileProdSubcats() {
+  const cat = document.getElementById('mp-cat').value;
+  const sub = document.getElementById('mp-subcat');
+  const opts = MOB_SUBCATS[cat] || ['Other'];
+  sub.innerHTML = opts.map(s=>`<option>${s}</option>`).join('');
+  // Auto-suggest serve size
+  const sv = document.getElementById('mp-servevol');
+  if(sv && !sv.value) {
+    if(cat==='Spirits') sv.value='30';
+    else if(cat==='Wine') sv.value='150';
+  }
+  updateMobileProdPreview();
+}
+
+function updateMobileProdPreview() {
+  const unitVol   = parseFloat(document.getElementById('mp-unitvol').value)  || 0;
+  const serveVol  = parseFloat(document.getElementById('mp-servevol').value) || 0;
+  const costPrice = parseFloat(document.getElementById('mp-cost').value)     || 0;
+  const sellPrice = parseFloat(document.getElementById('mp-sell').value)     || 0;
+  const tareG     = parseFloat(document.getElementById('mp-tareg').value)    || 0;
+  // Re-run vessel calc whenever unit vol changes
+  autoCalcVesselWeights('mp');
+  if(!unitVol && !costPrice) { document.getElementById('mp-preview').style.display='none'; return; }
+  document.getElementById('mp-preview').style.display = 'block';
+  const serves = unitVol > 0 && serveVol > 0 ? (unitVol/serveVol).toFixed(1) : '—';
+  const cps    = costPrice > 0 && unitVol > 0 && serveVol > 0 ? costPrice/(unitVol/serveVol) : null;
+  const pc     = cps && sellPrice > 0 ? Math.round((cps/sellPrice)*100) : null;
+  const gp     = pc !== null ? 100 - pc : null;
+  const col    = gp===null?'var(--text3)':gp>=72?'var(--green)':gp>=60?'var(--amber)':'var(--red)';
+  document.getElementById('mp-pc').textContent  = pc!==null ? pc+'%' : '—';
+  document.getElementById('mp-pc').style.color   = col;
+  document.getElementById('mp-gp').textContent  = gp!==null ? gp+'%' : '—';
+  document.getElementById('mp-gp').style.color   = col;
+  document.getElementById('mp-srv').textContent  = serves !== '—' ? serves+' serves' : '—';
+  const scaleEl = document.getElementById('mp-scale');
+  scaleEl.textContent = tareG > 0 ? '✓ Scale ready' : 'No tare';
+  scaleEl.style.color = tareG > 0 ? 'var(--green)' : 'var(--text3)';
+}
+
+function saveMobileProduct() {
+  const name     = document.getElementById('mp-name').value.trim();
+  const cat      = document.getElementById('mp-cat').value;
+  const unitVol  = parseFloat(document.getElementById('mp-unitvol').value)  || 0;
+  const serveVol = parseFloat(document.getElementById('mp-servevol').value) || 0;
+  if(!name)    { toast('Product name required'); return; }
+  if(!cat)     { toast('Select a category'); return; }
+  if(!unitVol) { toast('Unit volume required'); return; }
+  if(!serveVol){ toast('Serve size required'); return; }
+
+  const costPrice = parseFloat(document.getElementById('mp-cost').value)  || 0;
+  const sellPrice = parseFloat(document.getElementById('mp-sell').value)  || 0;
+  const tareG     = parseFloat(document.getElementById('mp-tareg').value) || 0;
+  const fullG     = parseFloat(document.getElementById('mp-fullg').value) || 0;
+  const cps       = costPrice > 0 ? costPrice/(unitVol/serveVol) : 0;
+  const pc        = cps && sellPrice > 0 ? Math.round((cps/sellPrice)*100) : 0;
+  const parQty    = parseFloat(document.getElementById('mp-par').value) || 0;
+  const parUnit   = document.getElementById('mp-parunit').value;
+
+  const prod = {
+    name,
+    n: name,
+    _userAdded: true,  // flag for persistence
+    cat,
+    subcat:    document.getElementById('mp-subcat').value,
+    barcode:   document.getElementById('mp-barcode').value.trim(),
+    vol:       unitVol,  unitVol,
+    fullMl:    unitVol,
+    serveVol,
+    tareG,
+    fullG,
+    density:   parseFloat(document.getElementById('mp-density').value) || 1.00,
+    costPrice,
+    sellPrice,
+    idealGP:   72,
+    par:       parQty + ' ' + parUnit.toLowerCase().slice(0,3),
+    parunit:   parUnit,
+    cost:      '$' + costPrice.toFixed(2),
+    sell:      sellPrice > 0 ? '$' + sellPrice.toFixed(2) + '/serve' : '—',
+    pc:        pc + '%',
+    pcv:       pc < 32 ? 'var-ok' : 'var-warn',
+    lastCount: null,
+  };
+  PRODUCTS.push(prod);
+  saveToStorage(); // persist new product
+  pushProductToSupabase(prod); // sync to Supabase so desktop + other devices see it
+  // Reset form
+  ['mp-name','mp-barcode','mp-unitvol','mp-servevol','mp-tareg','mp-fullg','mp-cost','mp-sell','mp-par'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
+  document.getElementById('mp-cat').value = '';
+  document.getElementById('mp-preview').style.display = 'none';
+  // Also reset scan button in case we came from an unknown barcode
+  const addBtn = document.getElementById('scan-add-btn');
+  if(addBtn) { addBtn.textContent='Add to count'; addBtn.style.background=''; addBtn.style.color=''; addBtn.style.border=''; addBtn.onclick=addScannedItem; }
+  document.getElementById('scan-result')?.classList.remove('visible');
+  toast('✓ ' + name + ' added — scan barcode to count it', true);
+  // Return to count screen, not areas — so auditor can immediately count the new product
+  showScreen('screen-count');
+  // If we came from a barcode scan, pre-fill the scan result with the new product
+  if(_newProdFromBarcode) {
+    const newProd = PRODUCTS[PRODUCTS.length-1];
+    showScanResult(newProd);
+    _newProdFromBarcode = null;
+  }
+}
+
+// ─── MOBILE BATCH FORM ───────────────────────────
+let mbBatches = [];
+
+function addMobileIngRow(name='', qty='', unit='ml', cost='') {
+  const list = document.getElementById('mb-ing-list');
+  const div  = document.createElement('div');
+  div.className = 'mb-ing-row';
+  div.innerHTML = `
+    <input class="inp-m" type="text" placeholder="Ingredient" value="${name}" oninput="updateMobileBatchCalc()" style="flex:2;min-width:0;">
+    <input class="inp-m qty" type="number" placeholder="Qty" value="${qty}" oninput="updateMobileBatchCalc()" style="flex:1;min-width:0;">
+    <select class="inp-m" style="flex:1;min-width:0;padding:13px 8px;" onchange="updateMobileBatchCalc()">
+      ${['ml','cl','shots','oz','dashes'].map(u=>`<option${u===unit?' selected':''}>${u}</option>`).join('')}
+    </select>
+    <input class="inp-m qty" type="number" placeholder="$" value="${cost}" oninput="updateMobileBatchCalc()" style="flex:1;min-width:0;">
+    <button class="mb-ing-del" onclick="this.closest('.mb-ing-row').remove();updateMobileBatchCalc()">×</button>`;
+  list.appendChild(div);
+  updateMobileBatchCalc();
+}
+
+function updateMobileBatchCalc() {
+  const rows     = document.querySelectorAll('#mb-ing-list .mb-ing-row');
+  let total = 0;
+  rows.forEach(r => { total += parseFloat(r.querySelectorAll('input')[2]?.value||0)||0; });
+  const servings  = parseInt(document.getElementById('mb-servings').value)||1;
+  const sellPrice = parseFloat(document.getElementById('mb-sell').value)||0;
+  const per       = total/servings;
+  const pc        = sellPrice ? Math.round((per/sellPrice)*100) : null;
+  document.getElementById('mb-total').textContent = '$'+total.toFixed(2);
+  document.getElementById('mb-per').textContent   = '$'+per.toFixed(2);
+  document.getElementById('mb-pc').textContent    = pc!==null ? pc+'%' : '—';
+  document.getElementById('mb-pc').style.color    = pc && pc<32 ? 'var(--green)' : pc ? 'var(--amber)' : 'var(--text3)';
+}
+
+function saveMobileBatch() {
+  const name = document.getElementById('mb-name').value.trim();
+  if(!name){ toast('Batch name required'); return; }
+  const icon     = document.getElementById('mb-icon').value.trim()   || '🍹';
+  const servings = parseInt(document.getElementById('mb-servings').value)||1;
+  const sellPrice= parseFloat(document.getElementById('mb-sell').value)||0;
+  const unitVol  = parseFloat(document.getElementById('mb-unitvol').value)||0;
+  const tareG    = parseFloat(document.getElementById('mb-tareg').value)||0;
+  const desc     = document.getElementById('mb-desc').value.trim();
+  const rows     = document.querySelectorAll('#mb-ing-list .mb-ing-row');
+  const ingredients = [];
+  rows.forEach(r => {
+    const inputs = r.querySelectorAll('input');
+    const sel    = r.querySelector('select');
+    const n      = inputs[0].value.trim();
+    if(n) ingredients.push({n, qty:inputs[1].value, unit:sel.value, cost:parseFloat(inputs[2].value)||0});
+  });
+  mbBatches.push({id:Date.now(), name, icon, desc, servings, sellPrice, unitVol, tareG, density:1.00, ingredients});
+  // Reset
+  ['mb-name','mb-icon','mb-servings','mb-sell','mb-unitvol','mb-tareg','mb-desc'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
+  document.getElementById('mb-ing-list').innerHTML='';
+  updateMobileBatchCalc();
+  toast('✓ ' + name + ' saved', true);
+  goBack('screen-areas');
+}
+let barcodeBuffer = '';
+let barcodeTimer  = null;
+let scanActive    = false;
+
+// ─── SCAN MODE (hardware vs camera) ─────────────
+let scanMode       = 'hardware';
+let cameraStream   = null;
+let barcodeDetector= null;
+let cameraInterval = null;
+let refocusTimer   = null;
+
+function setScanMode(mode) {
+  scanMode = mode;
+  const hwBtn  = document.getElementById('scan-mode-hw');
+  const camBtn = document.getElementById('scan-mode-cam');
+  const hwZone = document.getElementById('hw-scan-zone');
+  const camZone= document.getElementById('cam-scan-zone');
+
+  if(mode === 'hardware') {
+    hwBtn.style.cssText  += ';border-color:var(--accent);background:rgba(200,240,100,0.1);color:var(--accent);';
+    camBtn.style.cssText += ';border-color:var(--border2);background:var(--bg3);color:var(--text3);';
+    hwZone.style.display  = 'block';
+    camZone.style.display = 'none';
+    stopCamera();
+    setTimeout(() => activateScanInput(), 100);
+  } else {
+    camBtn.style.cssText += ';border-color:var(--accent);background:rgba(200,240,100,0.1);color:var(--accent);';
+    hwBtn.style.cssText  += ';border-color:var(--border2);background:var(--bg3);color:var(--text3);';
+    hwZone.style.display  = 'none';
+    camZone.style.display = 'block';
+    startCamera();
+  }
+}
+
+// ─── HARDWARE SCANNER (Linea Pro / BT / USB) ────
+function activateScanInput() {
+  scanActive = true;
+  // Primary input: the visible iOS input inside the scan zone
+  const iosInput = document.getElementById('barcode-capture-ios');
+  const hidInput = document.getElementById('barcode-capture');
+
+  if(iosInput) {
+    iosInput.style.display = 'block';
+    iosInput.value = '';
+    iosInput.focus();
+    // Watch for Linea Pro / HID scanner input (fills value without keydown on iOS)
+    iosInput.oninput = () => {
+      const val = iosInput.value.replace(/[^\x20-\x7E]/g,'').trim();
+      if(val.length >= 4) {
+        clearTimeout(barcodeTimer);
+        barcodeTimer = setTimeout(() => {
+          const code = iosInput.value.replace(/[^\x20-\x7E]/g,'').trim();
+          if(code.length >= 4) { processBarcode(code); iosInput.value = ''; }
+        }, 120);
+      }
+    };
+    iosInput.onkeydown = handleBarcodeKey;
+    iosInput.onblur    = scheduleScannerRefocus;
+  }
+  if(hidInput) hidInput.focus();
+
+  const zoneLabel = document.getElementById('scan-zone-label');
+  const zone      = document.getElementById('scan-zone-tap');
+  if(zoneLabel) { zoneLabel.textContent = '✓ Scanner active — scan now'; zoneLabel.style.color = 'var(--green)'; }
+  if(zone)      { zone.style.borderColor = 'rgba(200,240,100,0.5)'; zone.style.background = 'rgba(200,240,100,0.04)'; }
+  toast('Scanner active — scan a barcode', true);
+}
+
+// ─── HARDWARE SETTINGS SHEET ─────────────────────
+function openHWSettings() {
+  const isIOS        = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const hasBluetooth = 'bluetooth' in navigator;
+  const hasCamera    = 'mediaDevices' in navigator;
+
+  const sheet = document.createElement('div');
+  sheet.id    = 'hw-settings-sheet';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:500;background:rgba(0,0,0,0.7);';
+  sheet.innerHTML = `
+    <div onclick="event.stopPropagation()" style="position:absolute;bottom:0;left:0;right:0;background:var(--bg2);border-radius:20px 20px 0 0;padding:20px 16px calc(env(safe-area-inset-bottom,0px)+24px);max-height:85vh;overflow-y:auto;">
+      <div style="width:40px;height:4px;background:var(--border2);border-radius:2px;margin:0 auto 20px;"></div>
+      <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:4px;">⚙ Hardware connections</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:20px;">Status of scanning and weighing hardware</div>
+
+      <!-- BARCODE SCANNER -->
+      <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:14px;padding:16px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <div style="font-size:22px;">📡</div>
+          <div>
+            <div style="font-size:15px;font-weight:700;color:var(--text);">Hardware barcode scanner</div>
+            <div style="font-size:12px;color:var(--text3);">Linea Pro · Bluetooth HID · USB</div>
+          </div>
+        </div>
+        ${isIOS ? `
+        <div style="background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.2);border-radius:10px;padding:12px;font-size:13px;color:var(--amber);line-height:1.7;margin-bottom:10px;">
+          <strong>iPhone note:</strong> The Linea Pro must be set to <strong>Keyboard / HID emulation mode</strong> in its companion app. Once set, tap the scan zone in the app, then scan — it types the barcode like a keyboard.
+        </div>` : ''}
+        <div style="font-size:13px;color:var(--text2);line-height:1.8;">
+          1. Put scanner in <strong style="color:var(--text);">Keyboard emulation / HID mode</strong><br>
+          2. Pair via iOS Bluetooth Settings<br>
+          3. Open AuditPro → Count screen → Scan tab<br>
+          4. Tap <strong style="color:var(--text);">📡 Hardware scanner</strong> button<br>
+          5. Tap the scan zone — it turns green when ready<br>
+          6. Scan a barcode
+        </div>
+        <button onclick="closeHWSettings();setScanMode('hardware');activateScanInput();" style="width:100%;margin-top:12px;padding:12px;background:rgba(200,240,100,0.1);border:1px solid rgba(200,240,100,0.3);border-radius:10px;color:var(--accent);font-family:Syne,sans-serif;font-size:14px;font-weight:700;cursor:pointer;touch-action:manipulation;">Activate hardware scanner now</button>
+      </div>
+
+      <!-- CAMERA SCANNER -->
+      <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:14px;padding:16px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <div style="font-size:22px;">📷</div>
+          <div style="flex:1;">
+            <div style="font-size:15px;font-weight:700;color:var(--text);">Camera barcode scanner</div>
+            <div style="font-size:12px;color:${hasCamera?'var(--green)':'var(--red)'}">${hasCamera?'✓ Camera available':'✗ Camera not available'}</div>
+          </div>
+        </div>
+        <div style="font-size:13px;color:var(--text2);line-height:1.8;margin-bottom:10px;">
+          Uses your phone camera to scan barcodes — no hardware needed. Works on any phone.<br>
+          <strong style="color:var(--text);">iOS:</strong> requires Safari permission for camera access.<br>
+          <strong style="color:var(--text);">Android:</strong> Chrome recommended for best performance.
+        </div>
+        <button onclick="closeHWSettings();setScanMode('camera');" style="width:100%;padding:12px;background:rgba(200,240,100,0.1);border:1px solid rgba(200,240,100,0.3);border-radius:10px;color:var(--accent);font-family:Syne,sans-serif;font-size:14px;font-weight:700;cursor:pointer;touch-action:manipulation;">Start camera scanner</button>
+      </div>
+
+      <!-- BLUETOOTH SCALE -->
+      <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:14px;padding:16px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <div style="font-size:22px;">⚖️</div>
+          <div style="flex:1;">
+            <div style="font-size:15px;font-weight:700;color:var(--text);">Bluetooth scale</div>
+            <div style="font-size:12px;color:${hasBluetooth?'var(--green)':'var(--amber)'}">${hasBluetooth?'✓ Web Bluetooth supported':'⚠ Web Bluetooth not supported in this browser'}</div>
+          </div>
+        </div>
+        ${!hasBluetooth && isIOS ? `
+        <div style="background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.2);border-radius:10px;padding:12px;font-size:13px;color:var(--amber);line-height:1.7;margin-bottom:10px;">
+          <strong>iOS Safari does not support Web Bluetooth.</strong><br>
+          To connect a scale on iPhone, use one of these browsers:<br>
+          • <strong>Bluefy</strong> — download free from App Store<br>
+          • <strong>WebBLE</strong> — download free from App Store<br>
+          Then open <strong>${window.location.href}</strong> in that browser.
+        </div>
+        <div style="display:flex;gap:8px;">
+          <a href="https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055" target="_blank" style="flex:1;padding:12px;background:var(--bg4);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-family:Syne,sans-serif;font-size:13px;font-weight:600;cursor:pointer;text-align:center;text-decoration:none;display:block;">Get Bluefy →</a>
+          <a href="https://apps.apple.com/app/webble/id1193531073" target="_blank" style="flex:1;padding:12px;background:var(--bg4);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-family:Syne,sans-serif;font-size:13px;font-weight:600;cursor:pointer;text-align:center;text-decoration:none;display:block;">Get WebBLE →</a>
+        </div>` : hasBluetooth ? `
+        <button onclick="closeHWSettings();setMethod('weight',document.getElementById('tab-weight'));connectBluetoothScale();" style="width:100%;padding:12px;background:rgba(200,240,100,0.1);border:1px solid rgba(200,240,100,0.3);border-radius:10px;color:var(--accent);font-family:Syne,sans-serif;font-size:14px;font-weight:700;cursor:pointer;touch-action:manipulation;">Connect Bluetooth scale</button>` : ''}
+      </div>
+
+      <button onclick="closeHWSettings()" style="width:100%;padding:14px;background:var(--bg4);border:1px solid var(--border2);border-radius:12px;color:var(--text2);font-family:Syne,sans-serif;font-size:15px;font-weight:600;cursor:pointer;touch-action:manipulation;">Close</button>
+      <button onclick="closeHWSettings();document.getElementById('scale-debug-panel').style.display=document.getElementById('scale-debug-panel').style.display==='none'?'block':'none';" style="width:100%;margin-top:8px;padding:12px;background:none;border:none;color:var(--text3);font-family:Syne,sans-serif;font-size:12px;cursor:pointer;">🔬 Toggle raw scale bytes (developer)</button>
+    </div>`;
+
+  sheet.onclick = closeHWSettings;
+  document.body.appendChild(sheet);
+}
+
+function closeHWSettings() {
+  const sheet = document.getElementById('hw-settings-sheet');
+  if(sheet) sheet.remove();
+}
+
+// Auto-refocus after blur — keeps Linea Pro / HID scanner active
+function scheduleScannerRefocus() {
+  if(scanMode !== 'hardware' || !scanActive) return;
+  clearTimeout(refocusTimer);
+  refocusTimer = setTimeout(() => {
+    const iosInput = document.getElementById('barcode-capture-ios');
+    const hidInput = document.getElementById('barcode-capture');
+    if(iosInput && iosInput.style.display !== 'none') iosInput.focus();
+    else if(hidInput) hidInput.focus();
+  }, 400);
+}
+
+// ─── CAMERA SCANNER ──────────────────────────────
+async function startCamera() {
+  const statusEl = document.getElementById('cam-status');
+  try {
+    // Request back camera
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+    });
+    const video = document.getElementById('cam-preview');
+    video.srcObject = cameraStream;
+
+    // Try native BarcodeDetector API first (Android Chrome, some iOS)
+    if('BarcodeDetector' in window) {
+      barcodeDetector = new BarcodeDetector({ formats: ['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf','qr_code'] });
+      if(statusEl) statusEl.textContent = 'Point camera at barcode';
+      startBarcodeDetection(video);
+    } else {
+      // Fallback — use zxing via CDN
+      if(statusEl) statusEl.textContent = 'Loading barcode engine…';
+      loadZxing().then(() => startBarcodeDetection(video));
+    }
+  } catch(err) {
+    if(statusEl) statusEl.textContent = '⚠ Camera access denied — check browser permissions';
+    toast('Camera permission needed — check settings');
+  }
+}
+
+function startBarcodeDetection(video) {
+  const statusEl = document.getElementById('cam-status');
+  let lastBarcode = '';
+  let lastTime    = 0;
+
+  cameraInterval = setInterval(async () => {
+    if(!video.readyState || video.readyState < 2) return;
+    try {
+      let barcode = null;
+
+      if(barcodeDetector && 'BarcodeDetector' in window) {
+        // Native API
+        const results = await barcodeDetector.detect(video);
+        if(results.length) barcode = results[0].rawValue;
+      } else if(window._zxingReader) {
+        // ZXing fallback — draw frame to canvas and decode
+        const canvas = document.createElement('canvas');
+        canvas.width  = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0);
+        try {
+          const result = await window._zxingReader.decodeFromCanvas(canvas);
+          barcode = result.getText();
+        } catch(e) { /* no barcode in frame */ }
+      }
+
+      if(barcode) {
+        const now = Date.now();
+        // Debounce — don't re-trigger same barcode within 2 seconds
+        if(barcode !== lastBarcode || now - lastTime > 2000) {
+          lastBarcode = barcode;
+          lastTime    = now;
+          if(statusEl) statusEl.textContent = '✓ ' + barcode;
+          document.getElementById('cam-scan-line').style.background = 'var(--green)';
+          setTimeout(() => {
+            if(document.getElementById('cam-scan-line'))
+              document.getElementById('cam-scan-line').style.background = 'var(--accent)';
+          }, 300);
+          processBarcode(barcode);
+        }
+      }
+    } catch(e) { /* continue scanning */ }
+  }, 300);
+}
+
+async function loadZxing() {
+  return new Promise((resolve) => {
+    if(window._zxingReader) { resolve(); return; }
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js';
+    script.onload = () => {
+      window._zxingReader = new ZXing.BrowserMultiFormatReader();
+      resolve();
+    };
+    script.onerror = () => {
+      const statusEl = document.getElementById('cam-status');
+      if(statusEl) statusEl.textContent = '⚠ Could not load barcode engine — try hardware scanner';
+      resolve();
+    };
+    document.head.appendChild(script);
+  });
+}
+
+function stopCamera() {
+  clearInterval(cameraInterval);
+  cameraInterval = null;
+  if(cameraStream) {
+    cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream = null;
+  }
+  const video = document.getElementById('cam-preview');
+  if(video) video.srcObject = null;
+}
+
+
+function handleBarcodeKey(e) {
+  // Scanners send characters rapidly then Enter (keyCode 13)
+  if (e.key === 'Enter') {
+    const barcode = barcodeBuffer.trim();
+    barcodeBuffer = '';
+    clearTimeout(barcodeTimer);
+    if (barcode.length >= 4) processBarcode(barcode);
+    return;
+  }
+  // Accumulate chars — scanners fire < 50ms between keystrokes
+  barcodeBuffer += e.key;
+  clearTimeout(barcodeTimer);
+  // Auto-process if no Enter after 200ms (some scanners omit Enter)
+  barcodeTimer = setTimeout(() => {
+    if (barcodeBuffer.length >= 4) {
+      processBarcode(barcodeBuffer.trim());
+      barcodeBuffer = '';
+    }
+  }, 200);
+}
+
+function processBarcode(barcode) {
+  const product = PRODUCTS.find(p => p.barcode === barcode);
+  if (product) {
+    showScanResult(product);
+  } else {
+    // Unknown barcode — offer to create the product
+    showUnknownBarcode(barcode);
+  }
+}
+
+function showUnknownBarcode(barcode) {
+  playBeep('unknown');
+  document.getElementById('scan-result-name').textContent = 'New product';
+  document.getElementById('scan-result-info').textContent = 'Barcode ' + barcode + ' not in catalogue';
+  document.getElementById('scan-last-count').style.display = 'none';
+
+  // Replace the scan-result content temporarily with a create prompt
+  const result = document.getElementById('scan-result');
+  result.style.background = 'rgba(200,240,100,0.07)';
+  result.style.borderColor = 'rgba(200,240,100,0.3)';
+  result.classList.add('visible');
+  document.getElementById('scan-fracs').style.display   = 'none';
+  document.getElementById('scan-qty-row').style.display = 'none';
+
+  // Swap add button for create button
+  const addBtn = document.getElementById('scan-add-btn');
+  addBtn.style.display = 'block';
+  addBtn.textContent   = '+ Create product for this barcode';
+  addBtn.style.background = 'var(--bg3)';
+  addBtn.style.color      = 'var(--accent)';
+  addBtn.style.border     = '1px solid rgba(200,240,100,0.3)';
+  addBtn.onclick = () => openProductFormWithBarcode(barcode);
+  toast('Barcode not found — tap to create product', false);
+}
+
+function openProductFormWithName(name) {
+  // Clear form then pre-fill name
+  ['mp-barcode','mp-unitvol','mp-servevol','mp-tareg','mp-cost','mp-sell','mp-par'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
+  document.getElementById('mp-name').value = name;
+  document.getElementById('mp-cat').value  = '';
+  document.getElementById('mp-preview').style.display = 'none';
+  // Clear search field
+  document.getElementById('search-field').value = '';
+  document.getElementById('search-fracs').style.display   = 'none';
+  document.getElementById('search-qty-row').style.display = 'none';
+  document.getElementById('search-add-btn').style.display = 'none';
+  updateMobileProdSubcats();
+  showScreen('screen-new-product');
+  setTimeout(()=>document.getElementById('mp-cat')?.focus(), 350);
+  toast('Fill in details for "' + name + '"');
+}
+
+let _newProdFromBarcode = null;
+
+function openProductFormWithBarcode(barcode) {
+  // Reset the scan add button back to normal
+  const addBtn = document.getElementById('scan-add-btn');
+  addBtn.textContent        = 'Add to count';
+  addBtn.style.background   = '';
+  addBtn.style.color        = '';
+  addBtn.style.border       = '';
+  addBtn.onclick            = addScannedItem;
+  document.getElementById('scan-result').style.background  = '';
+  document.getElementById('scan-result').style.borderColor = '';
+
+  // Pre-fill the product form with the scanned barcode
+  const barcodeEl = document.getElementById('mp-barcode');
+  if(barcodeEl) barcodeEl.value = barcode;
+
+  // Clear other fields for fresh entry
+  ['mp-name','mp-unitvol','mp-servevol','mp-tareg','mp-cost','mp-sell','mp-par'].forEach(id => {
+    const el = document.getElementById(id); if(el) el.value = '';
+  });
+  document.getElementById('mp-cat').value = '';
+  document.getElementById('mp-preview').style.display = 'none';
+  updateMobileProdSubcats();
+
+  // Navigate to product creation screen
+  _newProdFromBarcode = barcode;
+  showScreen('screen-new-product');
+
+  // Focus name field after transition
+  setTimeout(() => document.getElementById('mp-name')?.focus(), 350);
+  toast('Fill in details for barcode ' + barcode);
+}
+
+// ─── BARCODE SCAN FOR FORM FIELD ─────────────────
+let _fieldScanStream = null;
+let _fieldScanInterval = null;
+let _fieldScanTarget = null;
+
+async function startBarcodeScanForField(fieldId) {
+  _fieldScanTarget = fieldId;
+  const wrap = document.getElementById('mp-barcode-cam-wrap');
+  const video = document.getElementById('mp-barcode-cam');
+  if(!wrap || !video) return;
+
+  try {
+    _fieldScanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    video.srcObject = _fieldScanStream;
+    wrap.style.display = 'block';
+
+    // Try BarcodeDetector
+    if('BarcodeDetector' in window) {
+      const detector = new BarcodeDetector({ formats: ['ean_13','ean_8','upc_a','upc_e','code_128','code_39','qr_code'] });
+      _fieldScanInterval = setInterval(async () => {
+        if(video.readyState < 2) return;
+        try {
+          const codes = await detector.detect(video);
+          if(codes.length > 0) {
+            const val = codes[0].rawValue;
+            document.getElementById(_fieldScanTarget).value = val;
+            stopBarcodeScanForField();
+            toast('✓ Barcode scanned: ' + val, true);
+          }
+        } catch(e) {}
+      }, 300);
+    } else {
+      toast('Camera active — type barcode manually if detection fails');
+    }
+  } catch(e) {
+    toast('Camera access denied — type barcode manually');
+  }
+}
+
+function stopBarcodeScanForField() {
+  if(_fieldScanInterval) { clearInterval(_fieldScanInterval); _fieldScanInterval = null; }
+  if(_fieldScanStream) { _fieldScanStream.getTracks().forEach(t=>t.stop()); _fieldScanStream = null; }
+  const wrap = document.getElementById('mp-barcode-cam-wrap');
+  if(wrap) wrap.style.display = 'none';
+  _fieldScanTarget = null;
+}
+function numpadPress(method, key) {
+  const inputId = method === 'scan' ? 'scan-qty' : method === 'search' ? 'search-qty' : 'scale-reading';
+  const input = document.getElementById(inputId);
+  if(!input) return;
+  if(key === '✓') {
+    if(method === 'scan')   addScannedItem();
+    else if(method === 'search') addSearchItem();
+    else addWeightItem();
+    return;
+  }
+  if(key === '⌫') {
+    input.value = input.value.toString().slice(0,-1) || '0';
+  } else {
+    const cur = input.value === '0' || input.value === '' ? '' : input.value.toString();
+    input.value = cur + key;
+  }
+  // Trigger oninput handlers
+  input.dispatchEvent(new Event('input'));
+}
+
+function showScanResult(product) {
+  scannedProduct = product;
+  playBeep('add');  // beep on product recognition
+  document.getElementById('scan-result-name').textContent = product.name;
+  document.getElementById('scan-result-info').textContent = product.cat + ' · ' + product.vol + 'ml';
+  const lastEl    = document.getElementById('scan-last-count');
+  const lastQtyEl = document.getElementById('scan-last-qty');
+  if(product.lastCount) {
+    lastEl.style.display = 'inline-flex';
+    lastQtyEl.textContent = product.lastCount.qty + ' ' + product.lastCount.unit + ' (' + product.lastCount.date + ')';
+  } else {
+    lastEl.style.display = 'none';
+  }
+  document.getElementById('scan-result').classList.add('visible');
+  document.getElementById('scan-fracs').style.display = 'flex';
+  document.getElementById('scan-qty-row').style.display = 'flex';
+  document.getElementById('scan-numpad').style.display = 'grid';
+  document.getElementById('scan-add-btn').style.display = 'block';
+  document.getElementById('scan-qty').value = '1';
+  toast('Scanned: ' + product.name, true);
+}
+
+// Keep demo trigger for testing without hardware
+function triggerScan() {
+  const barcode = BARCODE_LIST[Math.floor(Math.random()*BARCODE_LIST.length)];
+  processBarcode(barcode);
+}
+
+// Refocus scanner input when tapping elsewhere on scan tab
+document.addEventListener('click', e => {
+  if (scanActive && currentMethod === 'scan' && !e.target.closest('button') && !e.target.closest('input') && !e.target.closest('select')) {
+    document.getElementById('barcode-capture')?.focus();
+  }
+});
+
+// ─── BLUETOOTH SCALE ─────────────────────────────
+// Works with scales that expose weight via BLE GATT
+// Tested with: Dymo M5, Adam Equipment, most Bluetooth kitchen/bar scales
+// GATT Service: Weight Scale (0x181D) or Generic (0xFFF0 / 0xFFE0)
+
+let btDevice    = null;
+let btChar      = null;
+let scalePolling= null;
+
+// Known scale GATT profiles
+const BT_PROFILES = [
+  // Standard Weight Scale service
+  { service: 0x181D, char: 0x2A9D, name: 'Weight Scale (standard)' },
+  // Generic profiles used by many kitchen/bar scales
+  { service: 0xFFF0, char: 0xFFF1, name: 'Generic FFx' },
+  { service: 0xFFE0, char: 0xFFE1, name: 'Generic FFEx' },
+  // Adam Equipment, Dymo
+  { service: '00001234-0000-1000-8000-00805f9b34fb', char: '00001235-0000-1000-8000-00805f9b34fb', name: 'Adam/Dymo' },
+];
+
+async function connectBluetoothScale() {
+  if (!navigator.bluetooth) {
+    document.getElementById('bt-unsupported').style.display = 'block';
+    return;
+  }
+  document.getElementById('bt-unsupported').style.display = 'none';
+  setScaleStatus('Searching…', 'var(--amber)', false);
+  try {
+    btDevice = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: BT_PROFILES.map(p => p.service),
+    });
+    btDevice.addEventListener('gattserverdisconnected', onScaleDisconnected);
+    setScaleStatus('Connecting…', 'var(--amber)', false);
+    const server = await btDevice.gatt.connect();
+    // Try each known profile until one works
+    let connected = false;
+    for (const profile of BT_PROFILES) {
+      try {
+        const svc  = await server.getPrimaryService(profile.service);
+        btChar     = await svc.getCharacteristic(profile.char);
+        // Subscribe to notifications for live readings
+        await btChar.startNotifications();
+        btChar.addEventListener('characteristicvaluechanged', onScaleReading);
+        setScaleStatus('Connected — ' + (btDevice.name || profile.name), 'var(--green)', true);
+        connected = true;
+        toast('Scale connected: ' + (btDevice.name || 'Bluetooth scale'), true);
+        break;
+      } catch(_) { continue; }
+    }
+    if (!connected) {
+      // Fallback: poll every 500ms instead of notifications
+      scalePolling = setInterval(async () => {
+        try {
+          const val = await btChar?.readValue();
+          if (val) parseScaleValue(val);
+        } catch(_) {}
+      }, 500);
+      setScaleStatus('Connected (polling) — ' + (btDevice.name || 'Scale'), 'var(--green)', true);
+    }
+  } catch(e) {
+    if (e.name !== 'NotFoundError') {
+      toast('Could not connect: ' + e.message);
+    }
+    setScaleStatus('No scale connected', 'var(--text3)', false);
+  }
+}
+
+function onScaleReading(e) {
+  parseScaleValue(e.target.value);
+}
+
+function parseScaleValue(dataView) {
+  const bytes = new Uint8Array(dataView.buffer || dataView);
+  const len   = bytes.length;
+  let grams   = null;
+
+  try {
+    // ── ETEKCITY NUTRITION SCALE (17 bytes) ──────────────
+    // Bytes 11-12 little-endian ÷ 10 = weight in grams
+    // Confirmed with two physical readings: 318g ✓
+    if(len === 17) {
+      const raw = bytes[11] | (bytes[12] << 8);
+      const val = raw / 10;
+      if(val >= 0 && val < 50000) { grams = val; }
+    }
+
+    // ── FORMAT 1: Standard BLE Weight Scale 0x2A9D ───────
+    if(grams === null && len >= 3) {
+      const flags    = bytes[0];
+      const imperial = flags & 0x01;
+      const val      = dataView.getUint16(1, true);
+      const candidate = imperial ? (val * 0.01 * 453.592) : (val * 5);
+      if(candidate > 0 && candidate < 50000) { grams = candidate; }
+    }
+
+    // ── FORMAT 2: Generic kitchen scales [unit, hi, lo] ──
+    if(grams === null && len >= 3) {
+      const raw = (bytes[1] << 8) | bytes[2];
+      if(raw > 0 && raw < 50000) grams = raw;
+    }
+
+    // ── FORMAT 3: Weight at byte 3 ────────────────────────
+    if(grams === null && len >= 5) {
+      const raw = dataView.getUint16(3, true);
+      if(raw > 0 && raw < 50000) grams = raw;
+    }
+
+    // ── FORMAT 4: Raw uint16 at byte 0 ────────────────────
+    if(grams === null && len >= 2) {
+      const raw = dataView.getUint16(0, true);
+      if(raw > 0 && raw < 5000)        grams = raw;
+      else if(raw > 0 && raw < 50000)  grams = raw / 10;
+    }
+
+  } catch(e) {}
+
+  // Always log to debug panel
+  logScaleDebug(bytes, grams != null ? Math.round(grams) : '?');
+
+  if(grams != null && grams >= 0) {
+    scaleReading = grams / 1000;
+    const readingEl = document.getElementById('scale-reading');
+    if(readingEl) readingEl.value = formatScaleReading(scaleReading);
+    updateScaleNet();
+  }
+}
+
+function onScaleDisconnected() {
+  clearInterval(scalePolling);
+  btChar = null;
+  setScaleStatus('Scale disconnected', 'var(--text3)', false);
+  toast('Scale disconnected');
+}
+
+async function disconnectBluetoothScale() {
+  clearInterval(scalePolling);
+  if (btDevice && btDevice.gatt.connected) {
+    btDevice.gatt.disconnect();
+  }
+  btDevice = null; btChar = null;
+  setScaleStatus('No scale connected', 'var(--text3)', false);
+}
+
+function setScaleStatus(text, color, connected) {
+  const dot  = document.getElementById('scale-dot');
+  const span = document.getElementById('scale-status-text');
+  const conn = document.getElementById('bt-connect-btn');
+  const disc = document.getElementById('bt-disconnect-btn');
+  if(dot)  { dot.className = 'scale-dot' + (connected ? ' connected' : ''); dot.style.background = color; }
+  if(span) { span.textContent = text; span.style.color = color; }
+  if(conn) conn.style.display = connected ? 'none'  : 'inline-flex';
+  if(disc) disc.style.display = connected ? 'inline-flex' : 'none';
+  scaleConnected = connected;
+}
+
+function toggleScaleConnect() {
+  if (scaleConnected) disconnectBluetoothScale();
+  else connectBluetoothScale();
+}
+
+function setFrac(val) {
+  document.getElementById('scan-qty').value = val;
+}
+
+function adjustQty(delta) {
+  const input = document.getElementById('scan-qty');
+  input.value = Math.max(0, (parseFloat(input.value)||0) + delta);
+}
+
+function adjustSearchQty(delta) {
+  const input = document.getElementById('search-qty');
+  input.value = Math.max(0, (parseFloat(input.value)||0) + delta);
+}
+
+function addScannedItem() {
+  if(!scannedProduct) return;
+  const qty  = parseFloat(document.getElementById('scan-qty').value) || 1;
+  const unit = document.getElementById('scan-unit').value;
+  playBeep('add');
+  addItem(scannedProduct, qty, unit, 'scan');
+  scannedProduct = null;
+  document.getElementById('scan-result').classList.remove('visible');
+  document.getElementById('scan-fracs').style.display = 'none';
+  document.getElementById('scan-qty-row').style.display = 'none';
+  document.getElementById('scan-add-btn').style.display = 'none';
+}
+
+// ─── SEARCH METHOD ───────────────────────────────
+function searchProducts(q) {
+  const res = document.getElementById('search-results');
+  if(!q.trim()){ res.classList.remove('visible'); return; }
+  const matches = PRODUCTS.filter(p=>p.name.toLowerCase().includes(q.toLowerCase()));
+
+  res.classList.add('visible');
+
+  if(!matches.length) {
+    // No match — show create product prompt
+    res.innerHTML = `
+      <div style="padding:14px 16px;border-bottom:1px solid var(--border);">
+        <div style="font-size:13px;color:var(--text2);margin-bottom:10px;">No product found for <strong style="color:var(--text);">"${q}"</strong></div>
+        <button onclick="openProductFormWithName('${q.replace(/'/g,"\\'")}');document.getElementById('search-results').classList.remove('visible');"
+          style="width:100%;padding:12px;border-radius:12px;background:rgba(200,240,100,0.1);border:1px solid rgba(200,240,100,0.3);color:var(--accent);font-family:var(--font-ui);font-size:14px;font-weight:700;cursor:pointer;touch-action:manipulation;text-align:center;">
+          + Create "${q}"
+        </button>
+      </div>`;
+    return;
+  }
+
+  res.innerHTML = matches.slice(0,6).map(p=>`
+    <div class="search-item" onclick="selectSearchProduct('${p.name.replace(/'/g,"\\'")}')">
+      <div>
+        <div class="search-item-name">${p.name}</div>
+        <div class="search-item-cat">${p.cat} · ${p.vol}ml${p.lastCount ? ' · <span style="color:var(--text3)">last: '+p.lastCount.qty+' '+p.lastCount.unit+'</span>' : ''}</div>
+      </div>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="color:var(--text3)"><path d="M9 18l6-6-6-6"/></svg>
+    </div>`).join('');
+}
+
+function selectSearchProduct(name) {
+  searchProduct = PRODUCTS.find(p=>p.name===name);
+  document.getElementById('search-field').value = name;
+  document.getElementById('search-results').classList.remove('visible');
+  document.getElementById('search-fracs').style.display = 'flex';
+  document.getElementById('search-qty-row').style.display = 'flex';
+  document.getElementById('search-numpad').style.display = 'grid';
+  document.getElementById('search-add-btn').style.display = 'block';
+  document.getElementById('search-qty').value = '1';
+}
+
+function addSearchItem() {
+  if(!searchProduct) return;
+  const qty  = parseFloat(document.getElementById('search-qty').value) || 1;
+  const unit = document.getElementById('search-unit').value;
+  playBeep('add');
+  addItem(searchProduct, qty, unit, 'search');
+  searchProduct = null;
+  document.getElementById('search-field').value = '';
+  document.getElementById('search-fracs').style.display = 'none';
+  document.getElementById('search-qty-row').style.display = 'none';
+  document.getElementById('search-numpad').style.display = 'none';
+  document.getElementById('search-add-btn').style.display = 'none';
+}
+
+// ─── WEIGHT METHOD ───────────────────────────────
+function weightSearch(q) {
+  const res = document.getElementById('weight-results');
+  if(!q.trim()){ res.classList.remove('visible'); return; }
+  const matches = PRODUCTS.filter(p=>p.name.toLowerCase().includes(q.toLowerCase()) && p.tareG > 0);
+  if(!matches.length){ res.classList.remove('visible'); return; }
+  res.classList.add('visible');
+  res.innerHTML = matches.slice(0,5).map(p=>`
+    <div class="search-item" onclick="selectWeightProduct('${p.name}')">
+      <div>
+        <div class="search-item-name">${p.name}</div>
+        <div class="search-item-cat">Empty: ${p.tareG}g · Full: ${p.fullMl}ml</div>
+      </div>
+    </div>`).join('');
+}
+
+// ─── WEIGH TAB STABLE AUTO-ACCEPT ────────────────
+let weighStableTimer  = null;
+let weighLastReading  = null;
+let weighStableCount  = 0;
+const WEIGH_STABLE_TICKS = 3;   // 3 × 500ms = 1.5 seconds
+const WEIGH_TOLERANCE    = 0.003; // ±3g tolerance in kg
+
+function startWeighStableWatch() {
+  stopWeighStableWatch();
+  weighLastReading = null;
+  weighStableCount = 0;
+
+  weighStableTimer = setInterval(() => {
+    if(!weightProduct) { stopWeighStableWatch(); return; }
+    const current = parseFloat(scaleReading);
+    if(current <= 0) { weighStableCount = 0; weighLastReading = null; return; }
+
+    if(weighLastReading !== null && Math.abs(current - weighLastReading) < WEIGH_TOLERANCE) {
+      weighStableCount++;
+      // Show progress on the net display
+      const dots = '.'.repeat(weighStableCount);
+      const netEl = document.getElementById('scale-net');
+      if(netEl && weighStableCount < WEIGH_STABLE_TICKS) {
+        const existing = netEl.textContent.replace(/ ·{0,3}$/, '').replace(/\.+$/, '');
+        netEl.textContent = existing + dots;
+      }
+      if(weighStableCount >= WEIGH_STABLE_TICKS) {
+        stopWeighStableWatch();
+        autoAcceptWeight();
+      }
+    } else {
+      weighStableCount = 0;
+    }
+    weighLastReading = current;
+  }, 500);
+}
+
+function stopWeighStableWatch() {
+  if(weighStableTimer) { clearInterval(weighStableTimer); weighStableTimer = null; }
+  weighStableCount = 0;
+  weighLastReading = null;
+}
+
+function autoAcceptWeight() {
+  if(!weightProduct) return;
+  // Play weight capture beep
+  playBeep('weight');
+  // Flash net display green
+  const netEl = document.getElementById('scale-net');
+  if(netEl) {
+    const prev = netEl.style.color;
+    netEl.style.color = 'var(--green)';
+    setTimeout(() => { netEl.style.color = prev || ''; }, 800);
+  }
+  // Auto-add to count
+  addWeightItem();
+  toast('⚖ Weight captured', true);
+}
+
+function selectWeightProduct(name) {
+  weightProduct = PRODUCTS.find(p=>p.name===name);
+  document.getElementById('weight-search').value = name;
+  document.getElementById('weight-results').classList.remove('visible');
+  document.getElementById('weight-product-info').style.display = 'flex';
+  document.getElementById('wp-name').textContent = weightProduct.name;
+  document.getElementById('wp-tare').textContent = weightProduct.tareG
+    ? `Tare: ${weightProduct.tareG}g · Full: ${weightProduct.fullMl||weightProduct.unitVol||weightProduct.vol||'?'}ml`
+    : '⚠ No tare weight set — net weight will equal gross';
+  // Activate the capture button
+  const btn = document.getElementById('weight-add-btn');
+  if(btn) {
+    btn.style.background = 'var(--accent)';
+    btn.style.color      = '#0d0f12';
+    btn.style.border     = 'none';
+  }
+  updateScaleNet();
+  startWeighStableWatch();
+  toast('Place ' + weightProduct.name + ' on scale', true);
+}
+
+function clearWeightProduct() {
+  weightProduct = null;
+  document.getElementById('weight-search').value = '';
+  document.getElementById('weight-product-info').style.display = 'none';
+  document.getElementById('scale-net').style.display = 'none';
+  const btn = document.getElementById('weight-add-btn');
+  if(btn) {
+    btn.style.background = 'var(--bg3)';
+    btn.style.color      = 'var(--text3)';
+    btn.style.border     = '2px solid var(--border2)';
+  }
+  stopWeighStableWatch();
+}
+
+function onManualWeightInput(val) {
+  // User typed into the weight field — override scale reading
+  const g = parseFloat(val) || 0;
+  scaleReading = scaleUnit === 'g' ? g / 1000 : g; // store as kg internally
+  updateScaleNet();
+  stopWeighStableWatch(); // cancel auto-accept when user is typing
+}
+
+function getWeightGrams() {
+  const inputVal = parseFloat(document.getElementById('scale-reading')?.value) || 0;
+  return scaleUnit === 'g' ? inputVal : inputVal * 1000;
+}
+
+function updateScaleNet() {
+  const gross = parseFloat(scaleReading) * 1000; // always work in grams internally
+  const net   = Math.max(0, gross - weightProduct.tareG);
+  const ml    = Math.round((net / weightProduct.fullMl) * weightProduct.fullMl);
+  const frac  = (net / weightProduct.fullMl).toFixed(2);
+  const netEl = document.getElementById('scale-net');
+  if (!netEl) return;
+  netEl.style.display = 'block';
+  const netDisplay = scaleUnit === 'g'
+    ? `Net: ${Math.round(net)}g · Est. ${Math.max(0,ml)}ml (${frac} btl)`
+    : `Net: ${(net/1000).toFixed(3)}kg · Est. ${Math.max(0,ml)}ml (${frac} btl)`;
+  netEl.textContent = netDisplay;
+}
+
+function simulateWeight() {
+  // Store internally as kg
+  scaleReading = (Math.random() * 0.8 + 0.1).toFixed(3);
+  const readingEl = document.getElementById('scale-reading');
+  if (readingEl) readingEl.value = formatScaleReading(parseFloat(scaleReading));
+  updateScaleNet();
+}
+
+function tareScale() {
+  taredWeight   = parseFloat(scaleReading);
+  scaleReading  = 0;
+  document.getElementById('scale-reading').value = '0';
+  const netEl = document.getElementById('scale-net');
+  if(netEl) netEl.style.display = 'none';
+  toast('Scale zeroed');
+}
+
+function addManualWeightItem() {
+  if(!weightProduct) return;
+  const input = document.getElementById('manual-weight-input');
+  const netG  = parseFloat(input?.value) || 0;
+  if(netG <= 0) { if(input) input.focus(); return; }
+  playBeep('weight');
+  addItem(weightProduct, netG, 'g', 'weight');
+  // Reset
+  if(input) input.value = '';
+  document.getElementById('weight-add-btn').style.display = 'none';
+  document.getElementById('weight-product-info').style.display = 'none';
+  document.getElementById('scale-net').style.display = 'none';
+  document.getElementById('weight-search').value = '';
+  weightProduct = null; scaleReading = 0;
+  document.getElementById('scale-reading').value = '0';
+  stopWeighStableWatch();
+  toast('⚖ Weight logged', true);
+}
+
+function addWeightItem() {
+  if(!weightProduct) return;
+  stopWeighStableWatch();
+  const gross = getWeightGrams();
+  const net   = Math.max(0, gross - (weightProduct.tareG || 0));
+  const netG  = Math.round(net);
+  if(netG <= 0) { toast('No weight — place bottle on scale or type a value'); return; }
+  playBeep('weight');
+  addItem(weightProduct, netG, 'g', 'weight');
+
+  // Clear reading display
+  document.getElementById('scale-reading').value = '';
+  document.getElementById('scale-net').style.display = 'none';
+  scaleReading = 0;
+
+  // Flash button — do NOT restart stable watch until bottle is removed
+  const btn = document.getElementById('weight-add-btn');
+  if(btn) {
+    btn.textContent = '✓ Logged! Remove bottle for next…';
+    btn.style.background = 'var(--green)';
+    btn.disabled = true;
+  }
+
+  // Watch for scale to clear (bottle removed), then re-enable
+  const clearWatch = setInterval(() => {
+    const current = getWeightGrams();
+    if(current < 50) { // scale is essentially empty
+      clearInterval(clearWatch);
+      if(btn) {
+        btn.textContent = '✓ Capture weight';
+        btn.style.background = 'var(--accent)';
+        btn.disabled = false;
+      }
+      startWeighStableWatch(); // ready for next bottle
+    }
+  }, 500);
+}
+
+function toggleScaleConnect() {
+  scaleConnected = !scaleConnected;
+  document.getElementById('scale-dot').className='scale-dot'+(scaleConnected?' connected':'');
+  document.getElementById('scale-status-text').textContent = scaleConnected?'Scale connected':'Scale disconnected';
+  document.querySelector('#screen-count .tare-row .tare-btn').textContent = scaleConnected?'Tare / Zero':'Tare / Zero';
+}
+
+// ─── SITE INFO ───────────────────────────────────
+// Site info is loaded from Supabase using the venue name/clientId
+let siteInfoData = null;
+
+async function showSiteInfo() {
+  document.getElementById('siteinfo-venue-name').textContent = session.client;
+  showScreen('screen-siteinfo');
+  renderSiteInfo(siteInfoData); // render cached if available
+
+  // Try to load from Supabase
+  if(SUPABASE_URL && SUPABASE_KEY) {
+    try {
+      const slug = session.clientId || ('c_' + session.client.toLowerCase().replace(/[^a-z0-9]/g,'_'));
+      const res  = await fetch(`${SUPABASE_URL}/rest/v1/ap_clients?slug=eq.${encodeURIComponent(slug)}&select=data`, {
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+      });
+      if(res.ok) {
+        const rows = await res.json();
+        if(rows.length) {
+          siteInfoData = rows[0].data?.info || null;
+          renderSiteInfo(siteInfoData);
+        }
+      }
+    } catch(e) { console.log('Site info load failed:', e); }
+  }
+}
+
+function renderSiteInfo(info) {
+  if(!info) {
+    // Show placeholder if no data yet
+    ['access','contacts','storage','audit'].forEach(id => {
+      const el = document.getElementById('siteinfo-'+id);
+      if(el) el.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:8px 0;">Not set up in desktop app yet</div>';
+    });
+    const notes = document.getElementById('siteinfo-notes');
+    if(notes) notes.textContent = 'No notes';
+    return;
+  }
+
+  // ACCESS — sensitive fields tap to reveal
+  const accessEl = document.getElementById('siteinfo-access');
+  if(accessEl && info.site) {
+    accessEl.innerHTML = info.site.map(item => `
+      <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:2px;">${item.label}</div>
+          <div class="site-val" data-sensitive="${item.sensitive||false}" style="font-size:15px;font-weight:600;color:var(--text);font-family:${item.sensitive?'var(--font-mono)':'var(--font-ui)'};">
+            ${item.sensitive ? '••••••••' : (item.value || '—')}
+          </div>
+          ${item.sensitive && item.value ? `<div style="font-size:11px;color:var(--text3);margin-top:2px;">Tap to reveal</div>` : ''}
+        </div>
+        ${item.sensitive && item.value ? `
+          <button onclick="toggleSensitive(this)" data-val="${(item.value||'').replace(/"/g,'&quot;')}"
+            style="padding:8px 14px;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-family:var(--font-ui);font-size:12px;font-weight:600;cursor:pointer;">
+            👁 Show
+          </button>` : ''}
+      </div>`).join('');
+  }
+
+  // CONTACTS
+  const contactsEl = document.getElementById('siteinfo-contacts');
+  if(contactsEl && info.contacts) {
+    contactsEl.innerHTML = info.contacts.map(c => `
+      <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:14px 16px;">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px;">${c.label||'Contact'}</div>
+        <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:2px;">${c.name||'—'}</div>
+        ${c.phone ? `<a href="tel:${c.phone}" style="font-size:13px;color:var(--accent);text-decoration:none;">📞 ${c.phone}</a>` : ''}
+        ${c.email ? `<div><a href="mailto:${c.email}" style="font-size:13px;color:var(--accent);text-decoration:none;">✉ ${c.email}</a></div>` : ''}
+      </div>`).join('') || '<div style="color:var(--text3);font-size:13px;padding:8px 0;">No contacts added</div>';
+  }
+
+  // STORAGE AREAS
+  const storageEl = document.getElementById('siteinfo-storage');
+  if(storageEl && info.storage) {
+    storageEl.innerHTML = info.storage.filter(s=>s.value).map(s => `
+      <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:12px 16px;display:flex;align-items:center;gap:12px;">
+        <div style="font-size:20px;">📦</div>
+        <div>
+          <div style="font-size:11px;color:var(--text3);">${s.label}</div>
+          <div style="font-size:14px;color:var(--text);">${s.value}</div>
+        </div>
+      </div>`).join('') || '<div style="color:var(--text3);font-size:13px;padding:8px 0;">No storage areas configured</div>';
+  }
+
+  // AUDIT INFO
+  const auditEl = document.getElementById('siteinfo-audit');
+  if(auditEl && info.audit) {
+    auditEl.innerHTML = info.audit.filter(a=>a.value).map(a => `
+      <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:13px;color:var(--text3);">${a.label}</span>
+        <span style="font-size:14px;font-weight:600;color:var(--text);">${a.value}</span>
+      </div>`).join('') || '<div style="color:var(--text3);font-size:13px;padding:8px 0;">No audit info set</div>';
+  }
+
+  // NOTES
+  const notesEl = document.getElementById('siteinfo-notes');
+  if(notesEl) notesEl.textContent = info.notes || 'No notes';
+}
+
+function toggleSensitive(btn) {
+  const val     = btn.getAttribute('data-val');
+  const valEl   = btn.closest('div').querySelector('.site-val');
+  const showing = btn.textContent.includes('Hide');
+  if(showing) {
+    valEl.textContent  = '••••••••';
+    btn.textContent    = '👁 Show';
+  } else {
+    valEl.textContent  = val;
+    btn.textContent    = '🙈 Hide';
+  }
+}
+
+// Supabase connection for mobile
+const SUPABASE_URL = 'https://hjtguzieguogfjbwikwt.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqdGd1emllZ3VvZ2ZqYndpa3d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwMDg1NDUsImV4cCI6MjA5MDU4NDU0NX0.yH_TrwX6jdeSi6WNOWvvQ4yzkznoXvCWEmDKFg9-DEE';
+// ─── SCALE DEBUG PANEL ───────────────────────────
+let scaleDebugLog = [];
+
+function toggleScaleDebug() {
+  const panel = document.getElementById('scale-debug-panel');
+  const btn   = panel.previousElementSibling;
+  const open  = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : 'block';
+  btn.textContent = open ? '🔬 Show raw scale data' : '🔬 Hide raw scale data';
+}
+
+function logScaleDebug(bytes, parsed) {
+  const hex   = Array.from(bytes).map(b => b.toString(16).padStart(2,'0')).join(' ');
+  const dec   = Array.from(bytes).join(', ');
+  const entry = `HEX: ${hex} | DEC: [${dec}] | len:${bytes.length} | parsed:${parsed}g`;
+  scaleDebugLog.unshift(entry);
+  if(scaleDebugLog.length > 10) scaleDebugLog.pop();
+  const bytesEl  = document.getElementById('scale-debug-bytes');
+  const parsedEl = document.getElementById('scale-debug-parsed');
+  if(bytesEl)  bytesEl.innerHTML  = `<strong>HEX:</strong> ${hex}<br><strong>DEC:</strong> [${dec}]<br><strong>Bytes:</strong> ${bytes.length}`;
+  if(parsedEl) parsedEl.textContent = `→ Parsed as: ${parsed}g (${parsed>=1000?(parsed/1000).toFixed(3)+'kg':parsed+'g'})`;
+}
+
+function copyScaleDebug() {
+  const text = scaleDebugLog.join('\n') || 'No data yet — connect scale and place object on it';
+  if(navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => toast('Copied!'));
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+    toast('Copied');
+  }
+}
+
+function clearScaleDebug() {
+  scaleDebugLog = [];
+  const b = document.getElementById('scale-debug-bytes');
+  const p = document.getElementById('scale-debug-parsed');
+  if(b) b.textContent = 'Cleared — place object on scale';
+  if(p) p.textContent = '';
+}
+
+// ─── AUDIO FEEDBACK ──────────────────────────────
+function playBeep(type) {
+  try {
+    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    if(type === 'add') {
+      // Short double beep — item added
+      osc.frequency.setValueAtTime(1200, ctx.currentTime);
+      osc.frequency.setValueAtTime(1600, ctx.currentTime + 0.07);
+      gain.gain.setValueAtTime(0.25, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.16);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.16);
+    } else if(type === 'weight') {
+      // Ascending three-tone — weight captured
+      osc.frequency.setValueAtTime(800, ctx.currentTime);
+      osc.frequency.setValueAtTime(1000, ctx.currentTime + 0.06);
+      osc.frequency.setValueAtTime(1400, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.25, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.22);
+    } else if(type === 'unknown') {
+      // Low descending — unknown barcode
+      osc.frequency.setValueAtTime(500, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(250, ctx.currentTime + 0.3);
+      gain.gain.setValueAtTime(0.25, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.3);
+    }
+  } catch(e) {}
+}
+
+// ─── ADD ITEM CORE ───────────────────────────────
+function addItem(product, qty, unit, method) {
+  if(!session.counts[currentArea]) session.counts[currentArea]=[];
+  const existing = session.counts[currentArea].find(r=>r.name===product.name && r.unit===unit);
+  if(existing){
+    existing.qty = (parseFloat(existing.qty)+qty).toFixed(2).replace(/\.00$/,'');
+  } else {
+    session.counts[currentArea].push({name:product.name, cat:product.cat, qty, unit, method});
+  }
+  updateCountUI();
+  saveToStorage(); // persist immediately
+  toast('+' + qty + ' ' + unit + ' · ' + product.name, true);
+}
+
+// ─── SYNC SCREEN ─────────────────────────────────
+function showSync() {
+  // Always go through review first
+  showReview();
+}
+
+function acceptAndSync() {
+  const areas  = Object.keys(session.counts).filter(a=>session.counts[a].length>0);
+  const lines  = areas.reduce((s,a)=>s+session.counts[a].length,0);
+  const total  = areas.reduce((s,a)=>s+session.counts[a].reduce((ss,r)=>ss+parseFloat(r.qty),0),0);
+  document.getElementById('sync-client').textContent   = session.client;
+  document.getElementById('sync-areas').textContent    = areas.length + ' of ' + AREAS.length;
+  document.getElementById('sync-lines').textContent    = lines;
+  document.getElementById('sync-total').textContent    = total.toFixed(2);
+  document.getElementById('sync-code-val').textContent = session.code;
+  document.getElementById('export-code-display').textContent = session.code;
+
+  // Build CSV
+  let csv = `Client,${session.client}\nClientId,${session.clientId||''}\nSessionCode,${session.code}\n\nProduct,Category,Area,Quantity,Unit,Method\n`;
+  areas.forEach(a=>session.counts[a].forEach(r=>{
+    csv += `"${r.name}","${r.cat}","${a}",${r.qty},"${r.unit}","${r.method}"\n`;
+  }));
+  document.getElementById('csv-preview').textContent = csv.split('\n').slice(4,12).join('\n')+(lines>7?'\n…':'');
+
+  // Push to Supabase so desktop can import by code
+  pushCountToSupabase(csv);
+
+  showScreen('screen-sync');
+  toast('Count accepted — ready to sync', true);
+}
+
+async function pushCountToSupabase(csv) {
+  if(!SUPABASE_URL || !SUPABASE_KEY) return;
+
+  const statusEl = document.getElementById('sync-status-row');
+  const show = (msg, color='var(--green)') => {
+    if(statusEl) { statusEl.textContent = msg; statusEl.style.color = color; statusEl.style.display = 'block'; statusEl.style.borderColor = color === 'var(--green)' ? 'rgba(91,227,180,0.2)' : 'rgba(240,80,80,0.2)'; statusEl.style.background = color === 'var(--green)' ? 'rgba(91,227,180,0.08)' : 'rgba(240,80,80,0.08)'; }
+  };
+
+  try {
+    const payload = {
+      code:       session.code,
+      client:     session.client,
+      client_id:  session.clientId || '',
+      csv_data:   csv,
+      created_at: new Date().toISOString(),
+      lines:      Object.values(session.counts).flat().length
+    };
+
+    // Use UPSERT — if same code exists, REPLACE it entirely (no doubling)
+    // This means re-syncing with same code always sends the full current count
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/ap_mobile_counts`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=minimal'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if(res.ok || res.status === 201 || res.status === 200) {
+      show('✓ Synced to cloud — enter code AP-' + session.code.split('-')[1] + ' on desktop');
+      toast('✓ Count synced to cloud', true);
+    } else {
+      const err = await res.text();
+      console.warn('Supabase push failed:', res.status, err);
+      show('Cloud sync failed — use CSV download below', 'var(--red)');
+      toast('Sync failed — download CSV instead');
+    }
+  } catch(e) {
+    console.warn('Supabase push error:', e);
+    show('Cloud sync failed — use CSV download below', 'var(--red)');
+    toast('Sync failed — download CSV instead');
+  }
+}
+
+// ─── REVIEW SCREEN ───────────────────────────────
+function showReview() {
+  const areas = Object.keys(session.counts).filter(a=>session.counts[a].length>0);
+  if(!areas.length){ toast('No items counted yet'); return; }
+
+  const totalLines = areas.reduce((s,a)=>s+session.counts[a].length,0);
+  document.getElementById('review-sub').textContent =
+    totalLines+' line'+(totalLines!==1?'s':'')+' across '+areas.length+' area'+(areas.length!==1?'s':'');
+
+  let html = '';
+  areas.forEach(area => {
+    const rows    = session.counts[area];
+    const areaObj = AREAS.find(a=>a.name===area) || {icon:'📍'};
+    html += `<div class="review-section-hdr">
+      <span class="review-section-name">${areaObj.icon} ${area}</span>
+      <span style="font-size:11px;color:var(--text3);">${rows.length} line${rows.length!==1?'s':''}</span>
+    </div>`;
+
+    rows.forEach((r, idx) => {
+      const product = PRODUCTS.find(p=>p.name===r.name);
+      const lastC   = product?.lastCount;
+      const current = parseFloat(r.qty);
+      const lastHtml = lastC
+        ? `<span style="font-size:11px;color:var(--text3);font-family:var(--font-mono);margin-left:6px;">· prev: ${lastC.qty} ${lastC.unit}</span>`
+        : '';
+
+      html += `<div class="review-row">
+        <div class="review-row-info">
+          <div class="review-row-name">${r.name}</div>
+          <div class="review-row-sub">${r.cat} · ${r.method}${lastHtml}</div>
+        </div>
+        <div class="review-row-qty">
+          <div class="review-row-current">${current%1===0?current:current.toFixed(2)} ${r.unit}</div>
+        </div>
+        <button class="review-edit-btn" onclick="editReviewItem('${area}',${idx})">Edit</button>
+      </div>`;
+    });
+  });
+
+  document.getElementById('review-body').innerHTML = html;
+  showScreen('screen-review');
+}
+
+function editReviewItem(area, idx) {
+  const row    = session.counts[area][idx];
+  const newQty = prompt(`Edit quantity for ${row.name}:`, row.qty);
+  if(newQty !== null && !isNaN(parseFloat(newQty))) {
+    session.counts[area][idx].qty = parseFloat(newQty);
+    showReview();
+    toast('Updated: ' + row.name, true);
+  }
+}
+
+function resetForNextAudit() {
+  if(!confirm('Reset all counts for next audit?\n\nThis will clear all counted items. Make sure the count has been synced to desktop first.')) return;
+  // Clear all counts
+  session.counts = {};
+  // Generate new session code
+  session.code = 'AP-' + Math.floor(1000 + Math.random() * 9000);
+  // Clear localStorage
+  clearStorage();
+  // Reset UI
+  renderAreas();
+  showScreen('screen-areas');
+  toast('✓ Reset complete — ready for next audit · ' + session.code, true);
+}
+
+function copyCode() {
+  navigator.clipboard?.writeText(session.code).then(()=>toast('Code copied!',true)).catch(()=>toast('Code: '+session.code));
+}
+
+function downloadCSV() {
+  const areas = Object.keys(session.counts).filter(a=>session.counts[a].length>0);
+  let csv = `Client,${session.client}\nClientId,${session.clientId||''}\nSessionCode,${session.code}\n\nProduct,Category,Area,Quantity,Unit,Method\n`;
+  areas.forEach(a=>session.counts[a].forEach(r=>{
+    csv += `"${r.name}","${r.cat}","${a}",${r.qty},"${r.unit}","${r.method}"\n`;
+  }));
+  const blob = new Blob([csv],{type:'text/csv'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = `auditpro-${session.client.replace(/\s+/g,'-')}-${session.code}-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+  toast('CSV downloaded', true);
+}
+
+// ─── SCAN → WEIGHT HANDOFF MODE ──────────────────
+// Flow: scan barcode → auto-switch to weigh tab with product pre-loaded
+//       → scale reading stabilises → auto-log → auto-switch back to scan
+//       → ready for next bottle
+
+let handoffMode   = false;
+let handoffStable = null;   // timer for stable reading detection
+let lastReading   = null;
+let stableCount   = 0;
+
+function toggleHandoff() {
+  handoffMode = !handoffMode;
+  const btn = document.getElementById('handoff-btn');
+  if (btn) {
+    btn.innerHTML = handoffMode
+      ? `📷→⚖️<br><span style="font-size:9px;font-weight:600;color:var(--accent);">ON</span>`
+      : `📷→⚖️<br><span style="font-size:9px;font-weight:400;opacity:0.7;">off</span>`;
+    btn.style.background  = handoffMode ? 'rgba(200,240,100,0.12)' : 'var(--bg3)';
+    btn.style.borderColor = handoffMode ? 'rgba(200,240,100,0.35)' : 'var(--border2)';
+    btn.style.color       = handoffMode ? 'var(--accent)'          : 'var(--text3)';
+  }
+  if (handoffMode) {
+    // Make sure scanner is active and on scan tab
+    setMethod('scan', document.getElementById('tab-scan'));
+    activateScanInput();
+    toast('📷→⚖️ Scan · weigh · scan — auto flow on', true);
+  } else {
+    clearHandoffStable();
+    toast('Handoff mode off');
+  }
+}
+
+// Called from processBarcode when handoff is active
+function handoffScanToWeigh(product) {
+  if (!product.tareG) {
+    // No tare weight — can't weigh, fall back to normal scan flow
+    toast('No tare weight for ' + product.name + ' — add it in products');
+    showScanResult(product);
+    return;
+  }
+  // Switch to weigh tab and pre-load the product
+  setMethod('weight', document.getElementById('tab-weight'));
+  selectWeightProduct(product.name);
+  // Visual cue
+  toast('⚖️ Place ' + product.name + ' on scale', true);
+  // Start watching for a stable reading
+  startHandoffStableWatch(product);
+}
+
+function startHandoffStableWatch(product) {
+  clearHandoffStable();
+  lastReading = null;
+  stableCount = 0;
+
+  handoffStable = setInterval(() => {
+    const current = parseFloat(scaleReading);
+    if (current <= 0) { stableCount = 0; lastReading = null; return; }
+
+    if (lastReading !== null && Math.abs(current - lastReading) < 0.005) {
+      stableCount++;
+      // Stable for ~1.5s (3 ticks × 500ms) → auto-log
+      if (stableCount >= 3) {
+        clearHandoffStable();
+        autoLogWeightAndReset(product);
+      }
+    } else {
+      stableCount = 0;
+    }
+    lastReading = current;
+  }, 500);
+}
+
+function clearHandoffStable() {
+  if (handoffStable) { clearInterval(handoffStable); handoffStable = null; }
+  stableCount = 0; lastReading = null;
+}
+
+function autoLogWeightAndReset(product) {
+  const gross = parseFloat(scaleReading) * 1000; // g
+  const net   = Math.max(0, gross - (product.tareG || 0));
+  const netG  = Math.round(net);
+
+  if(netG <= 0) {
+    toast('Nothing on scale — remove and try again');
+    return;
+  }
+
+  // Log as grams — clear and readable in the count list
+  addItem(product, netG, 'g', 'weight');
+
+  // Flash scale display green
+  const disp = document.querySelector('.scale-display');
+  if (disp) {
+    disp.style.background = 'rgba(91,227,180,0.12)';
+    setTimeout(() => disp.style.background = '', 400);
+  }
+
+  // Reset scale display and product selection
+  scaleReading = 0;
+  document.getElementById('scale-reading').value = '0';
+  document.getElementById('scale-net').style.display   = 'none';
+  document.getElementById('weight-product-info').style.display = 'none';
+  document.getElementById('weight-search').value       = '';
+  document.getElementById('weight-add-btn').style.display = 'none';
+  weightProduct = null;
+
+  // Switch back to scan tab after 600ms
+  setTimeout(() => {
+    if (!handoffMode) return;
+    setMethod('scan', document.getElementById('tab-scan'));
+    activateScanInput();
+    document.getElementById('scan-result').classList.remove('visible');
+    document.getElementById('scan-fracs').style.display   = 'none';
+    document.getElementById('scan-qty-row').style.display = 'none';
+    document.getElementById('scan-add-btn').style.display = 'none';
+    document.getElementById('scan-zone-label').textContent = '✓ Scanner ready — scan next bottle';
+  }, 600);
+}
+
+// ─── UNIFIED processBarcode WRAPPER ──────────────
+// Priority: handoff mode → fast mode → normal
+const _origProcessBarcode = processBarcode;
+processBarcode = function(barcode) {
+  const product = PRODUCTS.find(p => p.barcode === barcode);
+
+  // 1. Handoff mode (scan → weigh → scan)
+  if (handoffMode) {
+    if (product) { handoffScanToWeigh(product); return; }
+    // Unknown barcode in handoff mode — exit handoff and offer creation
+    toggleHandoff();
+    showUnknownBarcode(barcode);
+    return;
+  }
+
+  // 2. Fast count mode (scan → add 1 → ready)
+  if (fastMode && product) {
+    addItem(product, 1, 'Bottles', 'scan');
+    const zone = document.getElementById('scan-zone-tap');
+    if (zone) {
+      zone.style.borderColor = 'rgba(91,227,180,0.6)';
+      zone.style.background  = 'rgba(91,227,180,0.05)';
+      setTimeout(() => { zone.style.borderColor = ''; zone.style.background = ''; }, 300);
+    }
+    return;
+  }
+
+  // 3. Normal flow
+  _origProcessBarcode(barcode);
+};
+let wakeLock = null;
+
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch(e) { /* not critical */ }
+}
+
+async function releaseWakeLock() {
+  if (wakeLock) { await wakeLock.release(); wakeLock = null; }
+}
+
+// Request wake lock when entering count screen, release on done
+const _origOpenArea = openArea;
+openArea = function(name, icon, color) {
+  _origOpenArea(name, icon, color);
+  requestWakeLock();
+};
+const _origSaveAreaAndBack = saveAreaAndBack;
+saveAreaAndBack = function() {
+  _origSaveAreaAndBack();
+  releaseWakeLock();
+};
+
+// Re-request if released (screen unlock, etc.)
+document.addEventListener('visibilitychange', async () => {
+  if (wakeLock !== null && document.visibilityState === 'visible') {
+    requestWakeLock();
+  }
+});
+
+// ─── FAST COUNT MODE ─────────────────────────────
+// In fast mode: scanning a barcode immediately adds qty=1 and resets,
+// no confirmation needed. Great for counting sealed cases quickly.
+let fastMode = false;
+
+function toggleFastMode() {
+  fastMode = !fastMode;
+  const btn = document.getElementById('fast-mode-btn');
+  if(btn) {
+    btn.textContent = fastMode ? '⚡ Fast ON' : '⚡ Fast';
+    btn.style.background   = fastMode ? 'rgba(200,240,100,0.15)' : 'var(--bg3)';
+    btn.style.color        = fastMode ? 'var(--accent)'          : 'var(--text3)';
+    btn.style.borderColor  = fastMode ? 'rgba(200,240,100,0.35)' : 'var(--border2)';
+  }
+  toast(fastMode ? '⚡ Fast count on — scan adds 1 immediately' : 'Fast count off', fastMode);
+}
+
+function toast(msg, success=false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (success?' success':'');
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(()=>el.classList.remove('show'), 2200);
+}
+</script>
+</body>
+</html>

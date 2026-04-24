@@ -590,8 +590,9 @@
                 <p style="font-size:12px;margin-top:4px;">Counts will appear here when the auditor syncs from the phone app.</p>
               </div>
             </div>
-            <div style="padding:12px 16px;border-top:1px solid var(--border);">
-              <button class="btn btn-secondary" style="width:100%;font-size:12px;" onclick="simulateMobileSync()">Simulate mobile sync (demo)</button>
+            <div id="mobile-counts-actions" style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;">
+              <button class="btn btn-secondary" style="flex:1;font-size:12px;" onclick="openModal('importCountModal')">⬇ Import count by code</button>
+              <button class="btn btn-secondary" id="reject-count-btn" style="flex:1;font-size:12px;color:var(--red);border-color:rgba(240,80,80,0.3);display:none;" onclick="rejectMobileCount()">✕ Reject count</button>
             </div>
           </div>
         </div>
@@ -7192,19 +7193,34 @@ function openInvoiceReviewModal(id) {
     const globalIdx = rows.indexOf(r);
     return `
     <div style="background:var(--bg2);border:1px solid rgba(200,240,100,0.2);border-radius:12px;padding:14px 16px;margin-bottom:10px;">
-      <!-- Name + category row -->
-      <div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:start;margin-bottom:12px;">
+      <!-- Invoice name (read-only) + catalogue name (editable) -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
         <div>
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:4px;">Product name</div>
-          <input id="${id}-name-${globalIdx}" type="text" value="${r._cleanName.replace(/"/g,'&quot;')}"
-            style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:13px;font-weight:600;outline:none;"
-            onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border2)'">
-          <div style="font-size:10px;color:var(--text3);margin-top:3px;">Invoice: ${r.name}${r.productCode?` · Code: ${r.productCode}`:''}</div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:4px;">Invoice name <span style="color:var(--text3);font-weight:400;text-transform:none;">(from PDF)</span></div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:12px;color:var(--text2);font-family:var(--font-mono);line-height:1.4;">
+            ${r.name}${r.productCode?`<div style="font-size:10px;color:var(--text3);margin-top:2px;">Code: ${r.productCode}</div>`:''}
+          </div>
         </div>
+        <div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:4px;">Catalogue name <span style="color:var(--accent);font-weight:400;text-transform:none;">(your database)</span></div>
+          <input id="${id}-name-${globalIdx}" type="text" value="${r._cleanName.replace(/"/g,'&quot;')}"
+            list="${id}-namelist-${globalIdx}"
+            style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:13px;font-weight:600;outline:none;"
+            onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border2)'"
+            placeholder="Match to existing or type new name">
+          <datalist id="${id}-namelist-${globalIdx}">
+            ${(activeClient?.products||[]).map(p=>`<option value="${(p.n||p.name||'').replace(/"/g,'&quot;')}">`).join('')}
+          </datalist>
+          <div style="font-size:10px;color:var(--text3);margin-top:3px;">Choose from catalogue or type a new name</div>
+        </div>
+      </div>
+
+      <!-- Category + Subcategory row -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start;margin-bottom:12px;">
         <div>
           <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:4px;">Category</div>
           <select id="${id}-cat2-${globalIdx}" onchange="updateInvSubcat('${id}',${globalIdx})"
-            style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:12px;outline:none;min-width:120px;">
+            style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:12px;outline:none;">
             ${getInvCatOptions(r._cat)}
             <option value="__new__">+ New category…</option>
           </select>
@@ -7212,7 +7228,7 @@ function openInvoiceReviewModal(id) {
         <div>
           <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:4px;">Subcategory</div>
           <select id="${id}-subcat-${globalIdx}" onchange="updateInvWeighVisibility('${id}',${globalIdx})"
-            style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:12px;outline:none;min-width:120px;">
+            style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:12px;outline:none;">
             ${getInvSubcatOptions(r._cat, r.existing?.subcat||'')}
           </select>
         </div>
@@ -7454,6 +7470,7 @@ function applyInvoiceToProducts(id) {
       c.products.push({
         n:              cleanName,
         name:           cleanName,
+        invoiceName:    item.name || '',        // original invoice name for reference
         cat:            cleanCat,
         subcat:         cleanSubcat,
         barcode:        '',
@@ -7616,25 +7633,52 @@ function addInvoiceLine(product='', qty='', unit='Bottles', price='') {
   const idx  = list.children.length;
   const div  = document.createElement('div');
   div.className = 'mi-line';
+
+  // Build datalist from catalogue
+  const prods = activeClient?.products || [];
+  const datalistId = `mi-prod-list-${idx}`;
+  const options = prods.map(p => `<option value="${(p.n||p.name||'').replace(/"/g,'&quot;')}">`).join('');
+
   div.innerHTML = `
-    <input type="text"   placeholder="Product name" value="${product}" oninput="updateInvoiceTotals()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-ui);outline:none;">
-    <input type="number" placeholder="Qty" value="${qty}" min="0" step="any" oninput="updateInvoiceTotals()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-mono);outline:none;">
-    <select oninput="updateInvoiceTotals()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-ui);outline:none;">
+    <div style="position:relative;flex:2;min-width:0;">
+      <input type="text" placeholder="Search catalogue…" value="${product}"
+        list="${datalistId}"
+        oninput="updateInvoiceTotals();autoFillLinePrice(this,${idx})"
+        onchange="autoFillLinePrice(this,${idx})"
+        style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-ui);outline:none;padding:6px 10px;"
+        onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border2)'">
+      <datalist id="${datalistId}">${options}</datalist>
+    </div>
+    <input type="number" placeholder="Qty" value="${qty}" min="0" step="any" oninput="updateInvoiceTotals()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-mono);outline:none;padding:6px 10px;">
+    <select oninput="updateInvoiceTotals()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-ui);outline:none;padding:6px 8px;">
       ${['Bottles','Cases','Kegs','Cans','Kg','Litres','Units'].map(u=>`<option${u===unit?' selected':''}>${u}</option>`).join('')}
     </select>
-    <input type="number" placeholder="0.00" value="${price}" min="0" step="0.01" oninput="updateInvoiceTotals()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-mono);outline:none;">
-    <span class="mi-line-total" id="mi-lt-${idx}">$0.00</span>
+    <input type="number" placeholder="0.00" value="${price}" min="0" step="0.01" id="mi-price-${idx}" oninput="updateInvoiceTotals()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-mono);outline:none;padding:6px 10px;">
+    <span class="mi-line-total" id="mi-lt-${idx}" style="font-family:var(--font-mono);font-size:13px;color:var(--green);min-width:56px;text-align:right;">$0.00</span>
     <button class="ing-remove" onclick="this.closest('.mi-line').remove();updateInvoiceTotals()">×</button>`;
   list.appendChild(div);
   updateInvoiceTotals();
+}
+
+function autoFillLinePrice(nameInput, idx) {
+  const prods = activeClient?.products || [];
+  const name  = nameInput.value.trim().toLowerCase();
+  const prod  = prods.find(p => (p.n||p.name||'').toLowerCase() === name);
+  if(!prod) return;
+  const priceEl = document.getElementById(`mi-price-${idx}`);
+  if(priceEl && !priceEl.value && prod.costPrice > 0) {
+    priceEl.value = prod.costPrice.toFixed(2);
+    updateInvoiceTotals();
+  }
 }
 
 function updateInvoiceTotals() {
   const lines = document.querySelectorAll('#mi-line-list .mi-line');
   let subtotal = 0;
   lines.forEach((line, i) => {
-    const qty   = parseFloat(line.querySelectorAll('input')[1]?.value) || 0;
-    const price = parseFloat(line.querySelectorAll('input')[2]?.value) || 0;
+    const inputs = line.querySelectorAll('input[type="number"]');
+    const qty    = parseFloat(inputs[0]?.value) || 0;
+    const price  = parseFloat(inputs[1]?.value) || 0;
     const lineTotal = qty * price;
     subtotal += lineTotal;
     const ltEl = document.getElementById('mi-lt-'+i);
@@ -7788,11 +7832,49 @@ function setImportTab(tab, btn) {
   document.getElementById('imp-view-csv').style.display  = tab==='csv' ?'block':'none';
 }
 
-function importByCode() {
-  const code = document.getElementById('import-code-input').value.trim();
-  if(code.length < 5){ alert('Enter a valid session code.'); return; }
+async function importByCode() {
+  const code = document.getElementById('import-code-input').value.trim().toUpperCase();
+  if(code.length < 4){ alert('Enter a valid session code e.g. AP-4821'); return; }
   closeModal('importCountModal');
-  simulateMobileSync();
+
+  // Try Supabase first
+  const SUPA_URL = 'https://hjtguzieguogfjbwikwt.supabase.co';
+  const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqdGd1emllZ3VvZ2ZqYndpa3d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwMDg1NDUsImV4cCI6MjA5MDU4NDU0NX0.yH_TrwX6jdeSi6WNOWvvQ4yzkznoXvCWEmDKFg9-DEE';
+  try {
+    showPersistToast('Fetching count from cloud…');
+    const res  = await fetch(`${SUPA_URL}/rest/v1/ap_mobile_counts?code=eq.${encodeURIComponent(code)}&select=*`, {
+      headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY }
+    });
+    const data = await res.json();
+    if(data && data.length > 0) {
+      const record = data[0];
+      importFromCSVString(record.csv_data);
+      showPersistToast(`✓ Count imported — ${record.lines} lines from ${record.client}`);
+      return;
+    } else {
+      showPersistToast('Code not found in cloud — try CSV upload');
+    }
+  } catch(e) {
+    console.warn('Supabase fetch failed:', e);
+    showPersistToast('Cloud fetch failed — try CSV upload');
+  }
+}
+
+function importFromCSVString(csvText) {
+  const lines = csvText.split('\n');
+  const dataStart = lines.findIndex(l => l.startsWith('Product,') || l.startsWith('"Product"'));
+  const dataLines = lines.slice(dataStart + 1).filter(l => l.trim());
+  const rows = dataLines.map(l => {
+    const parts = l.split(',').map(p => p.replace(/"/g,'').trim());
+    return { name: parts[0], cat: parts[1], location: parts[2], qty: parseFloat(parts[3])||1, unit: parts[4]||'Bottles', source: 'mobile' };
+  }).filter(r => r.name);
+
+  // REPLACE not append — prevents double counts on re-sync
+  stkSession.mobileRows = rows;
+
+  renderMobileCounts();
+  updateSessionLines();
+  switchStkTab('mobile', document.getElementById('stk-tab-mobile'));
 }
 
 function importFromCSV(file) {
@@ -7831,14 +7913,29 @@ function simulateMobileSync() {
   setTimeout(()=>{ alert('✓ Mobile count received — AP-4821 · 6 lines · 3 areas'); }, 300);
 }
 
+function rejectMobileCount() {
+  if(!confirm('Reject this mobile count? All received lines will be cleared. This cannot be undone.')) return;
+  stkSession.mobileRows = [];
+  const body  = document.getElementById('mobile-counts-body');
+  const badge = document.getElementById('mobile-received-badge');
+  const rejectBtn = document.getElementById('reject-count-btn');
+  if(body)  body.innerHTML = `<div style="text-align:center;padding:24px 0;color:var(--text3);"><p style="font-size:13px;color:var(--red);">Count rejected — request a new sync from the mobile app.</p></div>`;
+  if(badge) { badge.textContent = ''; badge.style.display = 'none'; }
+  if(rejectBtn) rejectBtn.style.display = 'none';
+  updateSessionLines();
+  showPersistToast('Mobile count rejected');
+}
+
 function renderMobileCounts() {
   const rows  = stkSession.mobileRows;
   const badge = document.getElementById('mobile-received-badge');
   const body  = document.getElementById('mobile-counts-body');
+  const rejectBtn = document.getElementById('reject-count-btn');
   if(!rows.length) return;
 
   badge.textContent     = rows.length + ' lines';
   badge.style.display   = 'inline-flex';
+  if(rejectBtn) rejectBtn.style.display = 'flex';
 
   // Group by location
   const byLoc = {};
