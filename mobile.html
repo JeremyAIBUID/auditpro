@@ -3333,6 +3333,11 @@ function toast(msg, success=false) {
 }
 
 // ─── INIT ─────────────────────────────────────────
+// Clear old non-venue-specific storage key on upgrade
+if(localStorage.getItem('auditpro_mobile_v1') && !localStorage.getItem('auditpro_migrated_v3')) {
+  localStorage.removeItem('auditpro_mobile_v1');
+  localStorage.setItem('auditpro_migrated_v3', '1');
+}
 // Load venues from Supabase as soon as app starts
 document.addEventListener('DOMContentLoaded', () => loadVenuesFromSupabase());
 </script>
