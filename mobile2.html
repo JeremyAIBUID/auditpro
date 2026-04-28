@@ -1,8 +1,16 @@
 <!DOCTYPE html>
-<!-- AuditPro Mobile v2.1 - 2026-04-18 -->
+<!-- AuditPro Mobile v3.0 - 2026-04-28 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<script>
+// Force reload if cached version is old
+const APP_VERSION = '3.0-20260428';
+if(localStorage.getItem('ap_version') !== APP_VERSION) {
+  localStorage.setItem('ap_version', APP_VERSION);
+  if(performance.navigation?.type !== 1) location.reload(true);
+}
+</script>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
