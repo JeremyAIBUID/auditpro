@@ -907,6 +907,11 @@ let session = {
 // ─── PERSISTENCE ─────────────────────────────────
 const STORAGE_KEY = 'auditpro_mobile_v1';
 
+function venueStorageKey() {
+  const id = (session.clientId || session.client || 'default').replace(/[^a-z0-9]/gi,'_').toLowerCase();
+  return STORAGE_KEY + '_' + id;
+}
+
 function saveToStorage() {
   try {
     const data = {
@@ -914,38 +919,34 @@ function saveToStorage() {
       extraProducts: PRODUCTS.filter(p => p._userAdded),
       savedAt: Date.now()
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    localStorage.setItem(venueStorageKey(), JSON.stringify(data));
   } catch(e) { console.warn('Storage save failed:', e); }
 }
 
 function loadFromStorage() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(venueStorageKey());
     if(!raw) return false;
     const data = JSON.parse(raw);
-    // Only restore if same client or no client set yet
     if(data.session) {
       if(data.session.counts) session.counts = data.session.counts;
       if(data.session.code)   session.code   = data.session.code;
-      if(data.session.client) session.client = data.session.client;
-      if(data.session.clientId) session.clientId = data.session.clientId;
     }
-    // Restore user-added products
     if(data.extraProducts?.length) {
       data.extraProducts.forEach(p => {
-        if(!PRODUCTS.find(x => x.name === p.name)) {
+        if(!PRODUCTS.find(x => (x.name||x.n||'').toLowerCase() === (p.name||p.n||'').toLowerCase())) {
           PRODUCTS.push({ ...p, _userAdded: true });
         }
       });
     }
     const age = Math.round((Date.now() - data.savedAt) / 60000);
-    console.log(`[AuditPro] Restored session from ${age}min ago — ${Object.values(session.counts).flat().length} lines`);
+    console.log('[AuditPro] Restored ' + Object.values(session.counts).flat().length + ' lines for ' + session.client + ' (' + age + 'min ago)');
     return true;
   } catch(e) { console.warn('Storage load failed:', e); return false; }
 }
 
 function clearStorage() {
-  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(venueStorageKey());
   toast('Session cleared');
 }
 
