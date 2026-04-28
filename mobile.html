@@ -1308,11 +1308,20 @@ function renderVenuePicker() {
 
 function switchMobileVenue(name, color) {
   closeVenuePicker();
+  // Save current venue's count before switching
+  saveToStorage();
+  // Switch venue
   session.client   = name;
   session.clientId = 'c_' + name.toLowerCase().replace(/[^a-z0-9]/g,'_');
+  // Reset counts then load this venue's saved count
+  session.counts = {};
+  session.code   = 'AP-' + Math.floor(1000 + Math.random() * 9000);
+  loadFromStorage();
+  // Update UI
   document.getElementById('area-client-name').textContent = name;
-  toast('Switched to ' + name, true);
-  // Reload products for new venue
+  renderAreas();
+  const lines = Object.values(session.counts).flat().length;
+  toast(lines > 0 ? `Switched to ${name} — ${lines} lines restored` : `Switched to ${name}`, true);
   loadProductsFromSupabase();
 }
 
