@@ -1046,9 +1046,12 @@ function quickStart() {
     connectSession();
     return;
   }
-  // Otherwise switch to code entry tab so user can enter venue name
-  switchConnectTab('code', document.querySelector('[onclick*="ct-code"]'));
-  setTimeout(() => document.getElementById('session-client-input')?.focus(), 300);
+  // No saved session — show the Enter code tab
+  const codeTab = document.getElementById('ct-code');
+  if(codeTab) {
+    codeTab.style.display = 'block';
+    setTimeout(() => document.getElementById('session-client-input')?.focus(), 200);
+  }
   toast('Enter your venue name to start');
 }
 
