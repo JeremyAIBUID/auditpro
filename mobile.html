@@ -213,36 +213,25 @@ select.inp-m{cursor:pointer;}
       </svg>
     </div>
     <div class="connect-title">AuditPro</div>
-    <div class="connect-sub">Connect to a desktop session to begin counting. Use the QR code or type the session code shown on your desktop.</div>
+    <div class="connect-sub" style="margin-bottom:24px;">Select your venue to begin counting.</div>
 
-    <div class="connect-tabs">
-      <button class="connect-tab active" onclick="setConnectTab('qr',this)">Scan QR</button>
-      <button class="connect-tab" onclick="setConnectTab('code',this)">Enter code</button>
-    </div>
-
-    <!-- QR view -->
-    <div id="ct-qr" style="width:100%;">
-      <div class="qr-box" style="opacity:0.4;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-          <path d="M3 9V5a2 2 0 012-2h4M3 15v4a2 2 0 002 2h4M21 9V5a2 2 0 00-2-2h-4M21 15v4a2 2 0 01-2 2h-4"/>
-          <rect x="7" y="7" width="4" height="4" rx="0.5"/><rect x="13" y="7" width="4" height="4" rx="0.5"/>
-          <rect x="7" y="13" width="4" height="4" rx="0.5"/><line x1="13" y1="13" x2="13" y2="13"/><line x1="17" y1="13" x2="17" y2="13"/><line x1="17" y1="17" x2="17" y2="17"/>
-        </svg>
+    <!-- Venue list loaded from Supabase -->
+    <div id="venue-select-list" style="width:100%;display:flex;flex-direction:column;gap:10px;margin-bottom:20px;">
+      <div style="text-align:center;padding:20px;color:var(--text3);font-size:13px;" id="venue-loading">
+        <div style="width:24px;height:24px;border:2px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 10px;"></div>
+        Loading venues…
       </div>
-      <p style="font-size:13px;color:var(--text3);margin-bottom:16px;">Point your camera at the QR code on the desktop stocktake screen.</p>
-      <button class="btn btn-primary" onclick="quickStart()" style="margin-bottom:10px;">▶ Start counting</button>
-      <button class="btn btn-secondary" style="font-size:12px;width:100%;" onclick="switchConnectTab('code',this)">Enter venue name & code manually</button>
     </div>
 
-    <!-- Code view -->
-    <div id="ct-code" style="width:100%;display:none;">
-      <input class="code-input" id="session-code-input" placeholder="AP-0000" maxlength="7" oninput="formatCode(this)" style="margin-bottom:10px;">
-      <input class="code-input" id="session-client-input" placeholder="Venue name" maxlength="60"
-        style="font-size:16px;letter-spacing:0.05em;margin-bottom:10px;">
-      <button class="btn btn-primary" onclick="connectByCode()">Connect</button>
+    <!-- Manual fallback -->
+    <div style="width:100%;border-top:1px solid var(--border);padding-top:16px;margin-top:4px;">
+      <div style="font-size:11px;color:var(--text3);text-align:center;margin-bottom:10px;">Or enter manually</div>
+      <input class="code-input" id="session-client-input" placeholder="Type venue name…" maxlength="60"
+        style="font-size:15px;letter-spacing:0.02em;margin-bottom:10px;text-align:left;padding-left:14px;">
+      <button class="btn btn-primary" onclick="connectByCode()" style="width:100%;">Connect</button>
     </div>
 
-    <p style="font-size:11px;color:var(--text3);margin-top:20px;line-height:1.6;">Data is stored on this device until you sync at the end of the count. No internet required during counting.</p>
+    <p style="font-size:11px;color:var(--text3);margin-top:20px;line-height:1.6;text-align:center;">Count is saved on this device. No internet needed during counting.</p>
   </div>
 </div>
 
@@ -595,12 +584,20 @@ select.inp-m{cursor:pointer;}
         <div id="sync-status-row" style="margin-top:10px;padding:10px 12px;border-radius:10px;background:rgba(91,227,180,0.08);border:1px solid rgba(91,227,180,0.2);font-size:13px;color:var(--green);display:none;"></div>
       </div>
       <div class="sync-card">
-        <div class="sync-card-title">Option 1 — Enter code on desktop</div>
-        <div class="export-code">
-          <div class="export-code-val" id="export-code-display">AP-4821</div>
-          <div class="export-code-label">Type this code into the desktop stocktake screen to import your count</div>
+        <div class="sync-card-title">Option 1 — Scan QR on desktop</div>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:12px;">Open the desktop stocktake screen and scan the QR code shown there.</p>
+        <button class="btn btn-primary" style="width:100%;margin-bottom:10px;" onclick="startSyncQRScan()">📷 Scan QR code</button>
+        <div id="sync-qr-cam-wrap" style="display:none;margin-bottom:10px;">
+          <video id="sync-qr-cam" autoplay playsinline muted style="width:100%;border-radius:10px;background:#000;max-height:220px;object-fit:cover;"></video>
+          <button onclick="stopSyncQRScan()" style="width:100%;margin-top:6px;padding:8px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-size:13px;cursor:pointer;">Stop camera</button>
         </div>
-        <button class="btn btn-secondary" onclick="copyCode()" style="font-size:13px;padding:12px;">Copy code</button>
+        <div style="text-align:center;font-size:12px;color:var(--text3);margin:8px 0;">— or enter code manually —</div>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="manual-sync-code" placeholder="AP-0000" maxlength="7"
+            style="flex:1;background:var(--bg3);border:1px solid var(--border2);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--font-mono);font-size:16px;letter-spacing:0.15em;outline:none;text-align:center;">
+          <button class="btn btn-secondary" onclick="syncWithCode(document.getElementById('manual-sync-code').value)" style="padding:10px 16px;">Sync</button>
+        </div>
+        <div id="sync-status-row" style="margin-top:10px;padding:10px 12px;border-radius:10px;background:rgba(91,227,180,0.08);border:1px solid rgba(91,227,180,0.2);font-size:13px;color:var(--green);display:none;"></div>
       </div>
       <div class="sync-card">
         <div class="sync-card-title">Option 2 — Download CSV</div>
@@ -1039,20 +1036,64 @@ function connectByCode() {
   connectSession();
 }
 
-function quickStart() {
-  // Try to restore saved session first
+// ─── VENUE LOADER ────────────────────────────────
+async function loadVenuesFromSupabase() {
+  const list = document.getElementById('venue-select-list');
+  if(!list) return;
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/ap_clients?select=slug,data&order=id.asc`, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+    });
+
+    if(!res.ok) throw new Error('fetch failed');
+    const rows = await res.json();
+
+    if(!rows || rows.length === 0) {
+      list.innerHTML = '<div style="text-align:center;padding:16px;font-size:13px;color:var(--text3);">No venues found — enter manually below</div>';
+      return;
+    }
+
+    list.innerHTML = rows.map(row => {
+      const name  = row.data?.name || row.slug;
+      const color = row.data?.color || '#c8f064';
+      return `<button onclick="selectVenueAndStart('${name.replace(/'/g,"\\'")}','${row.slug}','${color}')"
+        style="width:100%;padding:16px;background:var(--bg2);border:1px solid var(--border2);border-radius:14px;
+               display:flex;align-items:center;gap:14px;cursor:pointer;touch-action:manipulation;text-align:left;"
+        onmousedown="this.style.background='var(--bg3)'" onmouseup="this.style.background='var(--bg2)'">
+        <div style="width:12px;height:12px;border-radius:50%;background:${color};flex-shrink:0;"></div>
+        <div>
+          <div style="font-size:16px;font-weight:700;color:var(--text);">${name}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px;">Tap to start counting</div>
+        </div>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px;color:var(--text3);margin-left:auto;flex-shrink:0;"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>`;
+    }).join('');
+
+  } catch(e) {
+    // Fallback to hardcoded VENUES list if Supabase fails
+    list.innerHTML = VENUES.map(v => `
+      <button onclick="selectVenueAndStart('${v.name.replace(/'/g,"\\'")}','${'c_'+v.name.toLowerCase().replace(/[^a-z0-9]/g,'_')}','${v.color}')"
+        style="width:100%;padding:16px;background:var(--bg2);border:1px solid var(--border2);border-radius:14px;
+               display:flex;align-items:center;gap:14px;cursor:pointer;touch-action:manipulation;text-align:left;">
+        <div style="width:12px;height:12px;border-radius:50%;background:${v.color};flex-shrink:0;"></div>
+        <div style="font-size:16px;font-weight:700;color:var(--text);">${v.name}</div>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px;color:var(--text3);margin-left:auto;flex-shrink:0;"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>`).join('');
+  }
+}
+
+function selectVenueAndStart(name, slug, color) {
+  session.client   = name;
+  session.clientId = slug;
+  // Restore saved count if same venue
   const restored = loadFromStorage();
-  if(restored && session.client && session.client !== 'The Harbour Bar') {
-    connectSession();
-    return;
+  if(restored && session.client !== name) {
+    // Different venue — start fresh
+    session.counts = {};
+    session.code   = 'AP-' + Math.floor(1000 + Math.random() * 9000);
   }
-  // No saved session — show the Enter code tab
-  const codeTab = document.getElementById('ct-code');
-  if(codeTab) {
-    codeTab.style.display = 'block';
-    setTimeout(() => document.getElementById('session-client-input')?.focus(), 200);
-  }
-  toast('Enter your venue name to start');
+  connectSession();
 }
 
 function connectSession() {
@@ -2042,7 +2083,64 @@ function openProductFormWithBarcode(barcode) {
   toast('Fill in details for barcode ' + barcode);
 }
 
-// ─── BARCODE SCAN FOR FORM FIELD ─────────────────
+// ─── SYNC QR SCAN ─────────────────────────────────
+let _syncQRStream = null;
+let _syncQRInterval = null;
+
+async function startSyncQRScan() {
+  const wrap  = document.getElementById('sync-qr-cam-wrap');
+  const video = document.getElementById('sync-qr-cam');
+  if(!wrap || !video) return;
+
+  try {
+    _syncQRStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    video.srcObject = _syncQRStream;
+    wrap.style.display = 'block';
+
+    if('BarcodeDetector' in window) {
+      const detector = new BarcodeDetector({ formats: ['qr_code'] });
+      _syncQRInterval = setInterval(async () => {
+        if(video.readyState < 2) return;
+        try {
+          const codes = await detector.detect(video);
+          if(codes.length > 0) {
+            const val = codes[0].rawValue;
+            stopSyncQRScan();
+            syncWithCode(val);
+          }
+        } catch(e) {}
+      }, 400);
+    } else {
+      toast('Camera active — enter code manually if scan fails');
+    }
+  } catch(e) {
+    toast('Camera access denied — enter code manually');
+  }
+}
+
+function stopSyncQRScan() {
+  if(_syncQRInterval) { clearInterval(_syncQRInterval); _syncQRInterval = null; }
+  if(_syncQRStream)   { _syncQRStream.getTracks().forEach(t=>t.stop()); _syncQRStream = null; }
+  const wrap = document.getElementById('sync-qr-cam-wrap');
+  if(wrap) wrap.style.display = 'none';
+}
+
+async function syncWithCode(code) {
+  if(!code || code.length < 4) { toast('Enter a valid code e.g. AP-4821'); return; }
+  code = code.toUpperCase().trim();
+  // Update session code and push to Supabase
+  session.code = code;
+  document.getElementById('sync-code-val').textContent       = code;
+  document.getElementById('export-code-display').textContent = code;
+  // Rebuild CSV and push
+  const areas = Object.keys(session.counts).filter(a=>session.counts[a].length>0);
+  let csv = `Client,${session.client}\nClientId,${session.clientId||''}\nSessionCode,${code}\n\nProduct,Category,Area,Quantity,Unit,Method\n`;
+  areas.forEach(a=>session.counts[a].forEach(r=>{
+    csv += `"${r.name}","${r.cat}","${a}",${r.qty},"${r.unit}","${r.method}"\n`;
+  }));
+  await pushCountToSupabase(csv);
+  toast('✓ Count synced with code ' + code, true);
+}
 let _fieldScanStream = null;
 let _fieldScanInterval = null;
 let _fieldScanTarget = null;
@@ -3184,6 +3282,10 @@ function toast(msg, success=false) {
   clearTimeout(window._toastTimer);
   window._toastTimer = setTimeout(()=>el.classList.remove('show'), 2200);
 }
+
+// ─── INIT ─────────────────────────────────────────
+// Load venues from Supabase as soon as app starts
+document.addEventListener('DOMContentLoaded', () => loadVenuesFromSupabase());
 </script>
 </body>
 </html>
