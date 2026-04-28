@@ -223,12 +223,18 @@ select.inp-m{cursor:pointer;}
     <div class="connect-title">AuditPro</div>
     <div class="connect-sub" style="margin-bottom:24px;">Select your venue to begin counting.</div>
 
-    <!-- Venue list loaded from Supabase -->
-    <div id="venue-select-list" style="width:100%;display:flex;flex-direction:column;gap:10px;margin-bottom:20px;">
-      <div style="text-align:center;padding:20px;color:var(--text3);font-size:13px;" id="venue-loading">
-        <div style="width:24px;height:24px;border:2px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 10px;"></div>
-        Loading venues…
-      </div>
+    <!-- Venue dropdown -->
+    <div style="width:100%;margin-bottom:20px;">
+      <select id="venue-dropdown"
+        style="width:100%;padding:16px;background:var(--bg2);border:1px solid var(--border2);border-radius:14px;
+               color:var(--text);font-family:var(--font-ui);font-size:16px;font-weight:600;outline:none;
+               cursor:pointer;appearance:none;-webkit-appearance:none;
+               background-image:url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23888%22 stroke-width=%222%22><polyline points=%226 9 12 15 18 9%22/></svg>');
+               background-repeat:no-repeat;background-position:right 14px center;background-size:18px;"
+        onchange="onVenueDropdownChange(this)">
+        <option value="">— Select venue —</option>
+      </select>
+      <button class="btn btn-primary" onclick="startFromDropdown()" style="width:100%;margin-top:12px;padding:16px;font-size:16px;">▶ Start counting</button>
     </div>
 
     <!-- Manual fallback -->
@@ -922,12 +928,19 @@ function venueStorageKey() {
 
 function saveToStorage() {
   try {
+    const key = venueStorageKey();
     const data = {
-      session: { code: session.code, client: session.client, clientId: session.clientId, counts: session.counts },
+      session: { 
+        code: session.code, 
+        client: session.client, 
+        clientId: session.clientId, 
+        counts: session.counts 
+      },
       extraProducts: PRODUCTS.filter(p => p._userAdded),
       savedAt: Date.now()
     };
-    localStorage.setItem(venueStorageKey(), JSON.stringify(data));
+    localStorage.setItem(key, JSON.stringify(data));
+    console.log('[AuditPro] Saved ' + Object.values(session.counts).flat().length + ' lines to key: ' + key);
   } catch(e) { console.warn('Storage save failed:', e); }
 }
 
@@ -1047,13 +1060,14 @@ function connectByCode() {
 
 // ─── VENUE LOADER ────────────────────────────────
 async function loadVenuesFromSupabase() {
-  const list = document.getElementById('venue-select-list');
-  if(!list) return;
+  const dropdown = document.getElementById('venue-dropdown');
+  if(!dropdown) return;
 
-  // Start with hardcoded venues immediately so list is never empty
-  renderVenueButtons(list, VENUES.map(v => ({ name: v.name, slug: 'c_'+v.name.toLowerCase().replace(/[^a-z0-9]/g,'_'), color: v.color })));
+  // Populate with hardcoded venues immediately
+  const allVenues = [...VENUES.map(v => ({ name: v.name, slug: 'c_'+v.name.toLowerCase().replace(/[^a-z0-9]/g,'_'), color: v.color }))];
+  renderVenueDropdown(dropdown, allVenues);
 
-  // Then try to load from Supabase and merge any additional venues
+  // Then merge any additional venues from Supabase
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/ap_clients?select=slug,data&order=id.asc`, {
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
@@ -1062,36 +1076,49 @@ async function loadVenuesFromSupabase() {
     const rows = await res.json();
     if(!rows || rows.length === 0) return;
 
-    // Merge DB venues with hardcoded list — DB takes priority for matching names
-    const merged = [...VENUES.map(v => ({ name: v.name, slug: 'c_'+v.name.toLowerCase().replace(/[^a-z0-9]/g,'_'), color: v.color }))];
     rows.forEach(row => {
-      const name  = row.data?.name || row.slug;
+      const name = row.data?.name || row.slug;
       const color = row.data?.color || '#c8f064';
-      if(!merged.find(v => v.name.toLowerCase() === name.toLowerCase())) {
-        merged.push({ name, slug: row.slug, color });
+      if(!allVenues.find(v => v.name.toLowerCase() === name.toLowerCase())) {
+        allVenues.push({ name, slug: row.slug, color });
       }
     });
-    renderVenueButtons(list, merged);
+    renderVenueDropdown(dropdown, allVenues);
   } catch(e) {
     console.warn('Venue load failed, using defaults:', e);
   }
 }
 
+function renderVenueDropdown(dropdown, venues) {
+  // Store venues globally for lookup
+  window._venueList = venues;
+  dropdown.innerHTML = '<option value="">— Select venue —</option>' +
+    venues.map((v, i) => `<option value="${i}">${v.name}</option>`).join('');
+}
+
+function onVenueDropdownChange(sel) {
+  // Just selection — start button triggers the actual connect
+}
+
+function startFromDropdown() {
+  const dropdown = document.getElementById('venue-dropdown');
+  const idx = dropdown?.value;
+  if(idx === '' || idx === null || idx === undefined) {
+    toast('Please select a venue first');
+    return;
+  }
+  const v = window._venueList?.[parseInt(idx)];
+  if(!v) { toast('Venue not found'); return; }
+  session.client   = v.name;
+  session.clientId = v.slug;
+  session.counts   = {};
+  session.code     = 'AP-' + Math.floor(1000 + Math.random() * 9000);
+  loadFromStorage();
+  connectSession();
+}
+
 function renderVenueButtons(list, venues) {
-  list.innerHTML = venues.map((v, i) => {
-    const idx = 'vb' + i;
-    window['_venue_'+idx] = { name: v.name, slug: v.slug, color: v.color };
-    return `<button onclick="selectVenueAndStart('_venue_${idx}')"
-      style="width:100%;padding:16px;background:var(--bg2);border:1px solid var(--border2);border-radius:14px;
-             display:flex;align-items:center;gap:14px;cursor:pointer;touch-action:manipulation;text-align:left;margin-bottom:2px;">
-      <div style="width:12px;height:12px;border-radius:50%;background:${v.color};flex-shrink:0;"></div>
-      <div>
-        <div style="font-size:16px;font-weight:700;color:var(--text);">${v.name}</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:2px;">Tap to start counting</div>
-      </div>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px;color:var(--text3);margin-left:auto;flex-shrink:0;"><polyline points="9 18 15 12 9 6"/></svg>
-    </button>`;
-  }).join('');
+  // Keep for backward compatibility but now unused
 }
 
 function selectVenueAndStart(venueKey) {
@@ -2921,15 +2948,16 @@ function playBeep(type) {
 
 // ─── ADD ITEM CORE ───────────────────────────────
 function addItem(product, qty, unit, method) {
-  if(!session.counts[currentArea]) session.counts[currentArea]=[];
-  const existing = session.counts[currentArea].find(r=>r.name===product.name && r.unit===unit);
-  if(existing){
-    existing.qty = (parseFloat(existing.qty)+qty).toFixed(2).replace(/\.00$/,'');
+  if(!currentArea) { toast('Select an area first'); return; }
+  if(!session.counts[currentArea]) session.counts[currentArea] = [];
+  const existing = session.counts[currentArea].find(r => r.name === product.name && r.unit === unit);
+  if(existing) {
+    existing.qty = parseFloat((parseFloat(existing.qty) + qty).toFixed(2));
   } else {
-    session.counts[currentArea].push({name:product.name, cat:product.cat, qty, unit, method});
+    session.counts[currentArea].push({ name: product.name, cat: product.cat||'', qty, unit, method });
   }
   updateCountUI();
-  saveToStorage(); // persist immediately
+  saveToStorage();
   toast('+' + qty + ' ' + unit + ' · ' + product.name, true);
 }
 
