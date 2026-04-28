@@ -1140,11 +1140,9 @@ function selectVenueAndStart(venueKey) {
 }
 
 function connectSession() {
-  const restored = loadFromStorage();
-
-  const areaName = document.getElementById('area-client-name');
-  const codeDisp = document.getElementById('session-code-display');
-  const expDisp  = document.getElementById('export-code-display');
+  const areaName    = document.getElementById('area-client-name');
+  const codeDisp    = document.getElementById('session-code-display');
+  const expDisp     = document.getElementById('export-code-display');
   const syncCodeVal = document.getElementById('sync-code-val');
 
   if(areaName)    areaName.textContent    = session.client;
@@ -1155,13 +1153,9 @@ function connectSession() {
   renderAreas();
   showScreen('screen-areas');
 
-  if(restored) {
-    const lines = Object.values(session.counts).flat().length;
-    if(lines > 0) toast(`↩ Restored ${lines} lines from last session`, true);
-    else toast('Connected to ' + session.client, true);
-  } else {
-    toast('Connected to ' + session.client, true);
-  }
+  const lines = Object.values(session.counts).flat().length;
+  if(lines > 0) toast(`↩ Restored ${lines} lines from last session`, true);
+  else toast('Connected to ' + session.client, true);
 
   loadProductsFromSupabase();
 }
