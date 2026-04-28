@@ -1042,68 +1042,65 @@ async function loadVenuesFromSupabase() {
   const list = document.getElementById('venue-select-list');
   if(!list) return;
 
+  // Start with hardcoded venues immediately so list is never empty
+  renderVenueButtons(list, VENUES.map(v => ({ name: v.name, slug: 'c_'+v.name.toLowerCase().replace(/[^a-z0-9]/g,'_'), color: v.color })));
+
+  // Then try to load from Supabase and merge any additional venues
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/ap_clients?select=slug,data&order=id.asc`, {
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
     });
-
-    if(!res.ok) throw new Error('fetch failed');
+    if(!res.ok) return;
     const rows = await res.json();
+    if(!rows || rows.length === 0) return;
 
-    if(!rows || rows.length === 0) {
-      list.innerHTML = '<div style="text-align:center;padding:16px;font-size:13px;color:var(--text3);">No venues found — enter manually below</div>';
-      return;
-    }
-
-    list.innerHTML = rows.map((row, i) => {
+    // Merge DB venues with hardcoded list — DB takes priority for matching names
+    const merged = [...VENUES.map(v => ({ name: v.name, slug: 'c_'+v.name.toLowerCase().replace(/[^a-z0-9]/g,'_'), color: v.color }))];
+    rows.forEach(row => {
       const name  = row.data?.name || row.slug;
       const color = row.data?.color || '#c8f064';
-      const idx   = 'v' + i;
-      // Store venue data globally to avoid inline string escaping issues
-      window['_venue_'+idx] = { name, slug: row.slug, color };
-      return `<button onclick="selectVenueAndStart('_venue_${idx}')"
-        style="width:100%;padding:16px;background:var(--bg2);border:1px solid var(--border2);border-radius:14px;
-               display:flex;align-items:center;gap:14px;cursor:pointer;touch-action:manipulation;text-align:left;"
-        onmousedown="this.style.background='var(--bg3)'" onmouseup="this.style.background='var(--bg2)'">
-        <div style="width:12px;height:12px;border-radius:50%;background:${color};flex-shrink:0;"></div>
-        <div>
-          <div style="font-size:16px;font-weight:700;color:var(--text);">${name}</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:2px;">Tap to start counting</div>
-        </div>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px;color:var(--text3);margin-left:auto;flex-shrink:0;"><polyline points="9 18 15 12 9 6"/></svg>
-      </button>`;
-    }).join('');
-
+      if(!merged.find(v => v.name.toLowerCase() === name.toLowerCase())) {
+        merged.push({ name, slug: row.slug, color });
+      }
+    });
+    renderVenueButtons(list, merged);
   } catch(e) {
-    // Fallback to hardcoded VENUES list if Supabase fails
-    list.innerHTML = VENUES.map((v, i) => {
-      const idx = 'vf' + i;
-      window['_venue_'+idx] = { name: v.name, slug: 'c_'+v.name.toLowerCase().replace(/[^a-z0-9]/g,'_'), color: v.color };
-      return `<button onclick="selectVenueAndStart('_venue_${idx}')"
-        style="width:100%;padding:16px;background:var(--bg2);border:1px solid var(--border2);border-radius:14px;
-               display:flex;align-items:center;gap:14px;cursor:pointer;touch-action:manipulation;text-align:left;">
-        <div style="width:12px;height:12px;border-radius:50%;background:${v.color};flex-shrink:0;"></div>
-        <div>
-          <div style="font-size:16px;font-weight:700;color:var(--text);">${v.name}</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:2px;">Tap to start counting</div>
-        </div>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px;color:var(--text3);margin-left:auto;flex-shrink:0;"><polyline points="9 18 15 12 9 6"/></svg>
-      </button>`;
-    }).join('');
+    console.warn('Venue load failed, using defaults:', e);
   }
+}
+
+function renderVenueButtons(list, venues) {
+  list.innerHTML = venues.map((v, i) => {
+    const idx = 'vb' + i;
+    window['_venue_'+idx] = { name: v.name, slug: v.slug, color: v.color };
+    return `<button onclick="selectVenueAndStart('_venue_${idx}')"
+      style="width:100%;padding:16px;background:var(--bg2);border:1px solid var(--border2);border-radius:14px;
+             display:flex;align-items:center;gap:14px;cursor:pointer;touch-action:manipulation;text-align:left;margin-bottom:2px;">
+      <div style="width:12px;height:12px;border-radius:50%;background:${v.color};flex-shrink:0;"></div>
+      <div>
+        <div style="font-size:16px;font-weight:700;color:var(--text);">${v.name}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">Tap to start counting</div>
+      </div>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:16px;height:16px;color:var(--text3);margin-left:auto;flex-shrink:0;"><polyline points="9 18 15 12 9 6"/></svg>
+    </button>`;
+  }).join('');
 }
 
 function selectVenueAndStart(venueKey) {
   const v = window[venueKey];
   if(!v) { toast('Error loading venue — try manually'); return; }
+  
+  // Set venue FIRST so venueStorageKey() uses the right venue
   session.client   = v.name;
   session.clientId = v.slug;
-  // Restore saved count for this venue if available
-  const restored = loadFromStorage();
-  if(restored && session.client !== v.name) {
-    session.counts = {};
-    session.code   = 'AP-' + Math.floor(1000 + Math.random() * 9000);
-  }
+  
+  // Reset counts before loading — ensures no crossover from previous venue
+  session.counts = {};
+  session.code   = 'AP-' + Math.floor(1000 + Math.random() * 9000);
+  
+  // Now load this venue's saved count
+  loadFromStorage();
+  
   connectSession();
 }
 
