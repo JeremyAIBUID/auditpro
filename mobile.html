@@ -1107,12 +1107,18 @@ function selectVenueAndStart(venueKey) {
 }
 
 function connectSession() {
-  // Try to restore previous session from localStorage
   const restored = loadFromStorage();
 
-  document.getElementById('area-client-name').textContent      = session.client;
-  document.getElementById('session-code-display').textContent  = session.code;
-  document.getElementById('export-code-display').textContent   = session.code;
+  const areaName = document.getElementById('area-client-name');
+  const codeDisp = document.getElementById('session-code-display');
+  const expDisp  = document.getElementById('export-code-display');
+  const syncCodeVal = document.getElementById('sync-code-val');
+
+  if(areaName)    areaName.textContent    = session.client;
+  if(codeDisp)    codeDisp.textContent    = session.code;
+  if(expDisp)     expDisp.textContent     = session.code;
+  if(syncCodeVal) syncCodeVal.textContent = session.code;
+
   renderAreas();
   showScreen('screen-areas');
 
@@ -1124,7 +1130,6 @@ function connectSession() {
     toast('Connected to ' + session.client, true);
   }
 
-  // Load products from Supabase in background
   loadProductsFromSupabase();
 }
 
