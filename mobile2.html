@@ -2056,7 +2056,8 @@ function processBarcode(barcode) {
   }
 }
 
-function showUnknownBarcode(barcode) {stopCameraScan(); 
+function showUnknownBarcode(barcode) {
+  stopCameraScan();
   playBeep('unknown');
   document.getElementById('scan-result-name').textContent = '⚠ Unknown barcode';
   document.getElementById('scan-result-info').textContent = barcode + ' — not in catalogue';
@@ -2072,7 +2073,7 @@ function showUnknownBarcode(barcode) {stopCameraScan();
   document.getElementById('scan-qty-row').style.display = 'none';
   document.getElementById('scan-numpad').style.display  = 'none';
 
-  // Show big create button
+  // Show big create button — clone to remove all old listeners
   const oldBtn = document.getElementById('scan-add-btn');
   const newBtn = oldBtn.cloneNode(true);
   oldBtn.parentNode.replaceChild(newBtn, oldBtn);
@@ -2089,7 +2090,8 @@ function showUnknownBarcode(barcode) {stopCameraScan();
   newBtn.addEventListener('touchend', (e) => { e.preventDefault(); openProductFormWithBarcode(barcode); });
   setTimeout(() => newBtn.scrollIntoView({ behavior:'smooth', block:'center' }), 100);
   toast('Unknown barcode — tap button to create product', false);
-  }
+}
+
 function openProductFormWithName(name) {
   // Clear form then pre-fill name
   ['mp-barcode','mp-unitvol','mp-servevol','mp-tareg','mp-cost','mp-sell','mp-par'].forEach(id=>{
