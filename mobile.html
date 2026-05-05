@@ -2035,6 +2035,10 @@ function showUnknownBarcode(barcode) {
   _pendingUnknownBarcode = barcode;
   playBeep('unknown');
 
+  // Hide camera zone so button is visible
+  const camZone = document.getElementById('cam-scan-zone');
+  if(camZone) camZone.style.display = 'none';
+
   document.getElementById('scan-result-name').textContent = '⚠ Unknown barcode';
   document.getElementById('scan-result-info').textContent = barcode + ' — not in catalogue';
   document.getElementById('scan-last-count').style.display = 'none';
@@ -2049,6 +2053,9 @@ function showUnknownBarcode(barcode) {
   document.getElementById('scan-numpad').style.display  = 'none';
   document.getElementById('scan-add-btn').style.display = 'none';
   document.getElementById('scan-create-btn').style.display = 'block';
+
+  // Scroll create button into view
+  setTimeout(() => document.getElementById('scan-create-btn')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200);
   toast('Unknown — tap button to create product', false);
 }
 
