@@ -461,6 +461,8 @@ select.inp-m{cursor:pointer;}
         <button onclick="numpadPress('scan','✓')" style="padding:14px;border-radius:10px;background:var(--accent);border:none;color:#0d0f12;font-size:18px;font-weight:700;cursor:pointer;touch-action:manipulation;">✓</button>
       </div>
       <button class="btn btn-primary" id="scan-add-btn" style="display:none;">✓ Add to count</button>
+      <!-- Permanent create product button - shown only for unknown barcodes -->
+      <button id="scan-create-btn" onclick="createProductFromScan()" style="display:none;width:100%;padding:18px;background:var(--accent);border:none;border-radius:14px;color:#0d0f12;font-family:var(--font-ui);font-size:17px;font-weight:700;cursor:pointer;touch-action:manipulation;margin-top:8px;">+ Create new product for this barcode</button>
     </div>
 
     <!-- SEARCH METHOD -->
@@ -2028,9 +2030,17 @@ function processBarcode(barcode) {
   }
 }
 
+let _pendingUnknownBarcode = null;
+
+function createProductFromScan() {
+  if(_pendingUnknownBarcode) openProductFormWithBarcode(_pendingUnknownBarcode);
+}
+
 function showUnknownBarcode(barcode) {
   stopCamera();
+  _pendingUnknownBarcode = barcode;
   playBeep('unknown');
+
   document.getElementById('scan-result-name').textContent = '⚠ Unknown barcode';
   document.getElementById('scan-result-info').textContent = barcode + ' — not in catalogue';
   document.getElementById('scan-last-count').style.display = 'none';
@@ -2040,28 +2050,12 @@ function showUnknownBarcode(barcode) {
   result.style.borderColor = 'rgba(240,80,80,0.3)';
   result.classList.add('visible');
 
-  // Hide qty controls
   document.getElementById('scan-fracs').style.display   = 'none';
   document.getElementById('scan-qty-row').style.display = 'none';
   document.getElementById('scan-numpad').style.display  = 'none';
-
-  // Show big create button — clone to remove all old listeners
-  const oldBtn = document.getElementById('scan-add-btn');
-  const newBtn = oldBtn.cloneNode(true);
-  oldBtn.parentNode.replaceChild(newBtn, oldBtn);
-  newBtn.style.display    = 'block';
-  newBtn.textContent      = '+ Create new product for this barcode';
-  newBtn.style.background = 'var(--accent)';
-  newBtn.style.color      = '#0d0f12';
-  newBtn.style.border     = 'none';
-  newBtn.style.padding    = '18px';
-  newBtn.style.fontSize   = '16px';
-  newBtn.style.fontWeight = '700';
-  newBtn.style.width      = '100%';
-  newBtn.addEventListener('click', () => openProductFormWithBarcode(barcode));
-  newBtn.addEventListener('touchend', (e) => { e.preventDefault(); openProductFormWithBarcode(barcode); });
-  setTimeout(() => newBtn.scrollIntoView({ behavior:'smooth', block:'center' }), 100);
-  toast('Unknown barcode — tap button to create product', false);
+  document.getElementById('scan-add-btn').style.display = 'none';
+  document.getElementById('scan-create-btn').style.display = 'block';
+  toast('Unknown — tap button to create product', false);
 }
 
 function openProductFormWithName(name) {
@@ -2251,6 +2245,7 @@ function showScanResult(product) {
   document.getElementById('scan-fracs').style.display = 'flex';
   document.getElementById('scan-qty-row').style.display = 'flex';
   document.getElementById('scan-numpad').style.display = 'grid';
+  document.getElementById('scan-create-btn').style.display = 'none';
   const addBtn = document.getElementById('scan-add-btn');
   addBtn.style.display = 'block';
   addBtn.textContent   = '✓ Add to count';
