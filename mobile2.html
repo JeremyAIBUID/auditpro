@@ -2081,7 +2081,9 @@ function showUnknownBarcode(barcode) {
   addBtn.style.border     = 'none';
   addBtn.style.padding    = '16px';
   addBtn.style.fontSize   = '16px';
-  addBtn.onclick = () => openProductFormWithBarcode(barcode);
+  addBtn.onclick = null;
+addBtn.addEventListener('click', () => openProductFormWithBarcode(barcode));
+addBtn.addEventListener('touchend', (e) => { e.preventDefault(); openProductFormWithBarcode(barcode); });
   toast('Unknown barcode — tap button to create product', false);
 }
 
