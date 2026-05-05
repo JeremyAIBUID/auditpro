@@ -8903,14 +8903,17 @@ async function dbSaveClient(client) {
   showPersistToast('✓ Saved');
 }
 
-// Save all products for a client
+// Save all products for a client — updates both ap_products table AND the client record
 async function dbSaveProducts(client) {
   if (!DB._ready) return;
   const rows = (client.products || []).map(p => ({
     client_slug: clientSlug(client),
+    product_name: p.n || p.name || '',
     data: p,
   }));
   if (rows.length) await DB.upsert('ap_products', rows);
+  // Also update client record so products array is persisted in ap_clients
+  await DB.upsert('ap_clients', { slug: clientSlug(client), data: client });
 }
 
 // Save an audit session
