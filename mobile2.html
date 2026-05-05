@@ -2056,7 +2056,7 @@ function processBarcode(barcode) {
   }
 }
 
-function showUnknownBarcode(barcode) {
+function showUnknownBarcode(barcode) {stopCameraScan(); 
   playBeep('unknown');
   document.getElementById('scan-result-name').textContent = '⚠ Unknown barcode';
   document.getElementById('scan-result-info').textContent = barcode + ' — not in catalogue';
@@ -2073,20 +2073,23 @@ function showUnknownBarcode(barcode) {
   document.getElementById('scan-numpad').style.display  = 'none';
 
   // Show big create button
-  const addBtn = document.getElementById('scan-add-btn');
-  addBtn.style.display    = 'block';
-  addBtn.textContent      = '+ Create new product for this barcode';
-  addBtn.style.background = 'var(--accent)';
-  addBtn.style.color      = '#0d0f12';
-  addBtn.style.border     = 'none';
-  addBtn.style.padding    = '16px';
-  addBtn.style.fontSize   = '16px';
-  addBtn.onclick = null;
-addBtn.addEventListener('click', () => openProductFormWithBarcode(barcode));
-addBtn.addEventListener('touchend', (e) => { e.preventDefault(); openProductFormWithBarcode(barcode); });
+  const oldBtn = document.getElementById('scan-add-btn');
+  const newBtn = oldBtn.cloneNode(true);
+  oldBtn.parentNode.replaceChild(newBtn, oldBtn);
+  newBtn.style.display    = 'block';
+  newBtn.textContent      = '+ Create new product for this barcode';
+  newBtn.style.background = 'var(--accent)';
+  newBtn.style.color      = '#0d0f12';
+  newBtn.style.border     = 'none';
+  newBtn.style.padding    = '18px';
+  newBtn.style.fontSize   = '16px';
+  newBtn.style.fontWeight = '700';
+  newBtn.style.width      = '100%';
+  newBtn.addEventListener('click', () => openProductFormWithBarcode(barcode));
+  newBtn.addEventListener('touchend', (e) => { e.preventDefault(); openProductFormWithBarcode(barcode); });
+  setTimeout(() => newBtn.scrollIntoView({ behavior:'smooth', block:'center' }), 100);
   toast('Unknown barcode — tap button to create product', false);
-}
-
+  }
 function openProductFormWithName(name) {
   // Clear form then pre-fill name
   ['mp-barcode','mp-unitvol','mp-servevol','mp-tareg','mp-cost','mp-sell','mp-par'].forEach(id=>{
