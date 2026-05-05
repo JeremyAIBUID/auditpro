@@ -4031,28 +4031,72 @@ function openNewProductModal() {
 function deleteProduct(idx) {
   const c = activeClient; if(!c) return;
   const p = c.products[idx]; if(!p) return;
+  const name = p.n || p.name;
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
   overlay.innerHTML = `
-    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:16px;padding:24px;max-width:380px;width:90%;">
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:16px;padding:24px;max-width:400px;width:90%;">
       <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:8px;">Delete product?</div>
-      <div style="font-size:13px;color:var(--text2);margin-bottom:6px;"><strong>${p.n||p.name}</strong></div>
-      <div style="font-size:12px;color:var(--text3);margin-bottom:20px;line-height:1.6;">This removes it from this venue's catalogue only. It will remain in the master catalogue and other venues.</div>
-      <div style="display:flex;gap:10px;">
-        <button id="del-prod-cancel" style="flex:1;padding:10px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-family:var(--font-ui);font-size:14px;font-weight:600;cursor:pointer;">Cancel</button>
-        <button id="del-prod-confirm" style="flex:1;padding:10px;border-radius:10px;background:rgba(240,80,80,0.15);border:1px solid rgba(240,80,80,0.3);color:var(--red);font-family:var(--font-ui);font-size:14px;font-weight:600;cursor:pointer;">Delete</button>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:16px;"><strong>${name}</strong></div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
+        <button id="del-venue-only" style="padding:12px;border-radius:10px;background:rgba(240,192,64,0.1);border:1px solid rgba(240,192,64,0.3);color:var(--amber);font-family:var(--font-ui);font-size:13px;font-weight:600;cursor:pointer;text-align:left;">
+          🏠 Remove from this venue only<br>
+          <span style="font-size:11px;font-weight:400;opacity:0.8;">Stays in master catalogue and other venues</span>
+        </button>
+        <button id="del-everywhere" style="padding:12px;border-radius:10px;background:rgba(240,80,80,0.1);border:1px solid rgba(240,80,80,0.3);color:var(--red);font-family:var(--font-ui);font-size:13px;font-weight:600;cursor:pointer;text-align:left;">
+          🗑 Delete permanently everywhere<br>
+          <span style="font-size:11px;font-weight:400;opacity:0.8;">Removes from all venues and master catalogue</span>
+        </button>
       </div>
+      <button id="del-prod-cancel" style="width:100%;padding:10px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-family:var(--font-ui);font-size:13px;cursor:pointer;">Cancel</button>
     </div>`;
   document.body.appendChild(overlay);
-  overlay.querySelector('#del-prod-cancel').onclick  = () => overlay.remove();
-  overlay.querySelector('#del-prod-confirm').onclick = () => {
+
+  overlay.querySelector('#del-prod-cancel').onclick = () => overlay.remove();
+
+  overlay.querySelector('#del-venue-only').onclick = async () => {
     overlay.remove();
     c.products.splice(idx, 1);
     dbSaveProducts(c);
     dbSaveClient(c);
+    // Delete from ap_products for this venue only
+    await dbDeleteProductFromVenue(name, c.slug || c.id);
     renderProducts(c);
-    showPersistToast('Product deleted');
+    showPersistToast(`✓ ${name} removed from ${c.name}`);
   };
+
+  overlay.querySelector('#del-everywhere').onclick = async () => {
+    overlay.remove();
+    c.products.splice(idx, 1);
+    dbSaveProducts(c);
+    dbSaveClient(c);
+    // Delete from ap_products (all venues) AND ap_master_products
+    await dbDeleteProductEverywhere(name);
+    renderProducts(c);
+    showPersistToast(`✓ ${name} permanently deleted from all venues`);
+  };
+}
+
+async function dbDeleteProductFromVenue(productName, clientSlug) {
+  if(!DB._ready) return;
+  try {
+    await fetch(`${DB._url}/rest/v1/ap_products?product_name=eq.${encodeURIComponent(productName)}&client_slug=eq.${encodeURIComponent(clientSlug)}`, {
+      method: 'DELETE',
+      headers: { 'apikey': DB._key, 'Authorization': 'Bearer ' + DB._key }
+    });
+  } catch(e) { console.warn('Delete from venue failed:', e); }
+}
+
+async function dbDeleteProductEverywhere(productName) {
+  if(!DB._ready) return;
+  try {
+    const headers = { 'apikey': DB._key, 'Authorization': 'Bearer ' + DB._key };
+    const slug = productName.toLowerCase().replace(/[^a-z0-9]/g,'_');
+    await Promise.all([
+      fetch(`${DB._url}/rest/v1/ap_products?product_name=eq.${encodeURIComponent(productName)}`, { method: 'DELETE', headers }),
+      fetch(`${DB._url}/rest/v1/ap_master_products?slug=eq.${encodeURIComponent(slug)}`, { method: 'DELETE', headers })
+    ]);
+  } catch(e) { console.warn('Delete everywhere failed:', e); }
 }
 
 function editProduct(idx) {
