@@ -2057,7 +2057,7 @@ function processBarcode(barcode) {
 }
 
 function showUnknownBarcode(barcode) {
-  stopCameraScan();
+  stopCamera();
   playBeep('unknown');
   document.getElementById('scan-result-name').textContent = '⚠ Unknown barcode';
   document.getElementById('scan-result-info').textContent = barcode + ' — not in catalogue';
