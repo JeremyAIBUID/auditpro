@@ -2086,35 +2086,29 @@ function openProductFormWithName(name) {
 let _newProdFromBarcode = null;
 
 function openProductFormWithBarcode(barcode) {
-  // Reset the scan add button back to normal
-  const addBtn = document.getElementById('scan-add-btn');
-  addBtn.textContent        = 'Add to count';
-  addBtn.style.background   = '';
-  addBtn.style.color        = '';
-  addBtn.style.border       = '';
-  addBtn.onclick            = addScannedItem;
-  document.getElementById('scan-result').style.background  = '';
-  document.getElementById('scan-result').style.borderColor = '';
-
-  // Pre-fill the product form with the scanned barcode
-  const barcodeEl = document.getElementById('mp-barcode');
-  if(barcodeEl) barcodeEl.value = barcode;
-
-  // Clear other fields for fresh entry
-  ['mp-name','mp-unitvol','mp-servevol','mp-tareg','mp-cost','mp-sell','mp-par'].forEach(id => {
-    const el = document.getElementById(id); if(el) el.value = '';
-  });
-  document.getElementById('mp-cat').value = '';
-  document.getElementById('mp-preview').style.display = 'none';
-  updateMobileProdSubcats();
-
-  // Navigate to product creation screen
+  // Navigate to product creation screen first
   _newProdFromBarcode = barcode;
   showScreen('screen-new-product');
 
-  // Focus name field after transition
-  setTimeout(() => document.getElementById('mp-name')?.focus(), 350);
-  toast('Fill in details for barcode ' + barcode);
+  // Pre-fill the product form with the scanned barcode
+  setTimeout(() => {
+    const barcodeEl = document.getElementById('mp-barcode');
+    if(barcodeEl) barcodeEl.value = barcode;
+
+    // Clear other fields for fresh entry
+    ['mp-name','mp-unitvol','mp-servevol','mp-tareg','mp-fullg','mp-cost','mp-sell','mp-par'].forEach(id => {
+      const el = document.getElementById(id); if(el) el.value = '';
+    });
+    const catEl = document.getElementById('mp-cat');
+    if(catEl) catEl.value = '';
+    const previewEl = document.getElementById('mp-preview');
+    if(previewEl) previewEl.style.display = 'none';
+    updateMobileProdSubcats();
+
+    // Focus name field
+    document.getElementById('mp-name')?.focus();
+    toast('Fill in details for barcode ' + barcode);
+  }, 100);
 }
 
 // ─── SYNC QR SCAN ─────────────────────────────────
