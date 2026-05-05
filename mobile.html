@@ -696,10 +696,22 @@ select.inp-m{cursor:pointer;}
     </div>
 
     <!-- Volume -->
-    <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">Volume</div>
+    <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">Vessel & Volume</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div class="form-group-m"><label class="lbl-m">Vessel type *</label>
+        <select class="inp-m" id="mp-soldas" onchange="updateMobileProdPreview()">
+          <option value="Bottles">Bottles</option>
+          <option value="Cans">Cans</option>
+          <option value="Kegs">Kegs</option>
+          <option value="Cases">Cases</option>
+          <option value="PVC">PVC</option>
+          <option value="Litres">Litres</option>
+        </select>
+      </div>
       <div class="form-group-m"><label class="lbl-m">Unit volume (ml) *</label>
         <input class="inp-m" id="mp-unitvol" type="number" placeholder="e.g. 700" min="1" oninput="updateMobileProdPreview()"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
       <div class="form-group-m"><label class="lbl-m">Serve size (ml) *</label>
         <input class="inp-m" id="mp-servevol" type="number" placeholder="e.g. 30" min="1" oninput="updateMobileProdPreview()"></div>
     </div>
@@ -1495,47 +1507,6 @@ const MOB_SUBCATS = {
 
 // ─── VESSEL WEIGHT AUTO-CALC ─────────────────────
 // Called when tare or density changes → auto-fill full weight
-function autoCalcVesselWeights(prefix) {
-  const unitVol = parseFloat(document.getElementById(prefix+'-unitvol')?.value) || 0;
-  const tare    = parseFloat(document.getElementById(prefix+'-tareg')?.value)   || 0;
-  const density = parseFloat(document.getElementById(prefix+'-density')?.value) || 1.00;
-  const hint    = document.getElementById(prefix+'-vessel-hint');
-
-  if (unitVol > 0 && tare > 0) {
-    const fullG = Math.round(tare + unitVol * density);
-    const fullEl = document.getElementById(prefix+'-fullg');
-    if (fullEl && !fullEl.value) fullEl.value = fullG; // only auto-fill if empty
-    if (hint) {
-      hint.innerHTML = `<span style="color:var(--green);font-weight:600;">✓ Full: ${fullG}g · Empty: ${tare}g</span><br>
-        <span style="color:var(--text3);">Liquid: ${Math.round(unitVol*density)}g</span>`;
-    }
-  } else if (hint) {
-    hint.innerHTML = 'Fill tare + unit vol → full weight auto-fills.<br>Or weigh a full bottle → tare auto-fills.';
-    hint.style.color = 'var(--text3)';
-  }
-}
-
-// Called when full weight is entered → back-calculate tare
-function autoCalcFromFull(prefix) {
-  const unitVol = parseFloat(document.getElementById(prefix+'-unitvol')?.value) || 0;
-  const fullG   = parseFloat(document.getElementById(prefix+'-fullg')?.value)   || 0;
-  const density = parseFloat(document.getElementById(prefix+'-density')?.value) || 1.00;
-  const hint    = document.getElementById(prefix+'-vessel-hint');
-
-  if (unitVol > 0 && fullG > 0) {
-    const tare   = Math.round(fullG - unitVol * density);
-    const tareEl = document.getElementById(prefix+'-tareg');
-    if (tare > 0 && tareEl && !tareEl.value) {
-      tareEl.value = tare; // auto-fill tare if not already set
-    }
-    if (hint && tare > 0) {
-      hint.innerHTML = `<span style="color:var(--green);font-weight:600;">✓ Full: ${fullG}g · Empty: ${tare}g</span><br>
-        <span style="color:var(--text3);">Liquid: ${Math.round(unitVol*density)}g</span>`;
-    }
-    updateMobileProdPreview();
-  }
-}
-
 // ─── VESSEL WEIGHT HELPERS ───────────────────────
 // prefix = 'mp' (product) or 'mb' (batch)
 function autoCalcVesselWeights(prefix) {
@@ -1549,7 +1520,7 @@ function autoCalcVesselWeights(prefix) {
   if(unitVol > 0 && tareG > 0) {
     const fullG = Math.round(tareG + unitVol * density);
     // Only auto-fill if user hasn't typed a value
-    if(!fullEl.value) fullEl.value = fullG;
+    fullEl.value = fullG;
     if(hintEl) {
       hintEl.innerHTML = `<span style="color:var(--green);font-weight:600;">✓ Full: ${fullG}g</span><br>Net liquid: ${unitVol}ml`;
     }
@@ -1645,10 +1616,11 @@ function saveMobileProduct() {
   const prod = {
     name,
     n: name,
-    _userAdded: true,  // flag for persistence
+    _userAdded: true,
     cat,
     subcat:    document.getElementById('mp-subcat').value,
     barcode:   document.getElementById('mp-barcode').value.trim(),
+    soldAs:    document.getElementById('mp-soldas')?.value || 'Bottles',
     vol:       unitVol,  unitVol,
     fullMl:    unitVol,
     serveVol,
