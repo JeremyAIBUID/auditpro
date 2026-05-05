@@ -2084,7 +2084,7 @@
         <label>Unit volume (ml) *
           <span style="font-size:10px;color:var(--text3);font-weight:400;"> — per bottle/can/keg</span>
         </label>
-        <input type="number" id="pf-unitvol" placeholder="e.g. 700" min="1" oninput="updateProdPreview()">
+        <input type="number" id="pf-unitvol" placeholder="e.g. 700" min="1" oninput="updateProdPreview();autoCalcDesktopVessel()">
       </div>
       <div class="form-group">
         <label>Serve size (ml)
@@ -2104,7 +2104,7 @@
       <div class="form-row" style="margin-bottom:0;">
         <div class="form-group" style="margin-bottom:0;">
           <label>Empty vessel (g) — tare</label>
-          <input type="number" id="pf-tareg" placeholder="e.g. 180" min="0" oninput="updateProdPreview()">
+          <input type="number" id="pf-tareg" placeholder="e.g. 180" min="0" oninput="updateProdPreview();autoCalcDesktopVessel()">
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label>Full vessel (g) — optional</label>
@@ -2112,7 +2112,7 @@
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label>Liquid density</label>
-          <select id="pf-density">
+          <select id="pf-density" onchange="autoCalcDesktopVessel()">
             <option value="0.94">Spirits (0.94)</option>
             <option value="1.00" selected>Beer/wine (1.00)</option>
             <option value="1.05">Liqueur (1.05)</option>
@@ -4161,6 +4161,17 @@ function updateProdSubcats() {
     else if(cat==='Beer') serveEl.value = '';
   }
   updateProdPreview();
+}
+
+function autoCalcDesktopVessel() {
+  const unitVol = parseFloat(document.getElementById('pf-unitvol')?.value) || 0;
+  const tare    = parseFloat(document.getElementById('pf-tareg')?.value)   || 0;
+  const density = parseFloat(document.getElementById('pf-density')?.value) || 1.00;
+  const fullEl  = document.getElementById('pf-fullg');
+  if(!fullEl) return;
+  if(unitVol > 0 && tare > 0) {
+    fullEl.value = Math.round(tare + unitVol * density);
+  }
 }
 
 function updateProdPreview() {
