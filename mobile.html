@@ -1533,7 +1533,6 @@ function autoCalcVesselWeights(prefix) {
 }
 
 function autoCalcFromFull(prefix) {
-  // If user weighs a full bottle in hand, back-calculate tare
   const unitVol = parseFloat(document.getElementById(prefix+'-unitvol')?.value) || 0;
   const fullG   = parseFloat(document.getElementById(prefix+'-fullg')?.value)   || 0;
   const density = parseFloat(document.getElementById(prefix+'-density')?.value || '1.00');
@@ -1544,14 +1543,9 @@ function autoCalcFromFull(prefix) {
   if(unitVol > 0 && fullG > 0) {
     const liquidG  = Math.round(unitVol * density);
     const calcTare = fullG - liquidG;
-    if(calcTare > 0 && !tareEl.value) {
+    if(calcTare > 0) {
       tareEl.value = calcTare;
-      if(hintEl) {
-        hintEl.innerHTML = `<span style="color:var(--green);font-weight:600;">✓ Tare: ${calcTare}g</span><br>Liquid: ${liquidG}g`;
-      }
-    } else if(hintEl) {
-      hintEl.innerHTML = `Full: ${fullG}g · Liquid: ${liquidG}g`;
-      hintEl.style.color = 'var(--text3)';
+      if(hintEl) hintEl.innerHTML = `<span style="color:var(--green);font-weight:600;">✓ Tare: ${calcTare}g · Liquid: ${liquidG}g</span>`;
     }
   }
   if(prefix === 'mp') updateMobileProdPreview();

@@ -2108,7 +2108,7 @@
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label>Full vessel (g) — optional</label>
-          <input type="number" id="pf-fullg" placeholder="Auto-calculated" min="0">
+          <input type="number" id="pf-fullg" placeholder="Auto-calculated" min="0" oninput="autoCalcDesktopTare()">
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label>Liquid density</label>
@@ -4171,6 +4171,18 @@ function autoCalcDesktopVessel() {
   if(!fullEl) return;
   if(unitVol > 0 && tare > 0) {
     fullEl.value = Math.round(tare + unitVol * density);
+  }
+}
+
+function autoCalcDesktopTare() {
+  const unitVol = parseFloat(document.getElementById('pf-unitvol')?.value) || 0;
+  const fullG   = parseFloat(document.getElementById('pf-fullg')?.value)   || 0;
+  const density = parseFloat(document.getElementById('pf-density')?.value) || 1.00;
+  const tareEl  = document.getElementById('pf-tareg');
+  if(!tareEl) return;
+  if(unitVol > 0 && fullG > 0) {
+    const tare = Math.round(fullG - unitVol * density);
+    if(tare > 0) tareEl.value = tare;
   }
 }
 
