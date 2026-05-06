@@ -4372,7 +4372,6 @@ function saveProduct() {
 
   if(!c.products) c.products = [];
   if(prodEditIdx >= 0) {
-    // Preserve cost history if editing
     const prev = c.products[prodEditIdx];
     if(prev.costHistory && costPrice !== prev.costPrice) {
       prod.costHistory = [...(prev.costHistory||[]), { price: costPrice, date: new Date().toLocaleDateString('en-NZ'), source: 'manual edit' }];
@@ -4380,12 +4379,13 @@ function saveProduct() {
       prod.costHistory = prev.costHistory;
     }
     c.products[prodEditIdx] = prod;
+    // Update master catalogue with new data
+    addToMasterCatalogue(prod);
   } else {
     c.products.push(prod);
+    // Add to master catalogue so it's available to add to other venues
+    addToMasterCatalogue(prod);
   }
-
-  // Add to master catalogue so it's available to all venues
-  addToMasterCatalogue(prod);
 
   closeModal('newProductModal');
   renderProducts(c);
@@ -8987,33 +8987,13 @@ async function dbSaveClient(client) {
   showPersistToast('✓ Saved');
 }
 
-// Save all products for a client — stores in ap_clients.data and syncs to master
+// Save all products for a client — stores in ap_clients.data (single source of truth)
 async function dbSaveProducts(client) {
   if (!DB._ready) { console.warn('DB not ready'); return; }
-
-  // Push every product to master catalogue
-  (client.products || []).forEach(p => addToMasterCatalogue(p));
-
-  // Sync master products to ALL other venues so they share the catalogue
-  clients.forEach(c => {
-    if(clientSlug(c) !== clientSlug(client)) {
-      syncMasterToClient(c);
-    }
-  });
-
-  // Save this client
   const result = await DB.upsert('ap_clients', { slug: clientSlug(client), data: client });
-
-  // Save other clients that got new products synced
-  clients.forEach(async c => {
-    if(clientSlug(c) !== clientSlug(client)) {
-      await DB.upsert('ap_clients', { slug: clientSlug(c), data: c });
-    }
-  });
-
   if(result) {
-    console.log('[AuditPro] Saved', (client.products||[]).length, 'products for', client.name, '+ synced to master');
-    showPersistToast('✓ ' + (client.products||[]).length + ' products saved to all venues');
+    console.log('[AuditPro] Saved', (client.products||[]).length, 'products for', client.name);
+    showPersistToast('✓ ' + (client.products||[]).length + ' products saved');
   } else {
     showPersistToast('⚠ Save failed — check connection');
   }
@@ -9060,10 +9040,7 @@ async function dbLoadAll() {
       });
     }
 
-    // Sync master catalogue to all clients so every venue has all products
-    clients.forEach(c => syncMasterToClient(c));
-
-    // Skip ap_products table — products are stored in ap_clients.data.products
+    // Skip ap_products table — products stored in ap_clients.data.products
 
     // Load audit sessions per client
     const dbSessions = await DB.get('ap_audit_sessions', '?order=updated_at.desc');
