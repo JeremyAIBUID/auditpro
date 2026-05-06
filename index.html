@@ -4099,6 +4099,21 @@ async function dbDeleteProductFromVenue(productName, clientSlug) {
 
 async function dbDeleteProductEverywhere(productName) {
   if(!DB._ready) return;
+
+  // Remove from masterProducts array in memory
+  const masterIdx = masterProducts.findIndex(p => (p.n||p.name||'') === productName);
+  if(masterIdx >= 0) masterProducts.splice(masterIdx, 1);
+
+  // Remove from ALL clients in memory and save each to Supabase
+  clients.forEach(async c => {
+    const idx = (c.products||[]).findIndex(p => (p.n||p.name||'') === productName);
+    if(idx >= 0) {
+      c.products.splice(idx, 1);
+      await DB.upsert('ap_clients', { slug: clientSlug(c), data: c });
+    }
+  });
+
+  // Delete from Supabase tables
   try {
     const headers = { 'apikey': DB._key, 'Authorization': 'Bearer ' + DB._key };
     const slug = productName.toLowerCase().replace(/[^a-z0-9]/g,'_');
