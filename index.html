@@ -2025,7 +2025,7 @@
         <label>Category *</label>
         <select id="pf-cat" onchange="updateProdSubcats();updateProdPreview()">
           <option value="">— select —</option>
-          <option>Spirits</option><option>Beer</option><option>Wine</option>
+          <option>Spirits</option><option>Beer</option><option>Cider</option><option>Wine</option>
           <option>RTD</option><option>Soft drinks</option><option>Food</option><option>Cocktails</option>
         </select>
       </div>
@@ -2077,14 +2077,19 @@
           <option value="Kegs">Kegs</option>
           <option value="Cases">Cases</option>
           <option value="PVC">PVC</option>
-          <option value="Litres">Litres</option>
         </select>
       </div>
       <div class="form-group">
-        <label>Unit volume (ml) *
+        <label>Unit volume *
           <span style="font-size:10px;color:var(--text3);font-weight:400;"> — per bottle/can/keg</span>
         </label>
-        <input type="number" id="pf-unitvol" placeholder="e.g. 700" min="1" oninput="updateProdPreview();autoCalcDesktopVessel()">
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input type="number" id="pf-unitvol" placeholder="e.g. 700" min="1" style="flex:1;" oninput="updateProdPreview();autoCalcDesktopVessel()">
+          <select id="pf-unitvol-unit" onchange="updateProdPreview()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:12px;outline:none;">
+            <option value="ml" selected>ml</option>
+            <option value="L">L</option>
+          </select>
+        </div>
       </div>
       <div class="form-group">
         <label>Serve size (ml)
@@ -2112,12 +2117,16 @@
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label>Liquid density</label>
-          <select id="pf-density" onchange="autoCalcDesktopVessel()">
-            <option value="0.94">Spirits (0.94)</option>
-            <option value="1.00" selected>Beer/wine (1.00)</option>
-            <option value="1.05">Liqueur (1.05)</option>
+          <select id="pf-density" onchange="autoCalcDesktopVessel();handleDensityCustom()">
+            <option value="0.9467">Spirits (0.9467)</option>
+            <option value="0.9805">Wine (0.9805)</option>
+            <option value="1.014" selected>Beer (1.014)</option>
+            <option value="1.06">Liqueur (1.06)</option>
             <option value="custom">Custom…</option>
           </select>
+          <input type="number" id="pf-density-custom" placeholder="e.g. 0.98" step="0.001" min="0.5" max="2"
+            style="display:none;margin-top:6px;width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-mono);font-size:13px;outline:none;"
+            oninput="autoCalcDesktopVessel()">
         </div>
       </div>
       <div style="font-size:11px;color:var(--text3);margin-top:8px;">Weigh an empty bottle/keg to get the tare. Leave blank to set on site during first audit.</div>
@@ -3996,6 +4005,7 @@ function confirmStockTransfer() {
 const PROD_SUBCATS = {
   Spirits:      ['Whiskey','Bourbon','Scotch','Irish','Vodka','Gin','Rum','Tequila','Mezcal','Brandy','Cognac','Liqueur','Other'],
   Beer:         ['Bottles','Cans','Draught'],
+  Cider:        ['Bottles','Cans','Draught'],
   Wine:         ['White','Red','Rosé','Sparkling','Dessert'],
   RTD:          ['Cans','Bottles','Other'],
   'Soft drinks':['Mixers','Juices','Water','Energy','Other'],
@@ -4138,8 +4148,26 @@ function editProduct(idx) {
 
 function updateProdSoldAs() {
   const soldAs   = document.getElementById('pf-soldas')?.value;
+  const cat      = document.getElementById('pf-cat')?.value;
   const caseDiv  = document.getElementById('pf-case-fields');
+  const vesselDiv = document.getElementById('pf-weights-section');
+
   if(caseDiv) caseDiv.style.display = soldAs === 'Cases' ? 'block' : 'none';
+
+  // Hide vessel weights for Bottles, Cans, RTD — counted as full units only
+  const noVesselNeeded = ['Bottles','Cans'].includes(soldAs) || cat === 'RTD' || cat === 'Soft drinks';
+  if(vesselDiv) {
+    vesselDiv.style.display = noVesselNeeded ? 'none' : 'block';
+    if(noVesselNeeded) {
+      const hint = vesselDiv.querySelector('.vessel-hint-msg');
+      if(!hint) {
+        const msg = document.createElement('div');
+        msg.className = 'vessel-hint-msg';
+        msg.style.cssText = 'font-size:11px;color:var(--text3);padding:4px 0;';
+        msg.textContent = 'Vessel weights not required — counted as full units';
+      }
+    }
+  }
 }
 
 function updateProdSubcats() {
@@ -4149,24 +4177,46 @@ function updateProdSubcats() {
   subSel.innerHTML = opts.map(s=>`<option value="${s}">${s}</option>`).join('');
   // Auto-set density based on category
   const densitySel = document.getElementById('pf-density');
-  if(cat === 'Spirits')       densitySel.value = '0.94';
-  else if(cat === 'Beer')     densitySel.value = '1.00';
-  else if(cat === 'Wine')     densitySel.value = '1.00';
-  else                        densitySel.value = '1.00';
+  if(cat === 'Spirits')         densitySel.value = '0.9467';
+  else if(cat === 'Wine')       densitySel.value = '0.9805';
+  else if(cat === 'Beer')       densitySel.value = '1.014';
+  else if(cat === 'Cider')      densitySel.value = '1.014';
+  else if(cat === 'Cocktails')  densitySel.value = '0.9467';
+  else                          densitySel.value = '1.014';
+  handleDensityCustom();
   // Auto-set serve size hints
   const serveEl = document.getElementById('pf-servevol');
   if(!serveEl.value) {
     if(cat==='Spirits') serveEl.value = '30';
     else if(cat==='Wine') serveEl.value = '150';
-    else if(cat==='Beer') serveEl.value = '';
   }
+  updateProdSoldAs();
   updateProdPreview();
+}
+
+function handleDensityCustom() {
+  const sel = document.getElementById('pf-density');
+  const customInput = document.getElementById('pf-density-custom');
+  if(sel.value === 'custom') {
+    customInput.style.display = 'block';
+    customInput.focus();
+  } else {
+    customInput.style.display = 'none';
+  }
+}
+
+function getDensityValue() {
+  const sel = document.getElementById('pf-density');
+  if(sel.value === 'custom') {
+    return parseFloat(document.getElementById('pf-density-custom')?.value) || 1.0;
+  }
+  return parseFloat(sel.value) || 1.0;
 }
 
 function autoCalcDesktopVessel() {
   const unitVol = parseFloat(document.getElementById('pf-unitvol')?.value) || 0;
   const tare    = parseFloat(document.getElementById('pf-tareg')?.value)   || 0;
-  const density = parseFloat(document.getElementById('pf-density')?.value) || 1.00;
+  const density = getDensityValue();
   const fullEl  = document.getElementById('pf-fullg');
   if(!fullEl) return;
   if(unitVol > 0 && tare > 0) {
@@ -4177,7 +4227,7 @@ function autoCalcDesktopVessel() {
 function autoCalcDesktopTare() {
   const unitVol = parseFloat(document.getElementById('pf-unitvol')?.value) || 0;
   const fullG   = parseFloat(document.getElementById('pf-fullg')?.value)   || 0;
-  const density = parseFloat(document.getElementById('pf-density')?.value) || 1.00;
+  const density = getDensityValue();
   const tareEl  = document.getElementById('pf-tareg');
   if(!tareEl) return;
   if(unitVol > 0 && fullG > 0) {
@@ -4242,7 +4292,9 @@ function saveProduct() {
   if(!name) { alert('Product name is required.'); return; }
   if(!cat)  { alert('Please select a category.'); return; }
 
-  const unitVol   = parseFloat(document.getElementById('pf-unitvol').value) || 0;
+  const unitVolRaw = parseFloat(document.getElementById('pf-unitvol').value) || 0;
+  const unitVolUnit = document.getElementById('pf-unitvol-unit')?.value || 'ml';
+  const unitVol   = unitVolUnit === 'L' ? Math.round(unitVolRaw * 1000) : unitVolRaw;
   const serveVol  = parseFloat(document.getElementById('pf-servevol').value) || 0;
   const costPrice = parseFloat(document.getElementById('pf-cost').value) || 0;
   const sellPrice = parseFloat(document.getElementById('pf-sell').value) || 0;
@@ -4271,7 +4323,7 @@ function saveProduct() {
     serveVol,
     tareG:        parseFloat(document.getElementById('pf-tareg').value) || 0,
     fullG:        parseFloat(document.getElementById('pf-fullg').value) || 0,
-    density:      document.getElementById('pf-density').value,
+    density:      getDensityValue(),
     costPrice,
     costPriceExGST: costPrice / 1.15,
     sellPrice,

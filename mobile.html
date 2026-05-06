@@ -677,8 +677,8 @@ select.inp-m{cursor:pointer;}
       <div class="form-group-m"><label class="lbl-m">Category *</label>
         <select class="inp-m" id="mp-cat" onchange="updateMobileProdSubcats()">
           <option value="">— select —</option>
-          <option>Spirits</option><option>Beer</option><option>Wine</option>
-          <option>Soft drinks</option><option>Food</option><option>Cocktails</option>
+          <option>Spirits</option><option>Beer</option><option>Cider</option><option>Wine</option>
+          <option>RTD</option><option>Soft drinks</option><option>Food</option><option>Cocktails</option>
         </select>
       </div>
       <div class="form-group-m"><label class="lbl-m">Subcategory</label>
@@ -719,7 +719,7 @@ select.inp-m{cursor:pointer;}
     </div>
 
     <!-- Vessel weights -->
-    <div style="background:rgba(200,240,100,0.05);border:1px solid rgba(200,240,100,0.18);border-radius:12px;padding:14px;margin:4px 0 14px;">
+    <div id="mp-vessel-section" style="background:rgba(200,240,100,0.05);border:1px solid rgba(200,240,100,0.18);border-radius:12px;padding:14px;margin:4px 0 14px;">
       <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:10px;">⚖ Vessel weights</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
         <div class="form-group-m" style="margin-bottom:0;"><label class="lbl-m">Empty tare (g)</label>
@@ -729,11 +729,16 @@ select.inp-m{cursor:pointer;}
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div class="form-group-m" style="margin-bottom:0;"><label class="lbl-m">Density</label>
-          <select class="inp-m" id="mp-density" onchange="autoCalcVesselWeights('mp')">
-            <option value="0.94">Spirits (0.94)</option>
-            <option value="1.00" selected>Beer/Wine (1.00)</option>
-            <option value="1.05">Liqueur (1.05)</option>
+          <select class="inp-m" id="mp-density" onchange="autoCalcVesselWeights('mp');handleMobileDensityCustom()">
+            <option value="0.9467">Spirits (0.9467)</option>
+            <option value="0.9805">Wine (0.9805)</option>
+            <option value="1.014" selected>Beer (1.014)</option>
+            <option value="1.06">Liqueur (1.06)</option>
+            <option value="custom">Custom…</option>
           </select>
+          <input type="number" id="mp-density-custom" placeholder="e.g. 0.98" step="0.001" min="0.5" max="2"
+            class="inp-m" style="display:none;margin-top:6px;"
+            oninput="autoCalcVesselWeights('mp')">
         </div>
         <div class="form-group-m" style="margin-bottom:0;">
           <label class="lbl-m">Auto-calc</label>
@@ -1503,9 +1508,26 @@ function closeFab() {
 // ─── MOBILE PRODUCT FORM ─────────────────────────
 const MOB_SUBCATS = {
   Spirits:['Whiskey','Vodka','Gin','Rum','Tequila','Brandy','Liqueur','Other'],
-  Beer:['Bottles','Cans','Draught'], Wine:['White','Red','Rosé','Sparkling','Dessert'],
-  'Soft drinks':['Mixers','Juices','Water','Other'], Food:['Bar snacks','Other'], Cocktails:['Classic','House','Batched','Other'],
+  Beer:['Bottles','Cans','Draught'],
+  Cider:['Bottles','Cans','Draught'],
+  Wine:['White','Red','Rosé','Sparkling','Dessert'],
+  RTD:['Cans','Bottles','Other'],
+  'Soft drinks':['Mixers','Juices','Water','Other'],
+  Food:['Bar snacks','Other'],
+  Cocktails:['Classic','House','Batched','Other'],
 };
+
+function handleMobileDensityCustom() {
+  const sel = document.getElementById('mp-density');
+  const ci  = document.getElementById('mp-density-custom');
+  if(ci) ci.style.display = sel?.value === 'custom' ? 'block' : 'none';
+}
+
+function getMobileDensity() {
+  const sel = document.getElementById('mp-density');
+  if(sel?.value === 'custom') return parseFloat(document.getElementById('mp-density-custom')?.value) || 1.0;
+  return parseFloat(sel?.value) || 1.0;
+}
 
 // ─── VESSEL WEIGHT AUTO-CALC ─────────────────────
 // Called when tare or density changes → auto-fill full weight
@@ -1556,6 +1578,24 @@ function updateMobileProdSubcats() {
   const sub = document.getElementById('mp-subcat');
   const opts = MOB_SUBCATS[cat] || ['Other'];
   sub.innerHTML = opts.map(s=>`<option>${s}</option>`).join('');
+
+  // Auto-set density
+  const densitySel = document.getElementById('mp-density');
+  if(densitySel) {
+    if(cat==='Spirits')        densitySel.value = '0.9467';
+    else if(cat==='Wine')      densitySel.value = '0.9805';
+    else if(cat==='Beer')      densitySel.value = '1.014';
+    else if(cat==='Cider')     densitySel.value = '1.014';
+    else if(cat==='Cocktails') densitySel.value = '0.9467';
+    else                       densitySel.value = '1.014';
+  }
+
+  // Hide vessel weights for Bottles/Cans/RTD/Soft drinks
+  const soldAs = document.getElementById('mp-soldas')?.value || '';
+  const noVessel = ['Bottles','Cans'].includes(soldAs) || ['RTD','Soft drinks','Food'].includes(cat);
+  const vesselSection = document.getElementById('mp-vessel-section');
+  if(vesselSection) vesselSection.style.display = noVessel ? 'none' : 'block';
+
   // Auto-suggest serve size
   const sv = document.getElementById('mp-servevol');
   if(sv && !sv.value) {
