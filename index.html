@@ -9040,6 +9040,18 @@ async function dbLoadAll() {
       });
     }
 
+    // Load master products
+    const dbMaster = await DB.get('ap_master_products', '?order=id.asc');
+    if(dbMaster && dbMaster.length) {
+      masterProducts = dbMaster.map(r => r.data).filter(Boolean);
+      // For any venue with empty products, populate from master
+      clients.forEach(c => {
+        if(!c.products || c.products.length === 0) {
+          c.products = masterProducts.map(p => ({ ...p, costPrice: p.costPrice||0, sellPrice: p.sellPrice||0 }));
+        }
+      });
+    }
+
     // Skip ap_products table — products stored in ap_clients.data.products
 
     // Load audit sessions per client
