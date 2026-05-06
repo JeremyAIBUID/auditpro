@@ -4147,27 +4147,19 @@ function editProduct(idx) {
 }
 
 function updateProdSoldAs() {
-  const soldAs   = document.getElementById('pf-soldas')?.value;
-  const cat      = document.getElementById('pf-cat')?.value;
-  const caseDiv  = document.getElementById('pf-case-fields');
+  const soldAs    = document.getElementById('pf-soldas')?.value;
+  const cat       = document.getElementById('pf-cat')?.value;
+  const caseDiv   = document.getElementById('pf-case-fields');
   const vesselDiv = document.getElementById('pf-weights-section');
 
   if(caseDiv) caseDiv.style.display = soldAs === 'Cases' ? 'block' : 'none';
 
-  // Hide vessel weights for Bottles, Cans, RTD — counted as full units only
-  const noVesselNeeded = ['Bottles','Cans'].includes(soldAs) || cat === 'RTD' || cat === 'Soft drinks';
-  if(vesselDiv) {
-    vesselDiv.style.display = noVesselNeeded ? 'none' : 'block';
-    if(noVesselNeeded) {
-      const hint = vesselDiv.querySelector('.vessel-hint-msg');
-      if(!hint) {
-        const msg = document.createElement('div');
-        msg.className = 'vessel-hint-msg';
-        msg.style.cssText = 'font-size:11px;color:var(--text3);padding:4px 0;';
-        msg.textContent = 'Vessel weights not required — counted as full units';
-      }
-    }
-  }
+  // Hide vessel ONLY for Beer/Cider Bottles+Cans and RTD — everything else shows vessel
+  const noVesselNeeded =
+    (['Beer','Cider'].includes(cat) && ['Bottles','Cans'].includes(soldAs)) ||
+    cat === 'RTD';
+
+  if(vesselDiv) vesselDiv.style.display = noVesselNeeded ? 'none' : 'block';
 }
 
 function updateProdSubcats() {
@@ -8955,21 +8947,16 @@ async function dbSaveClient(client) {
   showPersistToast('✓ Saved');
 }
 
-// Save all products for a client — updates both ap_products table AND the client record
+// Save all products for a client — stores in ap_clients.data (single source of truth)
 async function dbSaveProducts(client) {
-  if (!DB._ready) { console.warn('DB not ready — products not saved to Supabase'); return; }
-  const rows = (client.products || []).map(p => ({
-    client_slug: clientSlug(client),
-    product_name: p.n || p.name || '',
-    data: p,
-  }));
-  if (rows.length) {
-    await DB.upsert('ap_products', rows);
-  }
-  // Always update client record so products array persists in ap_clients
+  if (!DB._ready) { console.warn('DB not ready'); return; }
   const result = await DB.upsert('ap_clients', { slug: clientSlug(client), data: client });
-  console.log('[AuditPro] Saved', (client.products||[]).length, 'products for', client.name, '→ slug:', clientSlug(client));
-  showPersistToast('✓ ' + (client.products||[]).length + ' products saved');
+  if(result) {
+    console.log('[AuditPro] Saved', (client.products||[]).length, 'products for', client.name);
+    showPersistToast('✓ ' + (client.products||[]).length + ' products saved');
+  } else {
+    showPersistToast('⚠ Save failed — check connection');
+  }
 }
 
 // Save an audit session
@@ -8999,36 +8986,21 @@ async function dbLoadAll() {
       masterProducts = dbMaster.map(r=>r.data).filter(Boolean);
     }
 
-    // Load clients — DB data takes full priority, ignore hardcoded defaults
+    // Load clients — DB data wins completely
     const dbClients = await DB.get('ap_clients', '?order=id.asc');
     if (dbClients && dbClients.length) {
-      // Replace clients array entirely with DB data
-      // Keep any hardcoded clients that don't exist in DB yet
       dbClients.forEach(row => {
         if(!row.data) return;
         const existing = clients.findIndex(c => clientSlug(c) === row.slug);
         if (existing >= 0) {
-          // DB wins — overwrite completely
-          clients[existing] = row.data;
+          clients[existing] = row.data; // DB wins completely
         } else {
           clients.push(row.data);
         }
       });
     }
 
-    // Load products per client
-    const dbProds = await DB.get('ap_products', '?order=client_slug.asc');
-    if (dbProds && dbProds.length) {
-      dbProds.forEach(row => {
-        const c = clients.find(c => clientSlug(c) === row.client_slug);
-        if (c) {
-          if (!c.products) c.products = [];
-          const idx = c.products.findIndex(p => p.n === row.data.n);
-          if (idx >= 0) c.products[idx] = row.data;
-          else c.products.push(row.data);
-        }
-      });
-    }
+    // Skip ap_products table — products are stored in ap_clients.data.products
 
     // Load audit sessions per client
     const dbSessions = await DB.get('ap_audit_sessions', '?order=updated_at.desc');
