@@ -2084,8 +2084,8 @@
           <span style="font-size:10px;color:var(--text3);font-weight:400;"> — per bottle/can/keg</span>
         </label>
         <div style="display:flex;gap:6px;align-items:center;">
-          <input type="number" id="pf-unitvol" placeholder="e.g. 700" min="1" style="flex:1;" oninput="updateProdPreview();autoCalcDesktopVessel()">
-          <select id="pf-unitvol-unit" onchange="updateProdPreview()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:12px;outline:none;">
+          <input type="number" id="pf-unitvol" placeholder="e.g. 700" min="1" style="flex:1;min-width:0;" oninput="updateProdPreview();autoCalcDesktopVessel()">
+          <select id="pf-unitvol-unit" onchange="updateProdPreview()" style="width:70px;flex-shrink:0;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 8px;color:var(--text);font-family:var(--font-ui);font-size:12px;outline:none;">
             <option value="ml" selected>ml</option>
             <option value="L">L</option>
           </select>
@@ -2390,7 +2390,7 @@ let clients = [
       {product:'Peroni 330ml (case)',supplier:'Independent Liquor',inv:'IL-8821',prevPrice:38.40,newPrice:40.20,pct:4.7,avgMonthlyQty:4},
     ],
     wasteRows:[{p:'Pinot Noir 750ml',q:'0.25 btl',r:'Spillage',b:'F. Romano',d:'26 Mar',c:'$5.50'},{p:'Peroni 330ml',q:'2 btls',r:'Breakage',b:'Manager',d:'20 Mar',c:'$8.00'}],
-    products:[{n:'Pinot Noir 750ml',cat:'Wine',subcat:'Red',cost:'$16.00',sell:'$12.00/glass',pc:'26%',pcv:'var-ok',par:'8 btl'},{n:'Sauvignon Blanc',cat:'Wine',subcat:'White',cost:'$12.00',sell:'$10.00/glass',pc:'24%',pcv:'var-ok',par:'10 btl'},{n:'Chianti Classico',cat:'Wine',subcat:'Red',cost:'$18.00',sell:'$12.00/glass',pc:'26%',pcv:'var-ok',par:'4 btl'},{n:'Peroni 330ml',cat:'Beer',subcat:'Bottles',cost:'$2.20',sell:'$8.00',pc:'28%',pcv:'var-ok',par:'3 cases'},{n:'Limoncello 700ml',cat:'Spirits',subcat:'Liqueur',cost:'$22.00',sell:'$8.00/shot',pc:'28%',pcv:'var-ok',par:'2 btl'}],
+    products:[],
     insights:[
       {icon:'✅',bdr:'rgba(91,227,180,0.2)',bg:'rgba(91,227,180,0.05)',title:'Excellent stock control',body:'All variances under 2% for 3 consecutive periods. Your controls are best-in-class.',actions:['Maintain current jigger policy','Continue monthly audits','Consider quarterly deep-dive report']},
       {icon:'📊',bdr:'rgba(91,156,240,0.2)',bg:'rgba(91,156,240,0.05)',title:'Stock optimisation opportunity',body:'Wine par levels could be reduced 15% based on current turnover, freeing approx <strong style="color:var(--text)">$320</strong> working capital.',actions:['Reduce Pinot Noir par from 8 to 7','Monitor for stockout risk','Review monthly']},
@@ -2449,7 +2449,7 @@ let clients = [
     deliveries:[{s:'Beam Suntory',d:'23 Mar',r:'BS-5512',i:10,t:'$2,100.00',st:'Verified',sc:'chip-green'},{s:'DB Breweries',d:'18 Mar',r:'DB-3301',i:8,t:'$960.00',st:'Verified',sc:'chip-green'}],
     priceChanges:[],
     wasteRows:[{p:'Tanqueray Gin',q:'0.5 btl',r:'Spillage',b:'T. Brown',d:'24 Mar',c:'$21.00'},{p:'Jim Beam 1L',q:'0.25 btl',r:'Over-pour',b:'Manager',d:'22 Mar',c:'$9.50'}],
-    products:[{n:'Tanqueray Gin 700ml',cat:'Spirits',subcat:'Gin',cost:'$38.00',sell:'$10.00/shot',pc:'27%',pcv:'var-ok',par:'4 btl'},{n:'Jim Beam 1L',cat:'Spirits',subcat:'Whiskey',cost:'$36.00',sell:'$9.00/shot',pc:'25%',pcv:'var-ok',par:'3 btl'},{n:'Drambuie 700ml',cat:'Spirits',subcat:'Liqueur',cost:'$42.00',sell:'$10.00/shot',pc:'28%',pcv:'var-ok',par:'2 btl'},{n:'Steinlager 330ml',cat:'Beer',subcat:'Bottles',cost:'$1.90',sell:'$7.00',pc:'27%',pcv:'var-ok',par:'4 cases'},{n:'Mac\'s Gold Keg',cat:'Beer',subcat:'Draught',cost:'$195.00',sell:'$8.50/pint',pc:'25%',pcv:'var-ok',par:'2 kegs'}],
+    products:[],
     insights:[
       {icon:'⚠️',bdr:'rgba(240,192,64,0.2)',bg:'rgba(240,192,64,0.05)',title:'Spirits variance trending upward',body:'Three-period increase from 3.1% to 5.8%. Not yet critical but requires attention.',actions:['Review jigger compliance with staff','Spot-check spirits mid-period','Compare against shift rosters']},
       {icon:'📊',bdr:'rgba(91,156,240,0.2)',bg:'rgba(91,156,240,0.05)',title:'Beer par levels — optimal',body:'Steinlager turnover is steady. No changes to par levels needed this period.',actions:['Maintain current par levels','Review in 2 periods']},
@@ -2508,7 +2508,7 @@ let clients = [
     deliveries:[{s:'Bacardi Martini',d:'20 Mar',r:'BM-9921',i:8,t:'$2,880.00',st:'Verified',sc:'chip-green'}],
     priceChanges:[],
     wasteRows:[{p:'Grey Goose 1L',q:'0.1 btl',r:'Spillage',b:'L. Kim',d:'21 Mar',c:'$5.80'}],
-    products:[{n:'Grey Goose Vodka 1L',cat:'Spirits',subcat:'Vodka',cost:'$55.00',sell:'$14.00/shot',pc:'25%',pcv:'var-ok',par:'3 btl'},{n:'Patron Silver 1L',cat:'Spirits',subcat:'Tequila',cost:'$68.00',sell:'$16.00/shot',pc:'27%',pcv:'var-ok',par:'2 btl'},{n:'Midori 700ml',cat:'Spirits',subcat:'Liqueur',cost:'$28.00',sell:'$9.00/shot',pc:'28%',pcv:'var-ok',par:'1 btl'},{n:'Corona 355ml',cat:'Beer',subcat:'Bottles',cost:'$2.50',sell:'$10.00',pc:'25%',pcv:'var-ok',par:'3 cases'}],
+    products:[],
     insights:[
       {icon:'✅',bdr:'rgba(91,227,180,0.2)',bg:'rgba(91,227,180,0.05)',title:'Outstanding stock performance',body:'0.9% variance — industry best practice is under 3%. All categories performing excellently.',actions:['Maintain current procedures','Consider quarterly-only audits','Use as benchmark for other clients']},
     ],
