@@ -4068,30 +4068,30 @@ function deleteProduct(idx) {
   overlay.querySelector('#del-venue-only').onclick = async () => {
     overlay.remove();
     c.products.splice(idx, 1);
-    await DB.upsert('ap_clients', { slug: clientSlug(c), data: c });
+    await dbSaveProducts(c);
     renderProducts(c);
     showPersistToast(`✓ ${name} removed from ${c.name}`);
   };
 
   overlay.querySelector('#del-everywhere').onclick = async () => {
     overlay.remove();
-    // 1. Remove from masterProducts in memory FIRST
+    // Remove from masterProducts in memory
     const mi = masterProducts.findIndex(p => (p.n||p.name||'') === name);
     if(mi >= 0) masterProducts.splice(mi, 1);
-    // 2. Remove from ALL clients in memory
-    clients.forEach(cl => {
+    // Remove from ALL clients in memory and save each
+    for(const cl of clients) {
       const pi = (cl.products||[]).findIndex(p => (p.n||p.name||'') === name);
-      if(pi >= 0) cl.products.splice(pi, 1);
-    });
-    // 3. Save all clients to Supabase
-    await Promise.all(clients.map(cl => DB.upsert('ap_clients', { slug: clientSlug(cl), data: cl })));
-    // 4. Delete from Supabase tables
-    const headers = { 'apikey': DB._key, 'Authorization': 'Bearer ' + DB._key };
-    const slug2 = name.toLowerCase().replace(/[^a-z0-9]/g,'_');
-    await Promise.all([
-      fetch(`${DB._url}/rest/v1/ap_products?product_name=eq.${encodeURIComponent(name)}`, { method: 'DELETE', headers }),
-      fetch(`${DB._url}/rest/v1/ap_master_products?slug=eq.${encodeURIComponent(slug2)}`, { method: 'DELETE', headers })
-    ]);
+      if(pi >= 0) {
+        cl.products.splice(pi, 1);
+        await dbSaveProducts(cl);
+      }
+    }
+    // Delete from Supabase master tables
+    try {
+      const headers = { 'apikey': SUPABASE_CONFIG.key, 'Authorization': 'Bearer ' + SUPABASE_CONFIG.key };
+      const slug2 = name.toLowerCase().replace(/[^a-z0-9]/g,'_');
+      await fetch(`${SUPABASE_CONFIG.url}/rest/v1/ap_master_products?slug=eq.${encodeURIComponent(slug2)}`, { method: 'DELETE', headers });
+    } catch(e) { console.warn('Master delete failed:', e); }
     renderProducts(c);
     showPersistToast(`✓ ${name} permanently deleted from all venues`);
   };
@@ -4100,9 +4100,9 @@ function deleteProduct(idx) {
 async function dbDeleteProductFromVenue(productName, clientSlug) {
   if(!DB._ready) return;
   try {
-    await fetch(`${DB._url}/rest/v1/ap_products?product_name=eq.${encodeURIComponent(productName)}&client_slug=eq.${encodeURIComponent(clientSlug)}`, {
+    await fetch(`${SUPABASE_CONFIG.url}/rest/v1/ap_products?product_name=eq.${encodeURIComponent(productName)}&client_slug=eq.${encodeURIComponent(clientSlug)}`, {
       method: 'DELETE',
-      headers: { 'apikey': DB._key, 'Authorization': 'Bearer ' + DB._key }
+      headers: { 'apikey': SUPABASE_CONFIG.key, 'Authorization': 'Bearer ' + SUPABASE_CONFIG.key }
     });
   } catch(e) { console.warn('Delete from venue failed:', e); }
 }
@@ -4125,11 +4125,11 @@ async function dbDeleteProductEverywhere(productName) {
 
   // Delete from Supabase tables
   try {
-    const headers = { 'apikey': DB._key, 'Authorization': 'Bearer ' + DB._key };
+    const headers = { 'apikey': SUPABASE_CONFIG.key, 'Authorization': 'Bearer ' + SUPABASE_CONFIG.key };
     const slug = productName.toLowerCase().replace(/[^a-z0-9]/g,'_');
     await Promise.all([
-      fetch(`${DB._url}/rest/v1/ap_products?product_name=eq.${encodeURIComponent(productName)}`, { method: 'DELETE', headers }),
-      fetch(`${DB._url}/rest/v1/ap_master_products?slug=eq.${encodeURIComponent(slug)}`, { method: 'DELETE', headers })
+      fetch(`${SUPABASE_CONFIG.url}/rest/v1/ap_products?product_name=eq.${encodeURIComponent(productName)}`, { method: 'DELETE', headers }),
+      fetch(`${SUPABASE_CONFIG.url}/rest/v1/ap_master_products?slug=eq.${encodeURIComponent(slug)}`, { method: 'DELETE', headers })
     ]);
   } catch(e) { console.warn('Delete everywhere failed:', e); }
 }
@@ -8989,13 +8989,28 @@ async function dbSaveClient(client) {
 
 // Save all products for a client — stores in ap_clients.data (single source of truth)
 async function dbSaveProducts(client) {
-  if (!DB._ready) { console.warn('DB not ready'); return; }
-  const result = await DB.upsert('ap_clients', { slug: clientSlug(client), data: client });
-  if(result) {
+  if (!DB._ready) {
+    showPersistToast('⚠ DB not connected');
+    console.warn('DB not ready — products not saved');
+    return;
+  }
+  try {
+    const r = await fetch(DB.url('ap_clients'), {
+      method: 'POST',
+      headers: { ...DB.headers, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ slug: clientSlug(client), data: client }),
+    });
+    if(!r.ok) {
+      const err = await r.text();
+      console.error('[dbSaveProducts] Failed:', r.status, err);
+      showPersistToast('⚠ Save failed: ' + r.status);
+      return;
+    }
     console.log('[AuditPro] Saved', (client.products||[]).length, 'products for', client.name);
     showPersistToast('✓ ' + (client.products||[]).length + ' products saved');
-  } else {
-    showPersistToast('⚠ Save failed — check connection');
+  } catch(e) {
+    console.error('[dbSaveProducts] Error:', e);
+    showPersistToast('⚠ Save error — check console');
   }
 }
 
