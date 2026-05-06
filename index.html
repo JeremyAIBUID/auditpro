@@ -8957,15 +8957,19 @@ async function dbSaveClient(client) {
 
 // Save all products for a client — updates both ap_products table AND the client record
 async function dbSaveProducts(client) {
-  if (!DB._ready) return;
+  if (!DB._ready) { console.warn('DB not ready — products not saved to Supabase'); return; }
   const rows = (client.products || []).map(p => ({
     client_slug: clientSlug(client),
     product_name: p.n || p.name || '',
     data: p,
   }));
-  if (rows.length) await DB.upsert('ap_products', rows);
-  // Also update client record so products array is persisted in ap_clients
-  await DB.upsert('ap_clients', { slug: clientSlug(client), data: client });
+  if (rows.length) {
+    await DB.upsert('ap_products', rows);
+  }
+  // Always update client record so products array persists in ap_clients
+  const result = await DB.upsert('ap_clients', { slug: clientSlug(client), data: client });
+  console.log('[AuditPro] Saved', (client.products||[]).length, 'products for', client.name, '→ slug:', clientSlug(client));
+  showPersistToast('✓ ' + (client.products||[]).length + ' products saved');
 }
 
 // Save an audit session
@@ -8995,14 +8999,17 @@ async function dbLoadAll() {
       masterProducts = dbMaster.map(r=>r.data).filter(Boolean);
     }
 
-    // Load clients
+    // Load clients — DB data takes full priority, ignore hardcoded defaults
     const dbClients = await DB.get('ap_clients', '?order=id.asc');
     if (dbClients && dbClients.length) {
-      // Merge DB clients with defaults (in case schema has new fields)
+      // Replace clients array entirely with DB data
+      // Keep any hardcoded clients that don't exist in DB yet
       dbClients.forEach(row => {
+        if(!row.data) return;
         const existing = clients.findIndex(c => clientSlug(c) === row.slug);
         if (existing >= 0) {
-          clients[existing] = { ...clients[existing], ...row.data };
+          // DB wins — overwrite completely
+          clients[existing] = row.data;
         } else {
           clients.push(row.data);
         }
