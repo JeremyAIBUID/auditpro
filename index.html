@@ -8947,13 +8947,33 @@ async function dbSaveClient(client) {
   showPersistToast('✓ Saved');
 }
 
-// Save all products for a client — stores in ap_clients.data (single source of truth)
+// Save all products for a client — stores in ap_clients.data and syncs to master
 async function dbSaveProducts(client) {
   if (!DB._ready) { console.warn('DB not ready'); return; }
+
+  // Push every product to master catalogue
+  (client.products || []).forEach(p => addToMasterCatalogue(p));
+
+  // Sync master products to ALL other venues so they share the catalogue
+  clients.forEach(c => {
+    if(clientSlug(c) !== clientSlug(client)) {
+      syncMasterToClient(c);
+    }
+  });
+
+  // Save this client
   const result = await DB.upsert('ap_clients', { slug: clientSlug(client), data: client });
+
+  // Save other clients that got new products synced
+  clients.forEach(async c => {
+    if(clientSlug(c) !== clientSlug(client)) {
+      await DB.upsert('ap_clients', { slug: clientSlug(c), data: c });
+    }
+  });
+
   if(result) {
-    console.log('[AuditPro] Saved', (client.products||[]).length, 'products for', client.name);
-    showPersistToast('✓ ' + (client.products||[]).length + ' products saved');
+    console.log('[AuditPro] Saved', (client.products||[]).length, 'products for', client.name, '+ synced to master');
+    showPersistToast('✓ ' + (client.products||[]).length + ' products saved to all venues');
   } else {
     showPersistToast('⚠ Save failed — check connection');
   }
@@ -8993,12 +9013,15 @@ async function dbLoadAll() {
         if(!row.data) return;
         const existing = clients.findIndex(c => clientSlug(c) === row.slug);
         if (existing >= 0) {
-          clients[existing] = row.data; // DB wins completely
+          clients[existing] = row.data;
         } else {
           clients.push(row.data);
         }
       });
     }
+
+    // Sync master catalogue to all clients so every venue has all products
+    clients.forEach(c => syncMasterToClient(c));
 
     // Skip ap_products table — products are stored in ap_clients.data.products
 
