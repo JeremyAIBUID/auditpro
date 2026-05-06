@@ -9020,7 +9020,7 @@ async function dbLoadAll() {
   if (!DB._ready) return false;
   showLoadingBanner(true);
   try {
-    // Load master product catalogue
+    // Load master product catalogue first
     const dbMaster = await DB.get('ap_master_products', '?order=id.asc');
     if(dbMaster && dbMaster.length) {
       masterProducts = dbMaster.map(r=>r.data).filter(Boolean);
@@ -9040,19 +9040,14 @@ async function dbLoadAll() {
       });
     }
 
-    // Load master products
-    const dbMaster = await DB.get('ap_master_products', '?order=id.asc');
-    if(dbMaster && dbMaster.length) {
-      masterProducts = dbMaster.map(r => r.data).filter(Boolean);
-      // For any venue with empty products, populate from master
+    // For any venue with empty products, populate from master
+    if(masterProducts.length) {
       clients.forEach(c => {
         if(!c.products || c.products.length === 0) {
           c.products = masterProducts.map(p => ({ ...p, costPrice: p.costPrice||0, sellPrice: p.sellPrice||0 }));
         }
       });
     }
-
-    // Skip ap_products table — products stored in ap_clients.data.products
 
     // Load audit sessions per client
     const dbSessions = await DB.get('ap_audit_sessions', '?order=updated_at.desc');
