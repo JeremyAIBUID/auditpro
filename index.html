@@ -4026,7 +4026,8 @@ function openNewProductModal() {
   });
   document.getElementById('pf-cat').value    = '';
   document.getElementById('pf-idealgp').value= '72';
-  document.getElementById('pf-density').value= '1.00';
+  document.getElementById('pf-density').value = '1.014';
+  document.getElementById('pf-density-custom').style.display = 'none';
   document.getElementById('pf-parunit').value= 'Bottles';
   if(document.getElementById('pf-soldas')) document.getElementById('pf-soldas').value = 'Bottles';
   if(document.getElementById('pf-casesize')) document.getElementById('pf-casesize').value = '';
@@ -4143,7 +4144,20 @@ function editProduct(idx) {
   document.getElementById('pf-par').value            = parseFloat(p.par) || '';
   document.getElementById('pf-supplier').value       = p.supplier || '';
   document.getElementById('pf-cat').value            = p.cat || '';
-  document.getElementById('pf-density').value        = p.density || '1.00';
+  // Set density — map old values to new ones
+  const densityMap = { '0.94': '0.9467', '1.00': '1.014', '1.05': '1.06' };
+  let densityVal = p.density ? String(p.density) : '1.014';
+  if(densityMap[densityVal]) densityVal = densityMap[densityVal];
+  const densitySel = document.getElementById('pf-density');
+  const knownVals = ['0.9467','0.9805','1.014','1.06'];
+  if(knownVals.includes(densityVal)) {
+    densitySel.value = densityVal;
+    document.getElementById('pf-density-custom').style.display = 'none';
+  } else {
+    densitySel.value = 'custom';
+    document.getElementById('pf-density-custom').style.display = 'block';
+    document.getElementById('pf-density-custom').value = densityVal;
+  }
   if(document.getElementById('pf-soldas'))
     document.getElementById('pf-soldas').value       = p.soldAs || 'Bottles';
   if(document.getElementById('pf-suppliercode'))
