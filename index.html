@@ -4331,7 +4331,6 @@ function updateProdPreview() {
 }
 
 async function saveProduct() {
-  console.log('[saveProduct] called, prodEditIdx:', prodEditIdx);
   const c = activeClient; if(!c) return;
   const name = document.getElementById('pf-name').value.trim();
   const cat  = document.getElementById('pf-cat').value;
@@ -4393,18 +4392,13 @@ async function saveProduct() {
       prod.costHistory = prev.costHistory;
     }
     c.products[prodEditIdx] = prod;
-    // Update master catalogue
     addToMasterCatalogue(prod);
-    // Sync non-price fields to ALL other venues
     const syncFields = ['cat','subcat','barcode','unitVol','serveVol','tareG','fullG','density','soldAs','supplier'];
-    console.log('[Sync] Saving product:', prod.n, 'density:', prod.density, 'to', clients.length, 'clients');
     for(const otherClient of clients) {
       if(clientSlug(otherClient) === clientSlug(c)) continue;
       const otherIdx = (otherClient.products||[]).findIndex(p => (p.n||p.name||'') === (prod.n||prod.name||''));
-      console.log('[Sync] Checking', otherClient.name, 'slug:', clientSlug(otherClient), 'product found at idx:', otherIdx);
       if(otherIdx >= 0) {
         syncFields.forEach(f => { if(prod[f] !== undefined) otherClient.products[otherIdx][f] = prod[f]; });
-        console.log('[Sync] Saving to', otherClient.name, 'density now:', otherClient.products[otherIdx].density);
         await dbSaveProducts(otherClient);
       }
     }
