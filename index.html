@@ -4331,6 +4331,7 @@ function updateProdPreview() {
 }
 
 async function saveProduct() {
+  console.log('[saveProduct] called, prodEditIdx:', prodEditIdx);
   const c = activeClient; if(!c) return;
   const name = document.getElementById('pf-name').value.trim();
   const cat  = document.getElementById('pf-cat').value;
