@@ -113,6 +113,7 @@
   .form-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;}
   .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px);}
   .modal-overlay.open{display:flex;}
+  .hidden{display:none!important;}
   .modal{background:var(--bg2);border:1px solid var(--border2);border-radius:18px;padding:28px;width:520px;max-height:85vh;overflow-y:auto;}
   .modal-title{font-family:var(--font-display);font-size:22px;margin-bottom:20px;}
   .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:24px;padding-top:18px;border-top:1px solid var(--border);}
@@ -7343,10 +7344,8 @@ function renderInvoiceResults(id, invoice, filename) {
         </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
-        ${hasNew
-          ? `<button class="btn btn-primary" style="font-size:12px;padding:7px 16px;" onclick="openInvoiceReviewModal('${id}')">Review ${newCount} new product${newCount!==1?'s':''} →</button>`
-          : `<button class="btn btn-primary" style="font-size:12px;padding:7px 16px;" onclick="applyInvoiceToProducts('${id}')">✓ Import to catalogue</button>`
-        }
+        <button class="btn btn-secondary" style="font-size:12px;padding:7px 16px;" onclick="applyInvoiceToProducts('${id}')">⚡ Quick import</button>
+        <button class="btn btn-primary" style="font-size:12px;padding:7px 16px;" onclick="openInvoiceReviewModal('${id}')">🔍 Review all ${rows.length} items →</button>
       </div>
     </div>`;
 }
@@ -7365,57 +7364,62 @@ function openInvoiceReviewModal(id) {
   if(!modal) return;
 
   document.getElementById('irm-title').textContent     = `${supplier} · ${date} · ${ref}`;
-  document.getElementById('irm-subtitle').textContent  = `${newRows.length} new product${newRows.length!==1?'s':''} to review before importing`;
+  document.getElementById('irm-subtitle').textContent  = `${rows.length} items — ${updateCount} matched · ${newRows.length} new`;
   document.getElementById('irm-confirm-btn').onclick   = () => { applyInvoiceToProducts(id); closeModal('invoiceReviewModal'); };
 
-  // Build enrichment rows for new products only
+  const updateCount = rows.filter(r=>r.action==='update').length;
+
+  // Build enrichment rows for ALL products — matched ones collapsed
   const body = document.getElementById('irm-body');
-  body.innerHTML = newRows.map((r, i) => {
-    const globalIdx = rows.indexOf(r);
+  body.innerHTML = rows.map((r, globalIdx) => {
+    const isMatched = r.action === 'update';
+    const borderColor = isMatched ? 'rgba(91,227,180,0.2)' : 'rgba(200,240,100,0.2)';
+    const badge = isMatched
+      ? `<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(91,227,180,0.1);color:var(--green);border:1px solid rgba(91,227,180,0.3);">✓ Matched</span>`
+      : `<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(200,240,100,0.1);color:var(--accent);border:1px solid rgba(200,240,100,0.3);">+ New</span>`;
     return `
-    <div style="background:var(--bg2);border:1px solid rgba(200,240,100,0.2);border-radius:12px;padding:14px 16px;margin-bottom:10px;">
-      <!-- Invoice name (read-only) + catalogue name (editable) -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
-        <div>
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:4px;">Invoice name <span style="color:var(--text3);font-weight:400;text-transform:none;">(from PDF)</span></div>
-          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:12px;color:var(--text2);font-family:var(--font-mono);line-height:1.4;">
-            ${r.name}${r.productCode?`<div style="font-size:10px;color:var(--text3);margin-top:2px;">Code: ${r.productCode}</div>`:''}
+    <div style="background:var(--bg2);border:1px solid ${borderColor};border-radius:12px;padding:14px 16px;margin-bottom:10px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:${isMatched?'0':'12px'};">
+        ${badge}
+        <div style="font-size:13px;font-weight:700;color:var(--text);flex:1;">${r._cleanName}</div>
+        <div style="font-size:12px;font-family:var(--font-mono);color:var(--accent);">$${(r._incGST||0).toFixed(2)}</div>
+        ${isMatched ? `<button onclick="this.closest('div[style]').querySelector('.irm-expand').classList.toggle('hidden')" style="font-size:11px;color:var(--text3);background:none;border:none;cursor:pointer;padding:2px 6px;">Edit ▾</button>` : ''}
+      </div>
+      <div class="irm-expand${isMatched?' hidden':''}">
+        <!-- Invoice name (read-only) + catalogue name (editable) -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+          <div>
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:4px;">Invoice name</div>
+            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:12px;color:var(--text2);font-family:var(--font-mono);">${r.name}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:4px;">Catalogue name</div>
+            <input id="${id}-name-${globalIdx}" type="text" value="${r._cleanName.replace(/"/g,'&quot;')}"
+              list="${id}-namelist-${globalIdx}"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:13px;font-weight:600;outline:none;"
+              placeholder="Match to existing or type new name">
+            <datalist id="${id}-namelist-${globalIdx}">
+              ${(activeClient?.products||[]).map(p=>`<option value="${(p.n||p.name||'').replace(/"/g,'&quot;')}">`).join('')}
+            </datalist>
           </div>
         </div>
-        <div>
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:4px;">Catalogue name <span style="color:var(--accent);font-weight:400;text-transform:none;">(your database)</span></div>
-          <input id="${id}-name-${globalIdx}" type="text" value="${r._cleanName.replace(/"/g,'&quot;')}"
-            list="${id}-namelist-${globalIdx}"
-            style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:13px;font-weight:600;outline:none;"
-            onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border2)'"
-            placeholder="Match to existing or type new name">
-          <datalist id="${id}-namelist-${globalIdx}">
-            ${(activeClient?.products||[]).map(p=>`<option value="${(p.n||p.name||'').replace(/"/g,'&quot;')}">`).join('')}
-          </datalist>
-          <div style="font-size:10px;color:var(--text3);margin-top:3px;">Choose from catalogue or type a new name</div>
+        <!-- Category + Subcategory row -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start;margin-bottom:12px;">
+          <div>
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:4px;">Category</div>
+            <select id="${id}-cat2-${globalIdx}" onchange="updateInvSubcat('${id}',${globalIdx})"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:12px;outline:none;">
+              ${getInvCatOptions(r._cat)}
+            </select>
+          </div>
+          <div>
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:4px;">Subcategory</div>
+            <select id="${id}-subcat-${globalIdx}"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:12px;outline:none;">
+              ${getInvSubcatOptions(r._cat, r.existing?.subcat||'')}
+            </select>
+          </div>
         </div>
-      </div>
-
-      <!-- Category + Subcategory row -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start;margin-bottom:12px;">
-        <div>
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:4px;">Category</div>
-          <select id="${id}-cat2-${globalIdx}" onchange="updateInvSubcat('${id}',${globalIdx})"
-            style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:12px;outline:none;">
-            ${getInvCatOptions(r._cat)}
-            <option value="__new__">+ New category…</option>
-          </select>
-        </div>
-        <div>
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:4px;">Subcategory</div>
-          <select id="${id}-subcat-${globalIdx}" onchange="updateInvWeighVisibility('${id}',${globalIdx})"
-            style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:12px;outline:none;">
-            ${getInvSubcatOptions(r._cat, r.existing?.subcat||'')}
-          </select>
-        </div>
-      </div>
-
-      <!-- Volume + Case size + Price row -->
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Unit vol (ml)</div>
@@ -7443,23 +7447,10 @@ function openInvoiceReviewModal(id) {
       </div>
 
       <!-- Tare note -->
-      <div style="font-size:11px;color:var(--text3);">⚖ Set vessel weights in Products catalogue on site with bottle in hand.</div>
+      <div style="font-size:11px;color:var(--text3);">⚖ Set vessel weights in Products catalogue on site.</div>
+      </div><!-- end irm-expand -->
     </div>`;
   }).join('');
-
-  // Also show price-update-only summary at bottom
-  const updateRows = rows.filter(r=>r.action==='update');
-  if(updateRows.length) {
-    body.innerHTML += `
-      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:12px 16px;">
-        <div style="font-size:12px;font-weight:600;color:var(--amber);margin-bottom:8px;">⚡ Price updates (${updateRows.length})</div>
-        ${updateRows.map(r=>`
-          <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;">
-            <span style="color:var(--text);">${r._cleanName}</span>
-            <span style="font-family:var(--font-mono);color:var(--text2);">$${r._incGST.toFixed(2)} inc-GST</span>
-          </div>`).join('')}
-      </div>`;
-  }
 
   openModal('invoiceReviewModal');
 }
@@ -7585,30 +7576,30 @@ function applyInvoiceToProducts(id) {
   let added = 0, updated = 0;
 
   res._invoiceData.forEach((item, i) => {
-    // Read all enrichment fields from the review UI
-    const nameInput    = document.getElementById(id+'-name-'+i);
-    const catInput     = document.getElementById(id+'-cat-'+i);
-    const cat2Input    = document.getElementById(id+'-cat2-'+i);
-    const subcatInput  = document.getElementById(id+'-subcat-'+i);
-    const unitvolInput = document.getElementById(id+'-unitvol-'+i);
-    const taregInput   = document.getElementById(id+'-tareg-'+i);
-    const fullgInput   = document.getElementById(id+'-fullg-'+i);
-    const densityInput = document.getElementById(id+'-density-'+i);
-    const soldasInput  = null; // removed from UI — derive from unit
-    const casesizeInput= document.getElementById(id+'-casesize-'+i);
-    const casesplitInput=document.getElementById(id+'-casesplit-'+i);
+    // Try to read from review UI inputs first (when modal is open)
+    // Fall back to pre-computed item values (quick import)
+    const nameInput     = document.getElementById(id+'-name-'+i);
+    const cat2Input     = document.getElementById(id+'-cat2-'+i);
+    const subcatInput   = document.getElementById(id+'-subcat-'+i);
+    const unitvolInput  = document.getElementById(id+'-unitvol-'+i);
+    const taregInput    = document.getElementById(id+'-tareg-'+i);
+    const fullgInput    = document.getElementById(id+'-fullg-'+i);
+    const densityInput  = document.getElementById(id+'-density-'+i);
+    const casesizeInput = document.getElementById(id+'-casesize-'+i);
+    const casesplitInput= document.getElementById(id+'-casesplit-'+i);
 
-    const cleanName  = nameInput    ? nameInput.value.trim()             : item.name;
-    const cleanCat   = cat2Input?.value || catInput?.value               || (item._cat||item.cat||'Other');
-    const cleanSubcat= subcatInput  ? subcatInput.value                  : (item.existing?.subcat||'');
-    const unitVol    = parseFloat(unitvolInput?.value)  || parseVolFromName(cleanName) || 750;
-    const tareG      = parseFloat(taregInput?.value)    || 0;
-    const fullG      = parseFloat(fullgInput?.value)    || 0;
-    const density    = densityInput?.value || (cleanCat==='Spirits' ? '0.9467' : cleanCat==='Wine' ? '0.9805' : '1.014');
-    // Derive soldAs from the item unit
-    let   soldAs     = (['Kegs','Cases','Cans','Litres','Bottles'].includes(item.unit)) ? item.unit : 'Bottles';
-    let   caseSize   = parseInt(casesizeInput?.value) || parseCaseSize(item.name) || null;
-    const splitCase  = casesplitInput?.checked && soldAs === 'Cases' && caseSize > 0;
+    const cleanName  = nameInput    ? nameInput.value.trim()   : (item._cleanName || item.name);
+    const cleanCat   = cat2Input    ? cat2Input.value          : (item._cat || item.cat || 'Other');
+    const cleanSubcat= subcatInput  ? subcatInput.value        : (item.existing?.subcat || '');
+    const unitVol    = unitvolInput ? parseFloat(unitvolInput.value) || parseVolFromName(cleanName) || 750
+                                    : (item._unitVol || parseVolFromName(cleanName) || 750);
+    const tareG      = taregInput   ? parseFloat(taregInput.value) || 0 : (item._tareG || 0);
+    const fullG      = fullgInput   ? parseFloat(fullgInput.value) || 0 : (item._fullG || 0);
+    const density    = densityInput ? densityInput.value
+                                    : (item._density || (cleanCat==='Spirits'?'0.9467':cleanCat==='Wine'?'0.9805':'1.014'));
+    let soldAs       = (['Kegs','Cases','Cans','Litres','Bottles'].includes(item.unit)) ? item.unit : 'Bottles';
+    let caseSize     = casesizeInput ? parseInt(casesizeInput.value)||null : parseCaseSize(item.name)||null;
+    const splitCase  = casesplitInput ? casesplitInput.checked && soldAs==='Cases' && caseSize>0 : false;
 
     if(!cleanName) return;
 
