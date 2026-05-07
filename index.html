@@ -7604,35 +7604,42 @@ function applyInvoiceToProducts(id) {
     const unitVol    = parseFloat(unitvolInput?.value)  || parseVolFromName(cleanName) || 750;
     const tareG      = parseFloat(taregInput?.value)    || 0;
     const fullG      = parseFloat(fullgInput?.value)    || 0;
-    const density    = densityInput?.value              || '1.00';
-    // Derive soldAs from the item unit (Kegs, Cases, Bottles, Cans etc)
+    const density    = densityInput?.value || (cleanCat==='Spirits' ? '0.9467' : cleanCat==='Wine' ? '0.9805' : '1.014');
+    // Derive soldAs from the item unit
     let   soldAs     = (['Kegs','Cases','Cans','Litres','Bottles'].includes(item.unit)) ? item.unit : 'Bottles';
-    let   caseSize   = parseInt(casesizeInput?.value)   || parseCaseSize(item.name) || null;
+    let   caseSize   = parseInt(casesizeInput?.value) || parseCaseSize(item.name) || null;
     const splitCase  = casesplitInput?.checked && soldAs === 'Cases' && caseSize > 0;
 
-    // Case split — divide cost by case size, treat as individual units
+    if(!cleanName) return;
+
+    const costPrice     = item._incGST || item.unitPrice || item.unitPriceIncGST || 0;
+    const costExGST     = item._exGST  || item.unitPriceExGST || costPrice/1.15;
+    const serveVol      = item.existing?.serveVol || 0;
+    const sellPrice     = item.existing?.sellPrice || 0;
+
+    // Case split — divide cost by case size
     let   costPriceAdj  = costPrice;
     let   costExGSTAdj  = costExGST;
     if(splitCase) {
       costPriceAdj = costPrice / caseSize;
       costExGSTAdj = costExGST / caseSize;
       soldAs = cleanSubcat === 'Cans' ? 'Cans' : 'Bottles';
-      caseSize = null; // stored as individual unit now
+      caseSize = null;
     }
 
-    const serveVol   = item.existing?.serveVol || 0;
-    const sellPrice  = item.existing?.sellPrice || 0;
-
-    if(!cleanName) return;
-
-    const costPrice  = item._incGST || item.unitPrice || item.unitPriceIncGST || 0;
-    const costExGST  = item._exGST  || item.unitPriceExGST || costPrice/1.15;
-
-    // Try to match against existing products by either the original or cleaned name
-    const existing = c.products.find(p =>
-      (p.n||p.name||'').toLowerCase() === cleanName.toLowerCase() ||
-      (p.n||p.name||'').toLowerCase() === item.name.toLowerCase()
-    );
+    // Match against existing products by name or barcode
+    const existing = c.products.find(p => {
+      const pName = (p.n||p.name||'').toLowerCase();
+      const cName = cleanName.toLowerCase();
+      const iName = (item.name||'').toLowerCase();
+      // Exact name match
+      if(pName === cName || pName === iName) return true;
+      // Barcode match
+      if(p.barcode && item.barcode && p.barcode === item.barcode) return true;
+      // Partial name match (invoice name contains product name or vice versa)
+      if(cName.length > 5 && (pName.includes(cName) || cName.includes(pName))) return true;
+      return false;
+    });
 
     if(existing) {
       if(cleanName !== (existing.n||existing.name)) { existing.n=cleanName; existing.name=cleanName; }
