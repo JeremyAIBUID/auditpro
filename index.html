@@ -2205,27 +2205,22 @@ function addToMasterCatalogue(prod) {
   } else {
     masterProducts.push({ ...prod });
   }
-  // Save to Supabase using PATCH (update) or POST (insert)
-  if(DB._ready) {
-    const slug = (prod.n||prod.name||'').toLowerCase().replace(/[^a-z0-9]/g,'_');
-    const headers = {
-      'Content-Type': 'application/json',
-      'apikey': SUPABASE_CONFIG.key,
-      'Authorization': 'Bearer ' + SUPABASE_CONFIG.key,
-      'Prefer': 'return=minimal'
-    };
-    // Try PATCH first, then POST if not found
-    fetch(`${SUPABASE_CONFIG.url}/rest/v1/ap_master_products?slug=eq.${encodeURIComponent(slug)}`, {
-      method: 'PATCH', headers, body: JSON.stringify({ data: prod })
-    }).then(r => {
-      if(!r.ok && r.status !== 204) {
-        // Row doesn't exist — insert
-        fetch(`${SUPABASE_CONFIG.url}/rest/v1/ap_master_products`, {
-          method: 'POST', headers, body: JSON.stringify({ slug, data: prod })
-        }).catch(e => console.warn('Master insert failed:', e));
-      }
-    }).catch(e => console.warn('Master save failed:', e));
-  }
+  if(!DB._ready) return;
+  const slug = (prod.n||prod.name||'').toLowerCase().replace(/[^a-z0-9]/g,'_');
+  const headers = {
+    'Content-Type': 'application/json',
+    'apikey': SUPABASE_CONFIG.key,
+    'Authorization': 'Bearer ' + SUPABASE_CONFIG.key,
+    'Prefer': 'return=minimal'
+  };
+  // Use Supabase upsert with on_conflict parameter
+  fetch(`${SUPABASE_CONFIG.url}/rest/v1/ap_master_products?on_conflict=slug`, {
+    method: 'POST',
+    headers: { ...headers, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({ slug, data: prod })
+  }).then(r => {
+    if(!r.ok) console.warn('Master catalogue save status:', r.status);
+  }).catch(e => console.warn('Master save error:', e));
 }
 
 // Merge master catalogue into a client's products (fill gaps, don't overwrite)
@@ -8916,8 +8911,17 @@ const DB = {
 
   async upsert(table, data) {
     if (!this._ready) return null;
+    // Each table has a different unique conflict column
+    const conflictCol = {
+      'ap_clients':         'slug',
+      'ap_master_products': 'slug',
+      'ap_audit_sessions':  'session_id',
+      'ap_products':        null,
+      'ap_batches':         null,
+    }[table] || 'slug';
+    const params = conflictCol ? `?on_conflict=${conflictCol}` : '';
     try {
-      const r = await fetch(this.url(table), {
+      const r = await fetch(this.url(table, params), {
         method:  'POST',
         headers: { ...this.headers, 'Prefer': 'resolution=merge-duplicates,return=representation' },
         body:    JSON.stringify(data),
