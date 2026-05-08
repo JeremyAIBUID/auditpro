@@ -9195,6 +9195,11 @@ async function dbLoadAll() {
     showLoadingBanner(false);
     renderOverview();
     renderDropdown();
+    // Auto-select the real client (non-demo) if none selected
+    if(!activeClient) {
+      const realClient = clients.find(c => String(c.id).length > 5);
+      if(realClient) selectClient(realClient.id);
+    }
     return true;
   } catch(e) {
     console.error('[AuditPro] Load failed:', e);
