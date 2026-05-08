@@ -7285,6 +7285,30 @@ function getInvoiceData(id) {
   return _invoiceDataStore[id] || null;
 }
 
+// ─── INVOICE REVIEW TYPEAHEAD ────────────────────
+function filterInvNameList(id, idx, query) {
+  const listEl  = document.getElementById(id+'-namelist-'+idx);
+  const inputEl = document.getElementById(id+'-name-'+idx);
+  if(!listEl || !inputEl) return;
+  const q = query.toLowerCase().trim();
+  const prods = activeClient?.products || [];
+  const matches = q.length === 0
+    ? prods.slice(0, 10)
+    : prods.filter(p => (p.n||p.name||'').toLowerCase().includes(q)).slice(0, 15);
+  if(!matches.length) { listEl.style.display = 'none'; return; }
+  listEl.style.display = 'block';
+  listEl.innerHTML = matches.map(p => {
+    const name = p.n||p.name||'';
+    return `<div onclick="document.getElementById('${id}-name-${idx}').value='${name.replace(/'/g,"\\'").replace(/"/g,'&quot;')}';document.getElementById('${id}-namelist-${idx}').style.display='none';"
+      style="padding:8px 12px;cursor:pointer;font-size:13px;color:var(--text);border-bottom:1px solid var(--border);"
+      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">${name}</div>`;
+  }).join('');
+  setTimeout(() => {
+    const close = (e) => { if(!listEl.contains(e.target) && e.target!==inputEl) { listEl.style.display='none'; document.removeEventListener('click',close); } };
+    document.addEventListener('click', close);
+  }, 100);
+}
+
 function renderInvoiceResults(id, invoice, filename) {
   const c   = activeClient;
   const res = document.getElementById(id+'-results');
@@ -7409,10 +7433,10 @@ function openInvoiceReviewModal(id) {
         ${badge}
         <div style="font-size:13px;font-weight:700;color:var(--text);flex:1;">${r._cleanName}</div>
         <div style="font-size:12px;font-family:var(--font-mono);color:var(--accent);">$${(r._incGST||0).toFixed(2)}</div>
-        ${isMatched ? `<button onclick="this.closest('div[style]').querySelector('.irm-expand').classList.toggle('hidden')" style="font-size:11px;color:var(--text3);background:none;border:none;cursor:pointer;padding:2px 6px;">Edit ▾</button>` : ''}
+        ${isMatched ? `<button onclick="var ex=document.getElementById('${id}-expand-${globalIdx}');ex.classList.toggle('hidden');" style="font-size:11px;color:var(--text3);background:none;border:none;cursor:pointer;padding:2px 6px;">Edit ▾</button>` : ''}
       </div>
-      <div class="irm-expand${isMatched?' hidden':''}">
-        <!-- Invoice name (read-only) + catalogue name (editable) -->
+      <div id="${id}-expand-${globalIdx}" class="irm-expand${isMatched?' hidden':''}">
+        <!-- Invoice name (read-only) + catalogue name (typeahead) -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
           <div>
             <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:4px;">Invoice name</div>
@@ -7420,12 +7444,12 @@ function openInvoiceReviewModal(id) {
           </div>
           <div>
             <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:4px;">Catalogue name</div>
-            <select id="${id}-name-${globalIdx}"
-              style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:13px;font-weight:600;outline:none;">
-              <option value="${r._cleanName.replace(/"/g,'&quot;')}">${r._cleanName}</option>
-              <option value="__new__">+ Add as new product</option>
-              ${(activeClient?.products||[]).map(p=>`<option value="${(p.n||p.name||'').replace(/"/g,'&quot;')}" ${(p.n||p.name||'')===(r._cleanName)?'selected':''}>${p.n||p.name||''}</option>`).join('')}
-            </select>
+            <input id="${id}-name-${globalIdx}" type="text" value="${r._cleanName.replace(/"/g,'&quot;')}"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:13px;font-weight:600;outline:none;"
+              placeholder="Type to search catalogue…"
+              oninput="filterInvNameList('${id}',${globalIdx},this.value)"
+              onfocus="filterInvNameList('${id}',${globalIdx},this.value)">
+            <div id="${id}-namelist-${globalIdx}" style="display:none;position:absolute;z-index:999;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;max-height:180px;overflow-y:auto;width:240px;box-shadow:0 4px 16px rgba(0,0,0,0.4);"></div>
           </div>
         </div>
         <!-- Category + Subcategory row -->
@@ -7710,10 +7734,20 @@ function applyInvoiceToProducts(id) {
   dbSaveClient(c);
 
   // Sync invoice purchases into active/latest audit session for variance
-  const sessions   = c.auditSessions || [];
-  const openSession= sessions.find(s=>s.status==='open') || sessions[sessions.length-1] || null;
-  if(openSession) {
-    if(!openSession.purchases) openSession.purchases = {};
+  if(!c.auditSessions) c.auditSessions = [];
+  let openSession = c.auditSessions.find(s=>s.status==='open') || c.auditSessions[c.auditSessions.length-1] || null;
+  // Create a pending session if none exists
+  if(!openSession) {
+    openSession = {
+      id: 'AUD-' + new Date().toISOString().slice(0,7),
+      label: new Date().toLocaleDateString('en-NZ',{month:'long',year:'numeric'}),
+      status: 'open',
+      openDate: new Date().toLocaleDateString('en-NZ'),
+      purchases: {}, opening: {}, closing: {}, sales: {}
+    };
+    c.auditSessions.push(openSession);
+  }
+  if(!openSession.purchases) openSession.purchases = {};
     res._invoiceData.forEach((item, i) => {
       const nameInput     = document.getElementById(id+'-name-'+i);
       const soldasEl      = document.getElementById(id+'-soldas-'+i);
@@ -7744,7 +7778,6 @@ function applyInvoiceToProducts(id) {
       }
     });
     dbSaveSession(c, openSession);
-  }
 
   // Add all new products to master catalogue
   res._invoiceData.forEach((item, i) => {
