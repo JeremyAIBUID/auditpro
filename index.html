@@ -2577,9 +2577,10 @@ function navigate(page) {
   renderPage(page);
 }
 
-function selectClient(id) {
+function selectClientOnly(id) {
   document.querySelectorAll('.modal-overlay.open').forEach(m=>m.classList.remove('open'));
   activeClient = clients.find(c=>String(c.id)===String(id));
+  if(!activeClient) return;
   document.getElementById('sw-dot').style.background = activeClient.color;
   document.getElementById('sw-dot').textContent = activeClient.initials;
   document.getElementById('sw-name').textContent = activeClient.name;
@@ -2593,6 +2594,10 @@ function selectClient(id) {
   const badge = document.getElementById('variance-badge');
   badge.style.display = activeClient.varStatus==='alert'?'flex':'none';
   renderDropdown(); closeDropdown();
+}
+
+function selectClient(id) {
+  selectClientOnly(id);
   navigate('dashboard');
 }
 
@@ -2675,23 +2680,20 @@ function renderOverview() {
   document.getElementById('ov-audits-month').textContent= auditsMonth;
   document.getElementById('overview-grid').innerHTML = clients.map(c=>`
     <div class="overview-card" style="position:relative;">
-      <!-- Delete button -->
       <button onclick="event.stopPropagation();deleteClient(${c.id})" style="position:absolute;top:12px;right:12px;width:26px;height:26px;border-radius:6px;background:transparent;border:none;color:var(--text3);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0.4;z-index:2;" title="Delete client">×</button>
-
       <div onclick="selectClient(${c.id})" style="padding:18px 20px;display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--border);cursor:pointer;padding-right:44px;">
         <div style="width:44px;height:44px;border-radius:10px;background:${c.color};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#0d0f12;flex-shrink:0;">${c.initials}</div>
         <div style="flex:1;min-width:0;">
           <div style="font-weight:600;font-size:15px;color:var(--text);">${c.name}</div>
           <div style="font-size:12px;color:var(--text3);">${c.city} · ${c.type}</div>
         </div>
-        <!-- Status dot instead of variance number -->
         <div style="width:10px;height:10px;border-radius:50%;flex-shrink:0;background:${c.varStatus==='alert'?'var(--red)':c.varStatus==='warn'?'var(--amber)':'var(--green)'};"></div>
       </div>
-      <div onclick="selectClient(${c.id})" style="padding:14px 20px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;">
+      <div style="padding:14px 20px;display:flex;justify-content:space-between;align-items:center;">
         <div><span style="font-size:11px;color:var(--text3);">Contact: </span><span style="font-size:12px;color:var(--text2);">${c.contact}</span></div>
         <div style="display:flex;align-items:center;gap:10px;">
           <span style="font-size:11px;color:var(--text3);">Last audit: <span style="font-family:var(--font-mono);color:var(--text2);">${c.lastAudit}</span></span>
-          <span style="padding:4px 12px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;font-size:11px;font-weight:600;color:var(--text2);">Open →</span>
+          <span onclick="selectClient(${c.id})" style="padding:4px 12px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;font-size:11px;font-weight:600;color:var(--text2);cursor:pointer;">Open →</span>
         </div>
       </div>
     </div>`).join('');
@@ -9198,6 +9200,11 @@ async function dbLoadAll() {
     showLoadingBanner(false);
     renderOverview();
     renderDropdown();
+    // Set 1 Up as active in topbar without navigating away from home
+    if(!activeClient) {
+      const realClient = clients.find(c => String(c.id).length > 5);
+      if(realClient) selectClientOnly(realClient.id);
+    }
     return true;
   } catch(e) {
     console.error('[AuditPro] Load failed:', e);
