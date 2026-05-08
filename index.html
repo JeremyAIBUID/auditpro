@@ -7393,13 +7393,12 @@ function openInvoiceReviewModal(id) {
           </div>
           <div>
             <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:4px;">Catalogue name</div>
-            <input id="${id}-name-${globalIdx}" type="text" value="${r._cleanName.replace(/"/g,'&quot;')}"
-              list="${id}-namelist-${globalIdx}"
-              style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:13px;font-weight:600;outline:none;"
-              placeholder="Match to existing or type new name">
-            <datalist id="${id}-namelist-${globalIdx}">
-              ${(activeClient?.products||[]).map(p=>`<option value="${(p.n||p.name||'').replace(/"/g,'&quot;')}">`).join('')}
-            </datalist>
+            <select id="${id}-name-${globalIdx}"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:13px;font-weight:600;outline:none;">
+              <option value="${r._cleanName.replace(/"/g,'&quot;')}">${r._cleanName}</option>
+              <option value="__new__">+ Add as new product</option>
+              ${(activeClient?.products||[]).map(p=>`<option value="${(p.n||p.name||'').replace(/"/g,'&quot;')}" ${(p.n||p.name||'')===(r._cleanName)?'selected':''}>${p.n||p.name||''}</option>`).join('')}
+            </select>
           </div>
         </div>
         <!-- Category + Subcategory row -->
@@ -7588,7 +7587,8 @@ function applyInvoiceToProducts(id) {
     const casesizeInput = document.getElementById(id+'-casesize-'+i);
     const casesplitInput= document.getElementById(id+'-casesplit-'+i);
 
-    const cleanName  = nameInput    ? nameInput.value.trim()   : (item._cleanName || item.name);
+    let cleanName  = nameInput ? nameInput.value.trim() : (item._cleanName || item.name);
+    if(cleanName === '__new__') cleanName = item._cleanName || item.name;
     const cleanCat   = cat2Input    ? cat2Input.value          : (item._cat || item.cat || 'Other');
     const cleanSubcat= subcatInput  ? subcatInput.value        : (item.existing?.subcat || '');
     const unitVol    = unitvolInput ? parseFloat(unitvolInput.value) || parseVolFromName(cleanName) || 750
