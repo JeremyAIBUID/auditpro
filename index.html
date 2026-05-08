@@ -2246,24 +2246,7 @@ let clients = [
     stats:{waste:'$842',events:'14',rtn:'$180',staff:'6'},
     audits:[{d:'30 Mar 2026',v:'-18.2%',vc:'var-alert',s:'Review',sc:'chip-red'},{d:'15 Mar 2026',v:'-12.1%',vc:'var-alert',s:'Review',sc:'chip-red'},{d:'28 Feb 2026',v:'-6.4%',vc:'var-warn',s:'Pending',sc:'chip-amber'}],
     prog:[{l:'Spirits',p:78,v:'-18.2%',c:'var(--red)'},{l:'Draught beer',p:40,v:'-9.1%',c:'var(--amber)'},{l:'Bottled wine',p:22,v:'-4.8%',c:'var(--amber)'},{l:'Soft drinks',p:8,v:'-1.2%',c:'var(--green)'}],
-    varRows:[
-      {p:'Jameson 700ml',      cat:'Spirits',    unitVol:700,  costPrice:32.00, prevClose:'12 btl', purchaseVol:'4,200ml', purchases:[{qty:'6 btl',date:'14 Mar',sup:'Pernod Ricard',inv:'PR-20931'},{qty:'2 btl',date:'22 Mar',sup:'Pernod Ricard',inv:'PR-21104'}],
-       sales:{qty:68,rev:646.00,unit:'shots'}, o:'12',d:'+8',t:'-8.2',e:'9.8',a:'8.0',v:'-18.4%',vc:'var-alert',days:14,parSt:'healthy',actualGP:62,idealGP:72,lastSold:0},
-      {p:'Absolut Vodka 1L',   cat:'Spirits',    unitVol:1000, costPrice:38.00, prevClose:'8 btl',  purchaseVol:'4,000ml', purchases:[{qty:'4 btl',date:'14 Mar',sup:'Pernod Ricard',inv:'PR-20931'}],
-       sales:{qty:52,rev:468.00,unit:'shots'}, o:'8',d:'+4',t:'-5.1',e:'6.9',a:'5.75',v:'-16.7%',vc:'var-alert',days:16,parSt:'healthy',actualGP:64,idealGP:72,lastSold:0},
-      {p:'Heineken 330ml',     cat:'Beer',       unitVol:330,  costPrice:2.10,  prevClose:'120 btl',purchaseVol:'31,680ml',purchases:[{qty:'96 btl',date:'19 Mar',sup:'Lion Breweries',inv:'LB-44821'}],
-       sales:{qty:312,rev:2340.00,unit:'bottles'}, o:'120',d:'+96',t:'-128',e:'88',a:'80',v:'-9.1%',vc:'var-warn',days:10,parSt:'healthy',actualGP:72,idealGP:72,lastSold:0},
-      {p:'Marlborough SB',     cat:'Wine',       unitVol:750,  costPrice:14.50, prevClose:'18 btl', purchaseVol:'9,000ml', purchases:[{qty:'12 btl',date:'22 Mar',sup:'Casa Grande Wines',inv:'CGW-7741'}],
-       sales:{qty:88,rev:1056.00,unit:'glasses'}, o:'18',d:'+12',t:'-14',e:'16',a:'15.25',v:'-4.7%',vc:'var-warn',days:22,parSt:'slow',actualGP:68,idealGP:72,lastSold:2},
-      {p:'Pinot Gris 750ml',   cat:'Wine',       unitVol:750,  costPrice:18.00, prevClose:'12 btl', purchaseVol:'4,500ml', purchases:[{qty:'6 btl',date:'01 Mar',sup:'Casa Grande Wines',inv:'CGW-7601'}],
-       sales:{qty:42,rev:504.00,unit:'glasses'}, o:'12',d:'+6',t:'-4',e:'14',a:'13.5',v:'-3.6%',vc:'var-ok',days:47,parSt:'dead',actualGP:38,idealGP:72,lastSold:52},
-      {p:'Baileys 1L',         cat:'Spirits',    unitVol:1000, costPrice:28.00, prevClose:'6 btl',  purchaseVol:'3,000ml', purchases:[{qty:'3 btl',date:'01 Mar',sup:'Diageo',inv:'DG-11042'}],
-       sales:{qty:14,rev:168.00,unit:'shots'}, o:'6',d:'+3',t:'-1.2',e:'7.8',a:'7.5',v:'-3.8%',vc:'var-ok',days:52,parSt:'dead',actualGP:55,idealGP:72,lastSold:48},
-      {p:'Coca-Cola 330ml',    cat:'Soft drinks',unitVol:330,  costPrice:1.20,  prevClose:'48 cans',purchaseVol:'23,760ml',purchases:[{qty:'72 cans',date:'17 Mar',sup:'Coca-Cola EP',inv:'CCE-33012'}],
-       sales:{qty:144,rev:648.00,unit:'cans'}, o:'48',d:'+72',t:'-80',e:'40',a:'39.5',v:'-1.2%',vc:'var-ok',days:7,parSt:'low',actualGP:73,idealGP:72,lastSold:0},
-      {p:'House Lager Keg',    cat:'Beer',       unitVol:50000,costPrice:180.00,prevClose:'4 kegs', purchaseVol:'100L',    purchases:[{qty:'2 kegs',date:'20 Mar',sup:'Lion Breweries',inv:'LB-44902'}],
-       sales:{qty:3.2,rev:1280.00,unit:'kegs'}, o:'4',d:'+2',t:'-3.2',e:'2.8',a:'2.75',v:'-1.8%',vc:'var-ok',days:12,parSt:'healthy',actualGP:74,idealGP:72,lastSold:0},
-    ],
+    varRows:[],
     insightPrev:{icon:'🚨',bdr:'rgba(240,80,80,0.25)',bg:'rgba(240,80,80,0.07)',title:'Spirits — over-pouring or shrinkage',body:'Jameson & Absolut 16–18% above theoretical for 3 consecutive periods. Estimated loss <strong style="color:var(--text)">$1,240/month</strong>. Recommend mandatory jigger use and immediate spot-check.'},
     metrics:[{l:'Pour cost avg',v:'31%',ok:false},{l:'Variance trend',v:'↑ worsening',ok:false},{l:'Waste this period',v:'$842',ok:false},{l:'Open supplier alerts',v:'1',ok:false}],
     deliveries:[{s:'Lion Breweries',d:'29 Mar',r:'LB-44821',i:12,t:'$1,842.00',st:'Verified',sc:'chip-green'},{s:'Pernod Ricard',d:'27 Mar',r:'PR-20931',i:8,t:'$3,210.50',st:'Verified',sc:'chip-green'},{s:'Casa Grande Wines',d:'24 Mar',r:'CGW-7741',i:24,t:'$2,190.00',st:'Discrepancy',sc:'chip-amber'}],
@@ -2385,18 +2368,7 @@ let clients = [
     stats:{waste:'$210',events:'4',rtn:'$60',staff:'1'},
     audits:[{d:'28 Mar 2026',v:'-1.4%',vc:'var-ok',s:'Complete',sc:'chip-green'},{d:'14 Mar 2026',v:'-2.1%',vc:'var-ok',s:'Complete',sc:'chip-green'},{d:'28 Feb 2026',v:'-1.8%',vc:'var-ok',s:'Complete',sc:'chip-green'}],
     prog:[{l:'Wine',p:14,v:'-1.4%',c:'var(--green)'},{l:'Spirits',p:9,v:'-0.9%',c:'var(--green)'},{l:'Beer',p:6,v:'-0.6%',c:'var(--green)'},{l:'Food',p:3,v:'-0.3%',c:'var(--green)'}],
-    varRows:[
-      {p:'Pinot Noir 750ml', cat:'Wine',   unitVol:750,  costPrice:16.00, prevClose:'24 btl',purchaseVol:'9,000ml', purchases:[{qty:'12 btl',date:'14 Mar',sup:'De Bortoli Wines',inv:'DB-1192'}],
-       sales:{qty:88,rev:1056.00,unit:'glasses'}, o:'24',d:'+12',t:'-18',e:'18',a:'17.75',v:'-1.4%',vc:'var-ok',days:18,parSt:'healthy',actualGP:74,idealGP:72,lastSold:0},
-      {p:'Sauvignon Blanc',  cat:'Wine',   unitVol:750,  costPrice:12.00, prevClose:'18 btl',purchaseVol:'9,000ml', purchases:[{qty:'12 btl',date:'14 Mar',sup:'De Bortoli Wines',inv:'DB-1192'}],
-       sales:{qty:104,rev:1040.00,unit:'glasses'}, o:'18',d:'+12',t:'-14',e:'16',a:'15.8',v:'-1.3%',vc:'var-ok',days:16,parSt:'healthy',actualGP:76,idealGP:72,lastSold:0},
-      {p:'Peroni 330ml',     cat:'Beer',   unitVol:330,  costPrice:2.20,  prevClose:'60 btl',purchaseVol:'15,840ml',purchases:[{qty:'48 btl',date:'18 Mar',sup:'Independent Liquor',inv:'IL-8821'}],
-       sales:{qty:184,rev:1472.00,unit:'bottles'}, o:'60',d:'+48',t:'-72',e:'36',a:'35.5',v:'-1.4%',vc:'var-ok',days:8,parSt:'low',actualGP:72,idealGP:72,lastSold:0},
-      {p:'Chianti Classico',  cat:'Wine',  unitVol:750,  costPrice:18.00, prevClose:'8 btl', purchaseVol:'3,000ml', purchases:[{qty:'4 btl',date:'05 Mar',sup:'De Bortoli Wines',inv:'DB-1140'}],
-       sales:{qty:16,rev:192.00,unit:'glasses'}, o:'8',d:'+4',t:'-2',e:'10',a:'9.8',v:'-2.0%',vc:'var-ok',days:35,parSt:'slow',actualGP:65,idealGP:72,lastSold:8},
-      {p:'Limoncello 700ml',  cat:'Spirits',unitVol:700, costPrice:22.00, prevClose:'4 btl', purchaseVol:'0ml',     purchases:[],
-       sales:{qty:2,rev:28.00,unit:'shots'}, o:'4',d:'+0',t:'-0.2',e:'3.8',a:'3.8',v:'0.0%',vc:'var-ok',days:58,parSt:'dead',actualGP:52,idealGP:72,lastSold:62},
-    ],
+    varRows:[],
     insightPrev:{icon:'✅',bdr:'rgba(91,227,180,0.25)',bg:'rgba(91,227,180,0.07)',title:'Excellent stock control',body:'All variance rates under 2% — well below the 5% alert threshold. Stock controls are best-in-class. No action required this period.'},
     metrics:[{l:'Pour cost avg',v:'27%',ok:true},{l:'Variance rate',v:'1.4%',ok:true},{l:'Waste this period',v:'$210',ok:true},{l:'Supplier alerts',v:'0',ok:true}],
     deliveries:[{s:'De Bortoli Wines',d:'26 Mar',r:'DB-1192',i:18,t:'$1,640.00',st:'Verified',sc:'chip-green'},{s:'Independent Liquor',d:'20 Mar',r:'IL-8821',i:6,t:'$480.00',st:'Verified',sc:'chip-green'}],
@@ -2448,16 +2420,7 @@ let clients = [
     stats:{waste:'$540',events:'9',rtn:'$90',staff:'3'},
     audits:[{d:'25 Mar 2026',v:'-5.8%',vc:'var-warn',s:'Pending',sc:'chip-amber'},{d:'10 Mar 2026',v:'-4.2%',vc:'var-warn',s:'Pending',sc:'chip-amber'},{d:'24 Feb 2026',v:'-3.1%',vc:'var-ok',s:'Complete',sc:'chip-green'}],
     prog:[{l:'Spirits',p:55,v:'-5.8%',c:'var(--amber)'},{l:'Beer',p:32,v:'-3.4%',c:'var(--amber)'},{l:'Wine',p:18,v:'-1.9%',c:'var(--green)'},{l:'Food',p:5,v:'-0.5%',c:'var(--green)'}],
-    varRows:[
-      {p:'Tanqueray Gin 700ml',cat:'Spirits',unitVol:700,  costPrice:38.00, prevClose:'10 btl',purchaseVol:'4,200ml',purchases:[{qty:'6 btl',date:'15 Mar',sup:'Beam Suntory',inv:'BS-5512'}],
-       sales:{qty:58,rev:580.00,unit:'shots'}, o:'10',d:'+6',t:'-7.2',e:'8.8',a:'8.3',v:'-5.7%',vc:'var-warn',days:16,parSt:'healthy',actualGP:68,idealGP:72,lastSold:0},
-      {p:'Jim Beam 1L',        cat:'Spirits',unitVol:1000, costPrice:36.00, prevClose:'6 btl', purchaseVol:'4,000ml',purchases:[{qty:'4 btl',date:'15 Mar',sup:'Beam Suntory',inv:'BS-5512'}],
-       sales:{qty:44,rev:396.00,unit:'shots'}, o:'6',d:'+4',t:'-4.8',e:'5.2',a:'4.9',v:'-5.8%',vc:'var-warn',days:14,parSt:'healthy',actualGP:70,idealGP:72,lastSold:0},
-      {p:'Steinlager 330ml',   cat:'Beer',   unitVol:330,  costPrice:1.90,  prevClose:'96 btl',purchaseVol:'23,760ml',purchases:[{qty:'72 btl',date:'12 Mar',sup:'DB Breweries',inv:'DB-3301'}],
-       sales:{qty:248,rev:1736.00,unit:'bottles'}, o:'96',d:'+72',t:'-110',e:'58',a:'56',v:'-3.4%',vc:'var-ok',days:11,parSt:'healthy',actualGP:73,idealGP:72,lastSold:0},
-      {p:'Drambuie 700ml',     cat:'Spirits',unitVol:700,  costPrice:42.00, prevClose:'3 btl', purchaseVol:'0ml',    purchases:[],
-       sales:{qty:1,rev:18.00,unit:'shots'}, o:'3',d:'+0',t:'-0.1',e:'2.9',a:'2.9',v:'0.0%',vc:'var-ok',days:68,parSt:'dead',actualGP:48,idealGP:72,lastSold:71},
-    ],
+    varRows:[],
     insightPrev:{icon:'⚠️',bdr:'rgba(240,192,64,0.25)',bg:'rgba(240,192,64,0.07)',title:'Spirits variance trending upward',body:'Three-period increase from 3.1% → 5.8%. Not yet critical but the trend is a warning sign. Review serving procedures before next audit.'},
     metrics:[{l:'Pour cost avg',v:'29%',ok:true},{l:'Variance trend',v:'↑ rising',ok:false},{l:'Waste this period',v:'$540',ok:false},{l:'Supplier alerts',v:'0',ok:true}],
     deliveries:[{s:'Beam Suntory',d:'23 Mar',r:'BS-5512',i:10,t:'$2,100.00',st:'Verified',sc:'chip-green'},{s:'DB Breweries',d:'18 Mar',r:'DB-3301',i:8,t:'$960.00',st:'Verified',sc:'chip-green'}],
@@ -2507,16 +2470,7 @@ let clients = [
     stats:{waste:'$120',events:'3',rtn:'$40',staff:'1'},
     audits:[{d:'22 Mar 2026',v:'-0.9%',vc:'var-ok',s:'Complete',sc:'chip-green'},{d:'08 Mar 2026',v:'-1.1%',vc:'var-ok',s:'Complete',sc:'chip-green'},{d:'22 Feb 2026',v:'-0.7%',vc:'var-ok',s:'Complete',sc:'chip-green'}],
     prog:[{l:'Spirits',p:9,v:'-0.9%',c:'var(--green)'},{l:'Beer',p:7,v:'-0.7%',c:'var(--green)'},{l:'Cocktail mix',p:5,v:'-0.5%',c:'var(--green)'},{l:'Soft drinks',p:3,v:'-0.3%',c:'var(--green)'}],
-    varRows:[
-      {p:'Grey Goose 1L',    cat:'Spirits',unitVol:1000, costPrice:55.00, prevClose:'8 btl', purchaseVol:'4,000ml',purchases:[{qty:'4 btl',date:'10 Mar',sup:'Bacardi Martini',inv:'BM-9921'}],
-       sales:{qty:62,rev:868.00,unit:'shots'}, o:'8',d:'+4',t:'-7.1',e:'4.9',a:'4.85',v:'-0.9%',vc:'var-ok',days:9,parSt:'low',actualGP:75,idealGP:72,lastSold:0},
-      {p:'Patron Silver 1L', cat:'Spirits',unitVol:1000, costPrice:68.00, prevClose:'6 btl', purchaseVol:'3,000ml',purchases:[{qty:'3 btl',date:'10 Mar',sup:'Bacardi Martini',inv:'BM-9921'}],
-       sales:{qty:48,rev:768.00,unit:'shots'}, o:'6',d:'+3',t:'-5.4',e:'3.6',a:'3.57',v:'-0.8%',vc:'var-ok',days:9,parSt:'low',actualGP:73,idealGP:72,lastSold:0},
-      {p:'Corona 355ml',     cat:'Beer',   unitVol:355,  costPrice:2.50,  prevClose:'72 btl',purchaseVol:'17,040ml',purchases:[{qty:'48 btl',date:'13 Mar',sup:'Bacardi Martini',inv:'BM-9921'}],
-       sales:{qty:118,rev:1180.00,unit:'bottles'}, o:'72',d:'+48',t:'-80',e:'40',a:'39.7',v:'-0.7%',vc:'var-ok',days:11,parSt:'healthy',actualGP:75,idealGP:72,lastSold:0},
-      {p:'Midori 700ml',     cat:'Spirits',unitVol:700,  costPrice:28.00, prevClose:'2 btl', purchaseVol:'0ml',    purchases:[],
-       sales:{qty:1,rev:16.00,unit:'shots'}, o:'2',d:'+0',t:'-0.1',e:'1.9',a:'1.9',v:'0.0%',vc:'var-ok',days:48,parSt:'dead',actualGP:44,idealGP:72,lastSold:50},
-    ],
+    varRows:[],
     insightPrev:{icon:'✅',bdr:'rgba(91,227,180,0.25)',bg:'rgba(91,227,180,0.07)',title:'Outstanding stock performance',body:'0.9% variance is industry-leading. All categories within 1% of theoretical. Neon Lounge is performing at best-practice standard.'},
     metrics:[{l:'Pour cost avg',v:'25%',ok:true},{l:'Variance rate',v:'0.9%',ok:true},{l:'Waste this period',v:'$120',ok:true},{l:'Supplier alerts',v:'0',ok:true}],
     deliveries:[{s:'Bacardi Martini',d:'20 Mar',r:'BM-9921',i:8,t:'$2,880.00',st:'Verified',sc:'chip-green'}],
@@ -3522,7 +3476,7 @@ function renderIntelipar() {
 
   // Use computed variance rows if available, else static varRows
   const computed = computeVariances(c);
-  const sourceRows = computed || c.varRows || [];
+  const sourceRows = computed || [];
 
   if(!sourceRows.length) {
     const body = document.getElementById('ipar-body');
@@ -3819,334 +3773,7 @@ function addClient() {
   const initials=name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   const palette=['#a78bfa','#fb923c','#38bdf8','#f472b6','#34d399'];
   const color=palette[clients.length%palette.length];
-  clients.push({id:Date.now(),name,contact,city,type,initials,color,variance:'N/A',varStatus:'ok',lastAudit:'Not yet',auditsMonth:0,alert:'No audits yet. Complete the first stocktake to begin.',alertType:'green',stats:{waste:'$0',events:'0',rtn:'$0',staff:'0'},audits:[],prog:[],varRows:[],insightPrev:{icon:'📋',bdr:'rgba(200,240,100,0.2)',bg:'rgba(200,240,100,0.05)',title:'No data yet',body:'Run the first stocktake to start generating AI insights for this client.'},metrics:[{l:'Variance rate',v:'N/A',ok:true},{l:'Waste',v:'$0',ok:true},{l:'Audits',v:'0',ok:true},{l:'Alerts',v:'0',ok:true}],deliveries:[],wasteRows:[],products:[],insights:[{icon:'📋',bdr:'rgba(200,240,100,0.2)',bg:'rgba(200,240,100,0.05)',title:'Getting started',body:'Complete the first stocktake and import sales data to begin receiving AI insights.',actions:['Complete first stocktake','Set up product catalogue','Import POS sales report']}],reports:[],info:{contacts:[{label:'Manager',name:contact,phone:'',email:''}],site:[{label:'Address',value:city,sensitive:false},{label:'WiFi network',value:'',sensitive:false},{label:'WiFi password',value:'',sensitive:true},{label:'Alarm code',value:'',sensitive:true},{label:'Safe code',value:'',sensitive:true}],storage:[{label:'Main bar spirits',value:''},{label:'Wine & beer',value:''},{label:'Walk-in fridge',value:''}],audit:[{label:'Audit frequency',value:'Monthly'},{label:'Preferred audit day',value:''},{label:'POS system',value:''},{label:'Invoice folder',value:''}],notes:''}});
-  closeModal('newClientModal');
-  renderOverview();
-  renderDropdown();
-  // Persist new client to DB
-  const newest = clients[clients.length - 1];
-  if (newest) dbSaveClient(newest);
-}
-
-function togglePurPopover(id, e) {
-  e.stopPropagation();
-  const pop = document.getElementById(id);
-  const isOpen = pop.classList.contains('open');
-  document.querySelectorAll('.pur-popover.open,.sales-popover.open').forEach(p => p.classList.remove('open'));
-  if (!isOpen) pop.classList.add('open');
-}
-function toggleSalesPopover(id, e) {
-  e.stopPropagation();
-  const pop = document.getElementById(id);
-  const isOpen = pop.classList.contains('open');
-  document.querySelectorAll('.pur-popover.open,.sales-popover.open').forEach(p => p.classList.remove('open'));
-  if (!isOpen) pop.classList.add('open');
-}
-document.addEventListener('click', () => {
-  document.querySelectorAll('.pur-popover.open,.sales-popover.open').forEach(p => p.classList.remove('open'));
-});
-
-// ─── TAB SWITCHER ────────────────────────────────
-// ─── PRODUCTS ────────────────────────────────────
-const CAT_ORDER_PROD = ['Spirits','Beer','Wine','Soft drinks','Food','Cocktails'];
-const CAT_COLORS_PROD = {
-  Spirits:    {bg:'rgba(167,139,250,0.12)',text:'#a78bfa',icon:'🥃'},
-  Beer:       {bg:'rgba(91,156,240,0.12)', text:'#5b9cf0',icon:'🍺'},
-  Wine:       {bg:'rgba(240,136,74,0.12)', text:'#f0884a',icon:'🍷'},
-  'Soft drinks':{bg:'rgba(91,227,180,0.12)',text:'#5be3b4',icon:'🥤'},
-  Food:       {bg:'rgba(240,192,64,0.12)', text:'#f0c040',icon:'🍽️'},
-  Cocktails:  {bg:'rgba(244,114,182,0.12)',text:'#f472b6',icon:'🍸'},
-};
-const SUBCAT_ICONS = {
-  Whiskey:'🥃', Bourbon:'🥃', Scotch:'🥃', Irish:'🥃',
-  Vodka:'🫙', Gin:'🌿', Rum:'🍬', Tequila:'🌵', Mezcal:'🌵',
-  Liqueur:'🍯', Brandy:'🍂', Cognac:'🍂', Other:'🔮',
-  Draught:'🍺', Bottles:'🍾', Cans:'🥫',
-  Red:'🍷', White:'🥂', Rosé:'🌸', Sparkling:'✨', Dessert:'🍰',
-  Mixers:'🫧', Juices:'🍊', Water:'💧', Energy:'⚡',
-};
-// Subcategory sort order per parent category
-const SUBCAT_ORDER = {
-  Spirits:      ['Whiskey','Bourbon','Scotch','Irish','Vodka','Gin','Rum','Tequila','Mezcal','Brandy','Cognac','Liqueur','Other'],
-  Beer:         ['Bottles','Cans','Draught'],
-  Wine:         ['White','Red','Rosé','Sparkling','Dessert'],
-  'Soft drinks':['Mixers','Juices','Water','Energy','Other'],
-};
-
-// ─── STOCK TRANSFER ──────────────────────────────
-function openStockTransfer() {
-  const c = activeClient; if(!c) return;
-
-  // Populate from/to dropdowns
-  const fromSel = document.getElementById('st-from');
-  const toSel   = document.getElementById('st-to');
-  const opts    = clients.map(cl=>`<option value="${cl.id}"${cl.id===c.id?' selected':''}>${cl.name}</option>`).join('');
-  fromSel.innerHTML = '<option value="">— select —</option>' + opts;
-  toSel.innerHTML   = '<option value="">— select —</option>' + opts;
-  // Default to/from active client
-  fromSel.value = c.id;
-  // Pick first other client as default "to"
-  const other = clients.find(cl=>cl.id!==c.id);
-  if(other) toSel.value = other.id;
-
-  // Default date to today
-  document.getElementById('st-date').value = new Date().toISOString().slice(0,10);
-  document.getElementById('st-notes').value = '';
-  document.getElementById('st-summary').style.display = 'none';
-
-  // Clear lines and add one blank
-  document.getElementById('st-lines').innerHTML = '';
-  addTransferLine();
-
-  openModal('stockTransferModal');
-}
-
-function populateTransferProducts() {
-  // Refresh product dropdowns in existing lines when from-venue changes
-  document.querySelectorAll('.st-line-product').forEach(sel => {
-    const fromId = document.getElementById('st-from').value;
-    const from   = clients.find(c=>String(c.id)===String(fromId));
-    const prods  = (from?.products||[]);
-    const cur    = sel.value;
-    sel.innerHTML = '<option value="">— select product —</option>' +
-      prods.map(p=>`<option value="${p.n||p.name}"${(p.n||p.name)===cur?' selected':''}>${p.n||p.name}</option>`).join('');
-  });
-}
-
-function addTransferLine() {
-  const fromId = document.getElementById('st-from').value;
-  const from   = clients.find(c=>String(c.id)===String(fromId));
-  const prods  = (from?.products||[]);
-  const lines  = document.getElementById('st-lines');
-  const div    = document.createElement('div');
-  div.className = 'st-line';
-  div.style.cssText = 'display:flex;gap:8px;align-items:center;background:var(--bg3);border:1px solid var(--border2);border-radius:10px;padding:10px 12px;';
-  div.innerHTML = `
-    <select class="st-line-product" style="flex:2;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:13px;outline:none;">
-      <option value="">— select product —</option>
-      ${prods.map(p=>`<option value="${p.n||p.name}">${p.n||p.name}</option>`).join('')}
-    </select>
-    <input type="number" class="st-line-qty" placeholder="Qty" min="0" step="0.5"
-      style="flex:1;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-mono);font-size:13px;outline:none;">
-    <select class="st-line-unit" style="flex:1;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:7px 8px;color:var(--text);font-family:var(--font-ui);font-size:12px;outline:none;">
-      <option>Bottles</option><option>Cans</option><option>Cases</option><option>Kegs</option><option>Litres</option>
-    </select>
-    <button onclick="this.closest('.st-line').remove()" style="background:none;border:none;color:var(--text3);font-size:18px;cursor:pointer;flex-shrink:0;">×</button>`;
-  lines.appendChild(div);
-}
-
-function confirmStockTransfer() {
-  const fromId  = document.getElementById('st-from').value;
-  const toId    = document.getElementById('st-to').value;
-  const date    = document.getElementById('st-date').value;
-  const notes   = document.getElementById('st-notes').value.trim();
-
-  if(!fromId || !toId)      { alert('Please select both venues.'); return; }
-  if(fromId === toId)        { alert('From and To venues must be different.'); return; }
-
-  const from = clients.find(c=>String(c.id)===String(fromId));
-  const to   = clients.find(c=>String(c.id)===String(toId));
-  if(!from||!to) return;
-
-  // Collect transfer lines
-  const lines = [];
-  document.querySelectorAll('.st-line').forEach(row => {
-    const name = row.querySelector('.st-line-product').value;
-    const qty  = parseFloat(row.querySelector('.st-line-qty').value) || 0;
-    const unit = row.querySelector('.st-line-unit').value;
-    if(name && qty > 0) lines.push({ name, qty, unit });
-  });
-
-  if(!lines.length) { alert('Add at least one product with a quantity.'); return; }
-
-  const dateStr = date ? new Date(date).toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'}) : 'Today';
-  const ref     = 'TRF-' + Date.now().toString().slice(-6);
-
-  // Record as a negative delivery on the FROM venue (stock going out)
-  if(!from.deliveries) from.deliveries = [];
-  from.deliveries.unshift({
-    s:  `Transfer → ${to.name}`,
-    d:  dateStr,
-    r:  ref,
-    i:  lines.length,
-    t:  '−' + lines.map(l=>`${l.qty} ${l.unit} ${l.name}`).join(', ').slice(0,40),
-    st: 'Transfer out', sc: 'chip-amber',
-    lines,
-    notes,
-    transferTo: to.name,
-  });
-
-  // Record as a positive delivery on the TO venue (stock coming in)
-  if(!to.deliveries) to.deliveries = [];
-  to.deliveries.unshift({
-    s:  `Transfer ← ${from.name}`,
-    d:  dateStr,
-    r:  ref,
-    i:  lines.length,
-    t:  lines.map(l=>`${l.qty} ${l.unit} ${l.name}`).join(', ').slice(0,40),
-    st: 'Transfer in', sc: 'chip-green',
-    lines,
-    notes,
-    transferFrom: from.name,
-  });
-
-  // Record in active audit session purchases on the TO venue
-  const toSession = (to.auditSessions||[]).find(s=>s.status==='open') ||
-                    (to.auditSessions||[])[to.auditSessions.length-1];
-  if(toSession) {
-    if(!toSession.purchases) toSession.purchases = {};
-    lines.forEach(l => {
-      const existing = toSession.purchases[l.name];
-      if(existing) existing.qty = (parseFloat(existing.qty)||0) + l.qty;
-      else toSession.purchases[l.name] = { qty: l.qty, unit: l.unit, source: 'transfer', transferFrom: from.name };
-    });
-  }
-
-  // Save both
-  dbSaveClient(from);
-  dbSaveClient(to);
-
-  closeModal('stockTransferModal');
-
-  // Show summary
-  const summary = document.getElementById('st-summary');
-  if(summary) {
-    summary.style.display = 'block';
-    summary.innerHTML = `✓ Transfer recorded — ${lines.length} product${lines.length!==1?'s':''} from <strong>${from.name}</strong> to <strong>${to.name}</strong> · Ref: <span style="font-family:var(--font-mono);">${ref}</span>`;
-  }
-
-  showPersistToast(`✓ Transfer ${ref} recorded`);
-  if(activeClient) renderPage('purchases');
-}
-const PROD_SUBCATS = {
-  Spirits:      ['Whiskey','Bourbon','Scotch','Irish','Vodka','Gin','Rum','Tequila','Mezcal','Brandy','Cognac','Liqueur','Other'],
-  Beer:         ['Bottles','Cans','Draught'],
-  Cider:        ['Bottles','Cans','Draught'],
-  Wine:         ['White','Red','Rosé','Sparkling','Dessert'],
-  RTD:          ['Cans','Bottles','Other'],
-  'Soft drinks':['Mixers','Juices','Water','Energy','Other'],
-  Food:         ['Bar snacks','Kitchen','Other'],
-  Cocktails:    ['Classic','House','Batched','Other'],
-};
-
-let prodEditIdx = -1; // -1 = new, ≥0 = editing existing
-
-function openNewProductModal() {
-  prodEditIdx = -1;
-  document.getElementById('prod-modal-title').textContent = 'Add product';
-  document.getElementById('prod-save-btn').textContent    = 'Add product';
-  // Clear all fields
-  ['pf-name','pf-barcode','pf-suppliercode','pf-unitvol','pf-servevol','pf-tareg','pf-fullg',
-   'pf-cost','pf-sell','pf-par','pf-supplier'].forEach(id => {
-    const el = document.getElementById(id); if(el) el.value = '';
-  });
-  document.getElementById('pf-cat').value    = '';
-  document.getElementById('pf-idealgp').value= '72';
-  document.getElementById('pf-density').value = '1.014';
-  document.getElementById('pf-density-custom').style.display = 'none';
-  document.getElementById('pf-parunit').value= 'Bottles';
-  if(document.getElementById('pf-soldas')) document.getElementById('pf-soldas').value = 'Bottles';
-  if(document.getElementById('pf-casesize')) document.getElementById('pf-casesize').value = '';
-  if(document.getElementById('pf-casebarcode')) document.getElementById('pf-casebarcode').value = '';
-  updateProdSoldAs();
-  document.getElementById('pf-serves').value = '';
-  document.getElementById('prod-preview').style.display = 'none';
-  updateProdSubcats();
-  openModal('newProductModal');
-}
-
-function deleteProduct(idx) {
-  const c = activeClient; if(!c) return;
-  const p = c.products[idx]; if(!p) return;
-  const name = p.n || p.name;
-  const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
-  overlay.innerHTML = `
-    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:16px;padding:24px;max-width:400px;width:90%;">
-      <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:8px;">Delete product?</div>
-      <div style="font-size:13px;color:var(--text2);margin-bottom:16px;"><strong>${name}</strong></div>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
-        <button id="del-venue-only" style="padding:12px;border-radius:10px;background:rgba(240,192,64,0.1);border:1px solid rgba(240,192,64,0.3);color:var(--amber);font-family:var(--font-ui);font-size:13px;font-weight:600;cursor:pointer;text-align:left;">
-          🏠 Remove from this venue only<br>
-          <span style="font-size:11px;font-weight:400;opacity:0.8;">Stays in master catalogue and other venues</span>
-        </button>
-        <button id="del-everywhere" style="padding:12px;border-radius:10px;background:rgba(240,80,80,0.1);border:1px solid rgba(240,80,80,0.3);color:var(--red);font-family:var(--font-ui);font-size:13px;font-weight:600;cursor:pointer;text-align:left;">
-          🗑 Delete permanently everywhere<br>
-          <span style="font-size:11px;font-weight:400;opacity:0.8;">Removes from all venues and master catalogue</span>
-        </button>
-      </div>
-      <button id="del-prod-cancel" style="width:100%;padding:10px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-family:var(--font-ui);font-size:13px;cursor:pointer;">Cancel</button>
-    </div>`;
-  document.body.appendChild(overlay);
-
-  overlay.querySelector('#del-prod-cancel').onclick = () => overlay.remove();
-
-  overlay.querySelector('#del-venue-only').onclick = async () => {
-    overlay.remove();
-    c.products.splice(idx, 1);
-    await dbSaveProducts(c);
-    renderProducts(c);
-    showPersistToast(`✓ ${name} removed from ${c.name}`);
-  };
-
-  overlay.querySelector('#del-everywhere').onclick = async () => {
-    overlay.remove();
-    // Remove from masterProducts in memory
-    const mi = masterProducts.findIndex(p => (p.n||p.name||'') === name);
-    if(mi >= 0) masterProducts.splice(mi, 1);
-    // Remove from ALL clients in memory and save each
-    for(const cl of clients) {
-      const pi = (cl.products||[]).findIndex(p => (p.n||p.name||'') === name);
-      if(pi >= 0) {
-        cl.products.splice(pi, 1);
-        await dbSaveProducts(cl);
-      }
-    }
-    // Delete from Supabase master tables
-    try {
-      const headers = { 'apikey': SUPABASE_CONFIG.key, 'Authorization': 'Bearer ' + SUPABASE_CONFIG.key };
-      const slug2 = name.toLowerCase().replace(/[^a-z0-9]/g,'_');
-      await fetch(`${SUPABASE_CONFIG.url}/rest/v1/ap_master_products?slug=eq.${encodeURIComponent(slug2)}`, { method: 'DELETE', headers });
-    } catch(e) { console.warn('Master delete failed:', e); }
-    renderProducts(c);
-    showPersistToast(`✓ ${name} permanently deleted from all venues`);
-  };
-}
-
-async function dbDeleteProductFromVenue(productName, clientSlug) {
-  if(!DB._ready) return;
-  try {
-    await fetch(`${SUPABASE_CONFIG.url}/rest/v1/ap_products?product_name=eq.${encodeURIComponent(productName)}&client_slug=eq.${encodeURIComponent(clientSlug)}`, {
-      method: 'DELETE',
-      headers: { 'apikey': SUPABASE_CONFIG.key, 'Authorization': 'Bearer ' + SUPABASE_CONFIG.key }
-    });
-  } catch(e) { console.warn('Delete from venue failed:', e); }
-}
-
-async function dbDeleteProductEverywhere(productName) {
-  if(!DB._ready) return;
-
-  // Remove from masterProducts array in memory
-  const masterIdx = masterProducts.findIndex(p => (p.n||p.name||'') === productName);
-  if(masterIdx >= 0) masterProducts.splice(masterIdx, 1);
-
-  // Remove from ALL clients in memory and save each to Supabase
-  clients.forEach(async c => {
-    const idx = (c.products||[]).findIndex(p => (p.n||p.name||'') === productName);
-    if(idx >= 0) {
-      c.products.splice(idx, 1);
-      await dbSaveProducts(c);
-    }
-  });
-
-  // Delete from Supabase tables
-  try {
-    const headers = { 'apikey': SUPABASE_CONFIG.key, 'Authorization': 'Bearer ' + SUPABASE_CONFIG.key };
-    const slug = productName.toLowerCase().replace(/[^a-z0-9]/g,'_');
-    await Promise.all([
-      fetch(`${SUPABASE_CONFIG.url}/rest/v1/ap_products?product_name=eq.${encodeURIComponent(productName)}`, { method: 'DELETE', headers }),
-      fetch(`${SUPABASE_CONFIG.url}/rest/v1/ap_master_products?slug=eq.${encodeURIComponent(slug)}`, { method: 'DELETE', headers })
-    ]);
+  clients.push({id:Date.now(),name,contact,city,type,initials,color,variance:'N/A',varStatus:'ok',lastAudit:'Not yet',auditsMonth:0,alert:'No audits yet. Complete the first stocktake to begin.',alertType:'green',stats:{waste:'$0',events:'0',rtn:'$0',staff:'0'},audits:[],prog:[],varRows:[]);
   } catch(e) { console.warn('Delete everywhere failed:', e); }
 }
 
