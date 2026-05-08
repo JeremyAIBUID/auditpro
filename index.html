@@ -7251,8 +7251,8 @@ function importAllInvoices() {
 // Store invoice data by element id — avoids losing data when innerHTML is reassigned
 const _invoiceDataStore = {};
 
-function storeInvoiceData(id, rows, supplier, ref) {
-  _invoiceDataStore[id] = { rows, supplier, ref };
+function storeInvoiceData(id, rows, supplier, ref, date) {
+  _invoiceDataStore[id] = { rows, supplier, ref, date };
 }
 function getInvoiceData(id) {
   return _invoiceDataStore[id] || null;
@@ -7322,7 +7322,7 @@ function renderInvoiceResults(id, invoice, filename) {
   res._invoiceSupplier = invoice.supplier || '';
   res._invoiceRef      = invoice.invoiceRef || '';
   res._invoiceDate     = invoice.invoiceDate || '';
-  storeInvoiceData(id, rows, invoice.supplier||'', invoice.invoiceRef||'');
+  storeInvoiceData(id, rows, invoice.supplier||'', invoice.invoiceRef||'', invoice.invoiceDate||'');
 
   res.style.display = 'block';
 
@@ -7358,7 +7358,8 @@ function openInvoiceReviewModal(id) {
   const supplier = res._invoiceSupplier || '';
   const ref      = res._invoiceRef || '';
   const date     = res._invoiceDate || '';
-  const newRows  = rows.filter(r=>r.action==='add');
+  const newRows     = rows.filter(r=>r.action==='add');
+  const updateCount = rows.filter(r=>r.action==='update').length;
 
   const modal = document.getElementById('invoiceReviewModal');
   if(!modal) return;
@@ -7366,8 +7367,6 @@ function openInvoiceReviewModal(id) {
   document.getElementById('irm-title').textContent     = `${supplier} · ${date} · ${ref}`;
   document.getElementById('irm-subtitle').textContent  = `${rows.length} items — ${updateCount} matched · ${newRows.length} new`;
   document.getElementById('irm-confirm-btn').onclick   = () => { applyInvoiceToProducts(id); closeModal('invoiceReviewModal'); };
-
-  const updateCount = rows.filter(r=>r.action==='update').length;
 
   // Build enrichment rows for ALL products — matched ones collapsed
   const body = document.getElementById('irm-body');
@@ -7565,6 +7564,7 @@ function applyInvoiceToProducts(id) {
     res._invoiceData     = stored.rows;
     res._invoiceSupplier = stored.supplier;
     res._invoiceRef      = stored.ref;
+    res._invoiceDate     = stored.date;
   }
   if(!res._invoiceData) {
     console.error('applyInvoiceToProducts: no invoice data found for id:', id);
