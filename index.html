@@ -9191,7 +9191,7 @@ async function dbLoadAll() {
       batches = dbBatches[0].data;
     }
 
-    console.log('[AuditPro] Loaded from Supabase — clients:', clients.length);
+    console.log('[AuditPro] Loaded from Supabase — clients:', clients.length, clients.map(c=>c.name));
     showLoadingBanner(false);
     renderOverview();
     renderDropdown();
