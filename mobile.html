@@ -902,20 +902,7 @@ select.inp-m{cursor:pointer;}
 // ─── STATE ───────────────────────────────────────
 // lastCount = {qty, unit, date} from previous stocktake
 const PRODUCTS = [
-  {name:'Jameson 700ml',      cat:'Spirits',    vol:700,  tareG:180, fullMl:700,  barcode:'5010352104834', lastCount:{qty:12,   unit:'Bottles', date:'28 Feb'}},
-  {name:'Absolut Vodka 1L',   cat:'Spirits',    vol:1000, tareG:210, fullMl:1000, barcode:'7318690046096', lastCount:{qty:8,    unit:'Bottles', date:'28 Feb'}},
-  {name:'Tanqueray Gin 700ml',cat:'Spirits',    vol:700,  tareG:175, fullMl:700,  barcode:'5000289020023', lastCount:{qty:10,   unit:'Bottles', date:'28 Feb'}},
-  {name:'Baileys 1L',         cat:'Spirits',    vol:1000, tareG:220, fullMl:1000, barcode:'5011013100506', lastCount:{qty:6,    unit:'Bottles', date:'28 Feb'}},
-  {name:'Heineken 330ml',     cat:'Beer',       vol:330,  tareG:0,   fullMl:330,  barcode:'8714800020930', lastCount:{qty:120,  unit:'Bottles', date:'28 Feb'}},
-  {name:'Corona 355ml',       cat:'Beer',       vol:355,  tareG:0,   fullMl:355,  barcode:'7501062681269', lastCount:{qty:72,   unit:'Bottles', date:'28 Feb'}},
-  {name:'Steinlager 330ml',   cat:'Beer',       vol:330,  tareG:0,   fullMl:330,  lastCount:{qty:96,   unit:'Bottles', date:'28 Feb'}},
-  {name:'Marlborough SB 750ml',cat:'Wine',      vol:750,  tareG:390, fullMl:750,  barcode:'4056700002209', lastCount:{qty:18,   unit:'Bottles', date:'28 Feb'}},
-  {name:'Pinot Noir 750ml',   cat:'Wine',       vol:750,  tareG:390, fullMl:750,  barcode:'9414522000028', lastCount:{qty:24,   unit:'Bottles', date:'28 Feb'}},
-  {name:'Pinot Gris 750ml',   cat:'Wine',       vol:750,  tareG:390, fullMl:750,  barcode:'9414522000011', lastCount:{qty:12,   unit:'Bottles', date:'28 Feb'}},
-  {name:'Coca-Cola 330ml',    cat:'Soft drinks',vol:330,  tareG:0,   fullMl:330,  barcode:'5449000000996', lastCount:{qty:48,   unit:'Cans',    date:'28 Feb'}},
-  {name:'House Lager Keg',    cat:'Beer',       vol:50000,tareG:9000,fullMl:50000,lastCount:{qty:4,    unit:'Kegs',    date:'28 Feb'}},
-  {name:'Grey Goose 1L',      cat:'Spirits',    vol:1000, tareG:215, fullMl:1000, lastCount:{qty:8,    unit:'Bottles', date:'28 Feb'}},
-  {name:'Patron Silver 1L',   cat:'Spirits',    vol:1000, tareG:225, fullMl:1000, lastCount:{qty:6,    unit:'Bottles', date:'28 Feb'}},
+  // Products loaded from Supabase on connect — see loadProductsFromSupabase()
 ];
 
 const AREAS = [
@@ -1446,15 +1433,33 @@ function updateCountUI() {
   if(!rows.length){ body.innerHTML=''; empty.style.display='block'; return; }
   empty.style.display='none';
   body.innerHTML = rows.map((r,i)=>`
-    <div class="item-row">
+    <div class="item-row" onclick="editCountItem(${i})" style="cursor:pointer;">
       <div class="item-cat-dot" style="background:${CAT_COLORS[r.cat]||'#9b9890'};"></div>
       <div class="item-info">
         <div class="item-name">${r.name}</div>
         <div class="item-sub">${r.cat} · ${r.method==='weight'?'weighed':r.method} · ${currentArea}</div>
       </div>
       <div class="item-qty">${parseFloat(r.qty)%1===0?r.qty:parseFloat(r.qty).toFixed(2)} ${r.unit}</div>
-      <button class="item-del" onclick="removeItem(${i})">×</button>
+      <button class="item-del" onclick="event.stopPropagation();removeItem(${i})">×</button>
     </div>`).join('');
+}
+
+function editCountItem(idx) {
+  const row = (session.counts[currentArea]||[])[idx];
+  if(!row) return;
+  const newQty = prompt(`Edit quantity for ${row.name}:\nCurrent: ${row.qty} ${row.unit}`, row.qty);
+  if(newQty === null) return; // cancelled
+  const q = parseFloat(newQty);
+  if(isNaN(q) || q < 0) { toast('Invalid quantity'); return; }
+  if(q === 0) {
+    session.counts[currentArea].splice(idx, 1);
+    toast('Item removed');
+  } else {
+    session.counts[currentArea][idx].qty = q;
+    toast('Updated to ' + q + ' ' + row.unit, true);
+  }
+  updateCountUI();
+  saveToStorage();
 }
 
 function removeItem(idx) {
@@ -1638,7 +1643,7 @@ function saveMobileProduct() {
   if(!name)    { toast('Product name required'); return; }
   if(!cat)     { toast('Select a category'); return; }
   if(!unitVol) { toast('Unit volume required'); return; }
-  if(!serveVol){ toast('Serve size required'); return; }
+  if(!unitVol){ toast('Unit volume required'); return; }
 
   const costPrice = parseFloat(document.getElementById('mp-cost').value)  || 0;
   const sellPrice = parseFloat(document.getElementById('mp-sell').value)  || 0;
@@ -2055,11 +2060,13 @@ function handleBarcodeKey(e) {
 }
 
 function processBarcode(barcode) {
-  const product = PRODUCTS.find(p => p.barcode === barcode);
+  // Loose match — compare as strings, strip leading zeros
+  const normalise = b => String(b||'').trim().replace(/^0+/, '') || '0';
+  const bc = normalise(barcode);
+  const product = PRODUCTS.find(p => p.barcode && normalise(p.barcode) === bc);
   if (product) {
     showScanResult(product);
   } else {
-    // Unknown barcode — offer to create the product
     showUnknownBarcode(barcode);
   }
 }
@@ -2249,6 +2256,8 @@ function stopBarcodeScanForField() {
   if(wrap) wrap.style.display = 'none';
   _fieldScanTarget = null;
 }
+let _numpadFresh = false; // true = next keypress replaces current value
+
 function numpadPress(method, key) {
   const inputId = method === 'scan' ? 'scan-qty' : method === 'search' ? 'search-qty' : 'scale-reading';
   const input = document.getElementById(inputId);
@@ -2257,21 +2266,28 @@ function numpadPress(method, key) {
     if(method === 'scan')   addScannedItem();
     else if(method === 'search') addSearchItem();
     else addWeightItem();
+    _numpadFresh = false;
     return;
   }
   if(key === '⌫') {
     input.value = input.value.toString().slice(0,-1) || '0';
+    _numpadFresh = false;
   } else {
-    const cur = input.value === '0' || input.value === '' ? '' : input.value.toString();
-    input.value = cur + key;
+    // Replace value if fresh (first keypress after showing result)
+    if(_numpadFresh || input.value === '0' || input.value === '') {
+      input.value = key;
+      _numpadFresh = false;
+    } else {
+      input.value = input.value.toString() + key;
+    }
   }
-  // Trigger oninput handlers
   input.dispatchEvent(new Event('input'));
 }
 
 function showScanResult(product) {
   scannedProduct = product;
-  playBeep('add');  // beep on product recognition
+  _numpadFresh = true; // next numpad press replaces the default 1
+  playBeep('add');
   document.getElementById('scan-result-name').textContent = product.name;
   document.getElementById('scan-result-info').textContent = product.cat + ' · ' + product.vol + 'ml';
   const lastEl    = document.getElementById('scan-last-count');
@@ -2990,7 +3006,7 @@ function showSync() {
   showReview();
 }
 
-function acceptAndSync() {
+async function acceptAndSync() {
   const areas  = Object.keys(session.counts).filter(a=>session.counts[a].length>0);
   const lines  = areas.reduce((s,a)=>s+session.counts[a].length,0);
   const total  = areas.reduce((s,a)=>s+session.counts[a].reduce((ss,r)=>ss+parseFloat(r.qty),0),0);
@@ -3009,7 +3025,7 @@ function acceptAndSync() {
   document.getElementById('csv-preview').textContent = csv.split('\n').slice(4,12).join('\n')+(lines>7?'\n…':'');
 
   // Push to Supabase so desktop can import by code
-  pushCountToSupabase(csv);
+  await pushCountToSupabase(csv);
 
   showScreen('screen-sync');
   toast('Count accepted — ready to sync', true);
@@ -3035,7 +3051,7 @@ async function pushCountToSupabase(csv) {
 
     // Use UPSERT — if same code exists, REPLACE it entirely (no doubling)
     // This means re-syncing with same code always sends the full current count
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/ap_mobile_counts`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/ap_mobile_counts?on_conflict=code`, {
       method: 'POST',
       headers: {
         'apikey': SUPABASE_KEY,
@@ -3271,7 +3287,9 @@ function autoLogWeightAndReset(product) {
 // Priority: handoff mode → fast mode → normal
 const _origProcessBarcode = processBarcode;
 processBarcode = function(barcode) {
-  const product = PRODUCTS.find(p => p.barcode === barcode);
+  const normalise = b => String(b||'').trim().replace(/^0+/, '') || '0';
+  const bc = normalise(barcode);
+  const product = PRODUCTS.find(p => p.barcode && normalise(p.barcode) === bc);
 
   // 1. Handoff mode (scan → weigh → scan)
   if (handoffMode) {
