@@ -9073,7 +9073,10 @@ const DB = {
 
 // Slugify a client name → stable DB key
 function clientSlug(client) {
-  return 'c_' + (client.id || client.name.toLowerCase().replace(/[^a-z0-9]/g, '_'));
+  if(!client) return 'c_unknown';
+  if(client.id) return 'c_' + client.id;
+  if(client.name) return 'c_' + client.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  return 'c_unknown';
 }
 
 // Save a single client's full data to Supabase
@@ -9152,7 +9155,7 @@ async function dbLoadAll() {
     const dbClients = await DB.get('ap_clients', '?order=id.asc');
     if (dbClients && dbClients.length) {
       dbClients.forEach(row => {
-        if(!row.data) return;
+        if(!row.data || (!row.data.id && !row.data.name)) return; // skip invalid rows
         const existing = clients.findIndex(c => clientSlug(c) === row.slug);
         if (existing >= 0) {
           clients[existing] = row.data;
