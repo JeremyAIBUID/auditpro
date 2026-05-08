@@ -3773,8 +3773,12 @@ function addClient() {
   const initials=name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   const palette=['#a78bfa','#fb923c','#38bdf8','#f472b6','#34d399'];
   const color=palette[clients.length%palette.length];
-  clients.push({id:Date.now(),name,contact,city,type,initials,color,variance:'N/A',varStatus:'ok',lastAudit:'Not yet',auditsMonth:0,alert:'No audits yet. Complete the first stocktake to begin.',alertType:'green',stats:{waste:'$0',events:'0',rtn:'$0',staff:'0'},audits:[],prog:[],varRows:[]);
-  } catch(e) { console.warn('Delete everywhere failed:', e); }
+  clients.push({id:Date.now(),name,contact,city,type,initials,color,variance:'N/A',varStatus:'ok',lastAudit:'Not yet',auditsMonth:0,alert:'No audits yet. Complete the first stocktake to begin.',alertType:'green',stats:{waste:'$0',events:'0',rtn:'$0',staff:'0'},audits:[],prog:[],varRows:[],products:[],auditSessions:[],deliveries:[]});
+  const newC = clients[clients.length-1];
+  dbSaveClient(newC);
+  renderOverview();
+  closeModal('newClientModal');
+  selectClient(newC.id);
 }
 
 function editProduct(idx) {
