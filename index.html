@@ -4954,19 +4954,46 @@ function latestCostPrice(prod, purchaseEntry) {
 
 function computeVariances(client) {
   const sessions = client.auditSessions || [];
-  if (!sessions.length) return null;
-  const session = sessions[sessions.length - 1];
-  if (session.status !== 'finalised') return null;
-
-  const { opening, purchases, sales, closing, periodDays = 30 } = session;
+  
+  // Use the most recent session — finalised or active
+  const session = sessions.length ? sessions[sessions.length - 1] : null;
+  
+  // If no session at all, check if there are deliveries we can show
+  const deliveries = client.deliveries || [];
+  if(!session && !deliveries.length) return null;
+  
+  // Build a virtual session from deliveries if no real session exists
+  const workingSession = session || { purchases: {}, opening: {}, closing: {}, sales: {} };
+  const isLive = !session || session.status !== 'finalised';
+  
+  const { opening, purchases, sales, closing, periodDays = 30 } = workingSession;
   const prodMap = {};
-  (client.products || []).forEach(p => { prodMap[p.n] = p; });
+  (client.products || []).forEach(p => { prodMap[p.n||p.name] = p; });
+
+  // Build purchases map from deliveries if session has no purchases
+  const sessionPurchases = purchases || {};
+  const deliveryPurchases = {};
+  (client.deliveries || []).forEach(del => {
+    (del.lines || []).forEach(line => {
+      const name = line._cleanName || line.name || '';
+      if(!name) return;
+      const qty = parseFloat(line.qty) || 1;
+      const cost = parseFloat(line._incGST || line.unitPrice || 0);
+      if(!deliveryPurchases[name]) {
+        deliveryPurchases[name] = { qty: 0, costPrice: cost, unit: line.unit || 'Bottles' };
+      }
+      deliveryPurchases[name].qty += qty;
+    });
+  });
+
+  // Merge session purchases with delivery purchases
+  const mergedPurchases = { ...deliveryPurchases, ...sessionPurchases };
 
   // Collect all product names across all sources
   const allNames = new Set([
     ...Object.keys(opening  || {}),
     ...Object.keys(closing  || {}),
-    ...Object.keys(purchases|| {}),
+    ...Object.keys(mergedPurchases),
     ...Object.keys(sales    || {}),
   ]);
 
@@ -4985,7 +5012,7 @@ function computeVariances(client) {
     const openUnits  = countToUnits(openEntry,  prod);
 
     // ── Purchases ────────────────────────────────────
-    const purEntry   = (purchases|| {})[name];
+    const purEntry   = mergedPurchases[name];
     const purUnits   = purEntry ? (parseFloat(purEntry.qty) || 0) : 0;
     // Sync cost price from most recent invoice
     const costPrice  = latestCostPrice(prod, purEntry);
