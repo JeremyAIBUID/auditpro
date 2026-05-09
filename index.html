@@ -4348,13 +4348,14 @@ function computeVariances(client) {
   // Merge session purchases with delivery purchases
   const mergedPurchases = { ...deliveryPurchases, ...sessionPurchases };
 
-  // Collect all product names across all sources
+  // Collect all product names — only include products in the catalogue
+  const catalogueNames = new Set(Object.keys(prodMap));
   const allNames = new Set([
     ...Object.keys(opening  || {}),
     ...Object.keys(closing  || {}),
     ...Object.keys(mergedPurchases),
     ...Object.keys(sales    || {}),
-  ]);
+  ].filter(name => catalogueNames.has(name)));
 
   const rows = [];
 
