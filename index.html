@@ -2264,58 +2264,7 @@ let clients = [
       {icon:'📊',bdr:'rgba(91,156,240,0.2)',bg:'rgba(91,156,240,0.05)',title:'Menu gap — Pinot Gris pour cost',body:'Pour cost 38% vs 28% target. Increase sell price by $2.50/glass or replace product. Annual impact <strong style="color:var(--text)">$4,800</strong>.',actions:['Reprice from $12 to $14.50/glass','Source lower-cost alternative','Review all house wines quarterly']},
     ],
     reports:[{type:'Full audit report',period:'Feb 2026',date:'01 Mar 2026'},{type:'AI consulting summary',period:'Feb 2026',date:'01 Mar 2026'}],
-    auditSessions:[{
-      id:'AUD-2026-03',
-      label:'March 2026',
-      status:'finalised',
-      openDate:'01 Mar 2026',
-      closeDate:'31 Mar 2026',
-      periodDays: 30,
-      // Opening stock: qty in bottles/units per product name
-      opening:{
-        'Jameson 700ml':      {qty:12,   unit:'Bottles'},
-        'Absolut Vodka 1L':   {qty:8,    unit:'Bottles'},
-        'Heineken 330ml':     {qty:120,  unit:'Bottles'},
-        'Marlborough SB 750ml':{qty:18,  unit:'Bottles'},
-        'Pinot Gris 750ml':   {qty:12,   unit:'Bottles'},
-        'Baileys 1L':         {qty:6,    unit:'Bottles'},
-        'Coca-Cola 330ml':    {qty:48,   unit:'Cans'},
-        'House Lager Keg':    {qty:4,    unit:'Kegs'},
-      },
-      // Purchases: per product name, total units received
-      purchases:{
-        'Jameson 700ml':       {qty:8,   unit:'Bottles', costPrice:32.00},
-        'Absolut Vodka 1L':    {qty:4,   unit:'Bottles', costPrice:38.00},
-        'Heineken 330ml':      {qty:96,  unit:'Bottles', costPrice:2.10},
-        'Marlborough SB 750ml':{qty:12,  unit:'Bottles', costPrice:14.50},
-        'Pinot Gris 750ml':    {qty:6,   unit:'Bottles', costPrice:18.00},
-        'Baileys 1L':          {qty:3,   unit:'Bottles', costPrice:28.00},
-        'Coca-Cola 330ml':     {qty:72,  unit:'Cans',    costPrice:1.20},
-        'House Lager Keg':     {qty:2,   unit:'Kegs',    costPrice:180.00},
-      },
-      // Sales: per product name, total serves sold
-      sales:{
-        'Jameson 700ml':       {qty:68,  unit:'shots',   serveVol:30,  revenue:646.00},
-        'Absolut Vodka 1L':    {qty:52,  unit:'shots',   serveVol:30,  revenue:468.00},
-        'Heineken 330ml':      {qty:312, unit:'bottles', serveVol:330, revenue:2340.00},
-        'Marlborough SB 750ml':{qty:88,  unit:'glasses', serveVol:150, revenue:1056.00},
-        'Pinot Gris 750ml':    {qty:42,  unit:'glasses', serveVol:150, revenue:504.00},
-        'Baileys 1L':          {qty:14,  unit:'shots',   serveVol:30,  revenue:168.00},
-        'Coca-Cola 330ml':     {qty:144, unit:'cans',    serveVol:330, revenue:648.00},
-        'House Lager Keg':     {qty:182, unit:'pints',   serveVol:568, revenue:1456.00},
-      },
-      // Closing count — spirits counted by weight, beer/soft drinks by units
-      closing:{
-        'Jameson 700ml':       {qty:null, unit:'Bottles', method:'weight', grossWeightG:768, tareG:180},
-        'Absolut Vodka 1L':    {qty:null, unit:'Bottles', method:'weight', grossWeightG:1042, tareG:210},
-        'Heineken 330ml':      {qty:80,   unit:'Bottles', method:'scan'},
-        'Marlborough SB 750ml':{qty:null, unit:'Bottles', method:'weight', grossWeightG:5870, tareG:390},
-        'Pinot Gris 750ml':    {qty:null, unit:'Bottles', method:'weight', grossWeightG:5460, tareG:390},
-        'Baileys 1L':          {qty:null, unit:'Bottles', method:'weight', grossWeightG:1880, tareG:220},
-        'Coca-Cola 330ml':     {qty:39.5, unit:'Cans',    method:'scan'},
-        'House Lager Keg':     {qty:null, unit:'Kegs',    method:'weight', grossWeightG:27500, tareG:9000},
-      },
-    }],
+    auditSessions:[],
     info:{
       contacts:[
         {label:'Manager',name:'Mike Brennan',phone:'+64 21 555 0101',email:'mike@harbourbar.co.nz'},
@@ -4875,14 +4824,17 @@ function fmtCost(cost) {
 
 function renderVarTable() {
   const c = activeClient; if (!c) return;
+  if(!DB._ready) {
+    document.getElementById('var-body').innerHTML = `<tr><td colspan="16" style="text-align:center;padding:48px;color:var(--text3);">Loading data from database…</td></tr>`;
+    return;
+  }
 
   // Render data source banner
   renderVarBanner(c);
 
   // Try to compute from real session data; fall back to static varRows
   const computed = computeVariances(c);
-  const varRowsFallback = c.varRows || [];
-  let rows = computed ? [...computed] : [...varRowsFallback];
+  let rows = computed ? [...computed] : [];
 
   // If nothing at all — show empty state
   if (!rows.length) {
