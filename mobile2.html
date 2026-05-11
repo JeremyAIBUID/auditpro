@@ -1270,11 +1270,7 @@ async function pushProductToSupabase(prod) {
 // ─── VENUE SWITCHER ───────────────────────────────
 // Venues list — matches desktop app clients
 const VENUES = [
-  { name: '1 Up Sports Bar',   color: '#c8f064' },
-  { name: 'The Harbour Bar',   color: '#f0884a' },
-  { name: 'Ponsonby Social',   color: '#5be3b4' },
-  { name: 'Sky Lounge',        color: '#a78bfa' },
-  { name: 'The Cellar Door',   color: '#f0c040' },
+  { name: '1 Up Sports Bar', color: '#c8f064' },
 ];
 
 function toggleVenuePicker() {
@@ -2556,6 +2552,7 @@ function selectSearchProduct(name) {
   document.getElementById('search-numpad').style.display = 'grid';
   document.getElementById('search-add-btn').style.display = 'block';
   document.getElementById('search-qty').value = '1';
+  _numpadFresh = true; // first keypress replaces the 1
 }
 
 function addSearchItem() {

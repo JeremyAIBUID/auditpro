@@ -4464,9 +4464,12 @@ function computeVariances(client) {
       costPrice,
       prevClose:   openUnits.toFixed(2) + ' btl',
       purchaseVol: purUnits > 0
-        ? (purUnits * unitVol >= 1000
-          ? ((purUnits * unitVol)/1000).toFixed(1)+'L'
-          : Math.round(purUnits * unitVol)+'ml')
+        ? (['Bottles','Cans'].includes(prod.soldAs) || cat === 'RTD')
+          ? purUnits % 1 === 0 ? purUnits + ' units' : purUnits.toFixed(1) + ' units'
+          : (purUnits * unitVol >= 1000
+            ? ((purUnits * unitVol)/1000).toFixed(1)+'L'
+            : Math.round(purUnits * unitVol)+'ml')
+        : '—',
         : '0ml',
       purchases:   purDetail,
       sales: saleData ? {
@@ -6796,7 +6799,7 @@ function openInvoiceReviewModal(id) {
 
   document.getElementById('irm-title').textContent     = `${supplier} · ${date} · ${ref}`;
   document.getElementById('irm-subtitle').textContent  = `${rows.length} items — ${updateCount} matched · ${newRows.length} new`;
-  document.getElementById('irm-confirm-btn').onclick   = async () => { await applyInvoiceToProducts(id); closeModal('invoiceReviewModal'); };
+  document.getElementById('irm-confirm-btn').onclick   = async () => { closeModal('invoiceReviewModal'); await applyInvoiceToProducts(id); };
 
   // Build enrichment rows for ALL products — matched ones collapsed
   const body = document.getElementById('irm-body');
@@ -8602,6 +8605,9 @@ async function dbLoadAll() {
       const realClient = clients.find(c => String(c.id).length > 5);
       if(realClient) selectClientOnly(realClient.id);
     }
+    // Re-render current page with fresh data from Supabase
+    const curPage = document.querySelector('.page.active')?.id?.replace('page-','');
+    if(curPage && curPage !== 'overview' && activeClient) renderPage(curPage);
     return true;
   } catch(e) {
     console.error('[AuditPro] Load failed:', e);
