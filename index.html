@@ -2501,7 +2501,14 @@ function renderPage(page) {
   }
   if(page==='sales') { renderSalesTable(); }
   if(page==='insights') document.getElementById('insights-body').innerHTML=c.insights.map(i=>`<div class="insight-card" style="border:1px solid ${i.bdr};background:linear-gradient(135deg,${i.bg},transparent);margin-bottom:0;"><div class="insight-header"><div style="width:28px;height:28px;border-radius:7px;background:rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:16px;">${i.icon}</div><div class="insight-title">${i.title}</div></div><div class="insight-body">${i.body}</div><div style="margin-top:12px;padding:10px 12px;background:rgba(255,255,255,0.04);border-radius:8px;font-size:12px;color:var(--text2);"><strong style="color:var(--text);display:block;margin-bottom:4px;">Recommended actions</strong>${i.actions.map((a,n)=>`${n+1}. ${a}`).join('<br>')}</div></div>`).join('');
-  if(page==='products') renderProducts(c);
+  if(page==='products') {
+    if(c && (!c.products || !c.products.length) && DB._ready) {
+      dbLoadAll().then(() => renderProducts(activeClient));
+    } else {
+      renderProducts(c);
+    }
+    return;
+  }
   if(page==='suppliers') { renderSupplierList(''); document.getElementById('supplier-detail').style.display='none'; }
   if(page==='finalise')  { renderFinalisePage(); }
   if(page==='reports') {
@@ -6110,8 +6117,9 @@ function isDuplicateInvoice(client, invoiceRef, invoiceDate, supplier) {
     const dDate     = norm(d.d);
     const dSupplier = norm(d.s);
 
-    // 1. Same invoice ref (strongest signal — refs are unique per supplier)
-    if(nRef && dRef && nRef === dRef) return true;
+    // 1. Same invoice ref AND same supplier (refs can repeat across suppliers)
+    if(nRef && dRef && nRef === dRef &&
+       nSupplier && dSupplier && dSupplier.includes(nSupplier.split(' ')[0])) return true;
 
     // 2. Same date + same supplier (catches re-imports without a ref)
     if(nDate && dDate && nDate === dDate &&
@@ -6382,6 +6390,14 @@ function addDumpInvoiceToClient(c, invoice, id) {
       st: 'Verified', sc: 'chip-green',
       lines: invoice.items,
     });
+    // Auto-populate supplier
+    if(invoice.supplier) {
+      if(!c.suppliers) c.suppliers = [];
+      const supExists = c.suppliers.find(s=>s.name.toLowerCase()===invoice.supplier.toLowerCase());
+      if(!supExists) {
+        c.suppliers.push({ name: invoice.supplier, contact:'', email:'', phone:'', notes:'' });
+      }
+    }
     dbSaveClient(c);
   }
 
@@ -6780,7 +6796,7 @@ function openInvoiceReviewModal(id) {
 
   document.getElementById('irm-title').textContent     = `${supplier} · ${date} · ${ref}`;
   document.getElementById('irm-subtitle').textContent  = `${rows.length} items — ${updateCount} matched · ${newRows.length} new`;
-  document.getElementById('irm-confirm-btn').onclick   = () => { applyInvoiceToProducts(id); closeModal('invoiceReviewModal'); };
+  document.getElementById('irm-confirm-btn').onclick   = async () => { await applyInvoiceToProducts(id); closeModal('invoiceReviewModal'); };
 
   // Build enrichment rows for ALL products — matched ones collapsed
   const body = document.getElementById('irm-body');
@@ -6834,9 +6850,29 @@ function openInvoiceReviewModal(id) {
         </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
         <div>
-          <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Unit vol (ml)</div>
-          <input id="${id}-unitvol-${globalIdx}" type="number" value="${r._unitVol}" placeholder="e.g. 745"
-            style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-mono);font-size:13px;outline:none;">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Invoice qty</div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--accent);font-family:var(--font-mono);">${r.qty||1} ${r.unit||''}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Unit price inc GST</div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--accent);font-family:var(--font-mono);">$${(r._incGST||0).toFixed(2)}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Line total</div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--text2);font-family:var(--font-mono);">$${((r._incGST||0)*(r.qty||1)).toFixed(2)}</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
+        <div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Unit vol</div>
+          <div style="display:flex;gap:4px;">
+            <input id="${id}-unitvol-${globalIdx}" type="number" value="${r._unitVol}" placeholder="e.g. 745"
+              style="flex:1;min-width:0;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-mono);font-size:13px;outline:none;">
+            <select id="${id}-unitvol-unit-${globalIdx}" style="width:56px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 6px;color:var(--text);font-size:12px;outline:none;">
+              <option value="ml" selected>ml</option>
+              <option value="L">L</option>
+            </select>
+          </div>
         </div>
         <div id="${id}-casesize-wrap-${globalIdx}" style="${r.unit==='Cases'||r.unit==='CAR'?'':'display:none;'}">
           <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Units per case</div>
