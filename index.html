@@ -4470,7 +4470,6 @@ function computeVariances(client) {
             ? ((purUnits * unitVol)/1000).toFixed(1)+'L'
             : Math.round(purUnits * unitVol)+'ml')
         : '—',
-        : '0ml',
       purchases:   purDetail,
       sales: saleData ? {
         qty:      parseFloat(saleData.qty) || 0,
