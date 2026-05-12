@@ -3039,8 +3039,7 @@ async function pushCountToSupabase(csv) {
   try {
     const payload = {
       code:       session.code,
-      client:     session.client,
-      client_id:  session.clientId || '',
+      client:     session.client || '1 Up Sports Bar',
       csv_data:   csv,
       created_at: new Date().toISOString(),
       lines:      Object.values(session.counts).flat().length

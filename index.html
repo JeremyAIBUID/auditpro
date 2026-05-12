@@ -276,7 +276,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
       AI Insights
     </button>
-    <button class="nav-item" id="nav-products" onclick="navigate('products')" style="position:relative;">
+    <button class="nav-item" id="nav-products" onclick="navigate('products');if(activeClient&&(!activeClient.products||!activeClient.products.length)&&DB._ready){dbLoadAll().then(()=>renderProducts(activeClient));}" style="position:relative;">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>
       Products<span id="nav-products-tare-badge" style="display:none;margin-left:5px;background:rgba(240,192,64,0.25);color:var(--amber);border-radius:20px;font-size:9px;padding:1px 5px;font-weight:700;">⚖</span><span id="nav-products-missing-badge" style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);background:var(--red);color:#fff;border-radius:20px;font-size:9px;font-weight:700;padding:1px 5px;font-family:var(--font-mono);">!</span>
     </button>
@@ -3855,7 +3855,13 @@ function renderProducts(c, query) {
   const prods = (c.products||[]).filter(p=>
     !query || p.n.toLowerCase().includes(query.toLowerCase()) || (p.cat||'').toLowerCase().includes(query.toLowerCase()) || (p.subcat||'').toLowerCase().includes(query.toLowerCase())
   );
-  if(!prods.length){ wrap.innerHTML=`<div style="text-align:center;padding:48px 20px;color:var(--text3);"><p style="font-size:14px;color:var(--text2);">No products found</p></div>`; return; }
+  if(!prods.length){
+    wrap.innerHTML=`<div style="text-align:center;padding:48px 20px;color:var(--text3);">
+      <p style="font-size:14px;color:var(--text2);margin-bottom:16px;">No products found</p>
+      ${(!query && DB._ready) ? `<button class="btn btn-secondary" onclick="dbLoadAll().then(()=>renderProducts(activeClient))">↺ Reload from database</button>` : ''}
+    </div>`;
+    return;
+  }
 
   // Group by category then subcat
   const byCat = {};
@@ -3987,20 +3993,7 @@ function switchProdTab(tab) {
 }
 
 // ─── BATCHES ─────────────────────────────────────
-let batches = [
-  { id:1, name:'Espresso Martini Batch', icon:'🍸', desc:'Pre-batched for weekend service', servings:20, sellPrice:18.00,
-    unitVol:1000, tareG:210, density:0.94,
-    ingredients:[{n:'Absolut Vodka 1L',qty:'400',unit:'ml',cost:15.20},{n:'Kahlúa 1L',qty:'200',unit:'ml',cost:6.40},{n:'Cold brew concentrate',qty:'300',unit:'ml',cost:4.50},{n:'Sugar syrup',qty:'100',unit:'ml',cost:0.80}]
-  },
-  { id:2, name:'Aperol Spritz Batch', icon:'🍊', desc:'House batch — 1L bottles', servings:10, sellPrice:16.00,
-    unitVol:1550, tareG:390, density:1.00,
-    ingredients:[{n:'Aperol 700ml',qty:'500',unit:'ml',cost:12.00},{n:'Prosecco',qty:'750',unit:'ml',cost:9.50},{n:'Soda water',qty:'300',unit:'ml',cost:0.60}]
-  },
-  { id:3, name:'Margarita Batch', icon:'🍋', desc:'Salt rim optional per serve', servings:15, sellPrice:19.00,
-    unitVol:1000, tareG:210, density:0.94,
-    ingredients:[{n:'Patron Silver 1L',qty:'450',unit:'ml',cost:30.60},{n:'Triple sec',qty:'225',unit:'ml',cost:5.40},{n:'Fresh lime juice',qty:'225',unit:'ml',cost:3.20},{n:'Agave syrup',qty:'100',unit:'ml',cost:1.80}]
-  },
-];
+let batches = [];
 
 function calcBatchCost(b) {
   return b.ingredients.reduce((s,i)=>s+parseFloat(i.cost||0),0);
@@ -6118,6 +6111,7 @@ function viewInvoice(idx) {
 
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  overlay.id = 'invoice-view-overlay';
   overlay.innerHTML = `
     <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:16px;padding:24px;max-width:680px;width:94%;max-height:80vh;display:flex;flex-direction:column;">
       <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;">
@@ -6125,12 +6119,12 @@ function viewInvoice(idx) {
           <div style="font-size:16px;font-weight:700;color:var(--text);">${d.s} — ${d.r}</div>
           <div style="font-size:12px;color:var(--text3);margin-top:2px;">${d.d} · ${d.i} items · ${d.t}</div>
         </div>
-        <button onclick="this.closest('div[style]').remove()" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;">×</button>
+        <button onclick="document.getElementById('invoice-view-overlay').remove()" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;line-height:1;">×</button>
       </div>
       <div style="overflow-y:auto;flex:1;">${linesHtml}</div>
       <div style="display:flex;gap:8px;margin-top:16px;">
-        <button onclick="this.closest('div[style]').remove();editInvoice(${idx})" class="btn btn-secondary" style="flex:1;font-size:13px;">Edit invoice</button>
-        <button onclick="this.closest('div[style]').remove()" class="btn btn-primary" style="flex:1;font-size:13px;">Close</button>
+        <button onclick="document.getElementById('invoice-view-overlay').remove();editInvoice(${idx})" class="btn btn-secondary" style="flex:1;font-size:13px;">Edit invoice</button>
+        <button onclick="document.getElementById('invoice-view-overlay').remove()" class="btn btn-primary" style="flex:1;font-size:13px;">Close</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
@@ -6144,11 +6138,15 @@ function editInvoice(idx) {
 
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  overlay.id = 'invoice-edit-overlay';
   overlay.innerHTML = `
     <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:16px;padding:24px;max-width:680px;width:94%;max-height:80vh;display:flex;flex-direction:column;">
       <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;">
         <div style="font-size:16px;font-weight:700;color:var(--text);">Edit invoice — ${d.r}</div>
-        <button onclick="this.closest('div[style]').remove()" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;">×</button>
+        <button onclick="document.getElementById('invoice-edit-overlay').remove()" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;line-height:1;">×</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;padding:0 0 4px;">
+        <span>Catalogue name</span><span style="text-align:right;">Qty</span><span style="text-align:right;">Price inc GST</span>
       </div>
       <div style="overflow-y:auto;flex:1;">
         ${d.lines.map((l,i)=>`
@@ -6159,8 +6157,8 @@ function editInvoice(idx) {
           </div>`).join('')}
       </div>
       <div style="display:flex;gap:8px;margin-top:16px;">
-        <button onclick="this.closest('div[style]').remove()" class="btn btn-secondary" style="flex:1;">Cancel</button>
-        <button onclick="saveEditedInvoice(${idx},this)" class="btn btn-primary" style="flex:1;">Save changes</button>
+        <button onclick="document.getElementById('invoice-edit-overlay').remove()" class="btn btn-secondary" style="flex:1;">Cancel</button>
+        <button onclick="saveEditedInvoice(${idx})" class="btn btn-primary" style="flex:1;">Save changes</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
@@ -6179,7 +6177,7 @@ function saveEditedInvoice(idx, btn) {
     if(priceEl) l._incGST    = parseFloat(priceEl.value)||0;
   });
   dbSaveClient(c);
-  btn.closest('div[style]').remove();
+  document.getElementById('invoice-edit-overlay')?.remove();
   showPersistToast('Invoice updated');
   renderPage('purchases');
 }
@@ -6194,18 +6192,10 @@ function isDuplicateInvoice(client, invoiceRef, invoiceDate, supplier) {
 
   return client.deliveries.find(d => {
     const dRef      = norm(d.r);
-    const dDate     = norm(d.d);
     const dSupplier = norm(d.s);
-
-    // 1. Same invoice ref AND same supplier (refs can repeat across suppliers)
-    if(nRef && dRef && nRef === dRef &&
-       nSupplier && dSupplier && dSupplier.includes(nSupplier.split(' ')[0])) return true;
-
-    // 2. Same date + same supplier (catches re-imports without a ref)
-    if(nDate && dDate && nDate === dDate &&
-       nSupplier && dSupplier && dSupplier.includes(nSupplier.split(' ')[0])) return true;
-
-    return false;
+    // Only flag duplicate if BOTH ref AND supplier match
+    return nRef && dRef && nRef === dRef &&
+           nSupplier && dSupplier && dSupplier.includes(nSupplier.split(' ')[0]);
   }) || null;
 }
 
@@ -7284,8 +7274,32 @@ function applyInvoiceToProducts(id) {
   </div>`;
 
   renderProducts(c);
-  // If on variances, refresh that too
   if(document.getElementById('page-variances')?.classList.contains('active')) renderVarTable();
+
+  // Add to purchase history if not already there
+  const stored = getInvoiceData(id);
+  if(stored && stored.supplier) {
+    if(!c.deliveries) c.deliveries = [];
+    const alreadyAdded = isDuplicateInvoice(c, stored.ref, stored.date, stored.supplier);
+    if(!alreadyAdded) {
+      c.deliveries.unshift({
+        s: stored.supplier,
+        d: stored.date || 'Unknown date',
+        r: stored.ref  || 'AUTO-'+Date.now(),
+        i: (stored.rows||[]).length,
+        t: '$' + (stored.rows||[]).reduce((s,r)=>s+(r._incGST||0)*(r.qty||1),0).toFixed(2),
+        st: 'Verified', sc: 'chip-green',
+        lines: stored.rows || [],
+      });
+      // Auto-populate supplier
+      if(!c.suppliers) c.suppliers = [];
+      if(!c.suppliers.find(s=>s.name.toLowerCase()===stored.supplier.toLowerCase())) {
+        c.suppliers.push({ name: stored.supplier, contact:'', email:'', phone:'', notes:'' });
+      }
+      dbSaveClient(c);
+      if(document.getElementById('page-purchases')?.classList.contains('active')) renderPage('purchases');
+    }
+  }
 }
 
 // Helper — extract ml volume from product name string
