@@ -778,7 +778,7 @@ select.inp-m{cursor:pointer;}
       </div>
     </div>
 
-    <button class="btn btn-primary" style="width:100%;margin-bottom:8px;" onclick="saveMobileProduct()">Add product</button>
+    <button class="btn btn-primary" style="width:100%;margin-bottom:8px;position:sticky;bottom:8px;z-index:10;" onclick="saveMobileProduct()">Add product</button>
     <button class="btn btn-secondary" style="width:100%;" onclick="goBack('screen-areas')">Cancel</button>
   </div>
 </div>
@@ -3046,9 +3046,13 @@ async function pushCountToSupabase(csv) {
       lines:      Object.values(session.counts).flat().length
     };
 
-    // Try PATCH first (update existing), then POST (insert new)
-    const patchRes = await fetch(`${SUPABASE_URL}/rest/v1/ap_mobile_counts?code=eq.${encodeURIComponent(session.code)}`, {
-      method: 'PATCH',
+    // Delete any existing row with this code, then insert fresh
+    await fetch(`${SUPABASE_URL}/rest/v1/ap_mobile_counts?code=eq.${encodeURIComponent(session.code)}`, {
+      method: 'DELETE',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+    });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/ap_mobile_counts`, {
+      method: 'POST',
       headers: {
         'apikey': SUPABASE_KEY,
         'Authorization': 'Bearer ' + SUPABASE_KEY,
@@ -3057,29 +3061,6 @@ async function pushCountToSupabase(csv) {
       },
       body: JSON.stringify(payload)
     });
-
-    let res = patchRes;
-    // If PATCH matched nothing (no existing row), INSERT
-    if(patchRes.status === 204 || patchRes.ok) {
-      // Check if it actually updated anything by trying a GET
-      const check = await fetch(`${SUPABASE_URL}/rest/v1/ap_mobile_counts?code=eq.${encodeURIComponent(session.code)}&select=code`, {
-        headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
-      });
-      const rows = await check.json();
-      if(!rows || rows.length === 0) {
-        // No existing row — INSERT
-        res = await fetch(`${SUPABASE_URL}/rest/v1/ap_mobile_counts`, {
-          method: 'POST',
-          headers: {
-            'apikey': SUPABASE_KEY,
-            'Authorization': 'Bearer ' + SUPABASE_KEY,
-            'Content-Type': 'application/json',
-            'Prefer': 'return=minimal'
-          },
-          body: JSON.stringify(payload)
-        });
-      }
-    }
 
     if(res.ok || res.status === 201 || res.status === 200) {
       show('✓ Synced to cloud — enter code AP-' + session.code.split('-')[1] + ' on desktop');

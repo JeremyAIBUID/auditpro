@@ -6095,16 +6095,94 @@ function viewInvoice(idx) {
   const c = activeClient; if(!c) return;
   const d = c.deliveries[idx];
   if(!d) return;
-  if(!d.lines || !d.lines.length) {
-    alert(`Invoice: ${d.r}\nSupplier: ${d.s}\nDate: ${d.d}\nTotal: ${d.t}\n\nNo line items recorded (PDF import).`);
-    return;
-  }
-  const lines = d.lines.map(l=>`  • ${l.name} — ${l.qty} ${l.unit} @ $${parseFloat(l.price).toFixed(2)} = $${l.total}`).join('\n');
-  alert(`Invoice: ${d.r}\nSupplier: ${d.s}\nDate: ${d.d}\n\nLine items:\n${lines}\n\nTotal: ${d.t}${d.notes?'\n\nNotes: '+d.notes:''}`);
+
+  const lines = d.lines || [];
+  const linesHtml = lines.length
+    ? `<table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="border-bottom:1px solid var(--border2);">
+          <th style="text-align:left;padding:6px 8px;color:var(--text3);">Product</th>
+          <th style="text-align:right;padding:6px 8px;color:var(--text3);">Qty</th>
+          <th style="text-align:right;padding:6px 8px;color:var(--text3);">Unit price</th>
+          <th style="text-align:right;padding:6px 8px;color:var(--text3);">Total</th>
+        </tr></thead>
+        <tbody>${lines.map(l=>`
+          <tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:7px 8px;color:var(--text);">${l._cleanName||l.name||'—'}</td>
+            <td style="padding:7px 8px;text-align:right;font-family:var(--font-mono);color:var(--text2);">${l.qty||''} ${l.unit||''}</td>
+            <td style="padding:7px 8px;text-align:right;font-family:var(--font-mono);color:var(--text2);">$${parseFloat(l._incGST||l.price||0).toFixed(2)}</td>
+            <td style="padding:7px 8px;text-align:right;font-family:var(--font-mono);color:var(--accent);">$${parseFloat(l.lineTotal||l.total||0).toFixed(2)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`
+    : '<div style="color:var(--text3);font-size:13px;padding:16px 0;">No line items recorded.</div>';
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:16px;padding:24px;max-width:680px;width:94%;max-height:80vh;display:flex;flex-direction:column;">
+      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;">
+        <div>
+          <div style="font-size:16px;font-weight:700;color:var(--text);">${d.s} — ${d.r}</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:2px;">${d.d} · ${d.i} items · ${d.t}</div>
+        </div>
+        <button onclick="this.closest('div[style]').remove()" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;">×</button>
+      </div>
+      <div style="overflow-y:auto;flex:1;">${linesHtml}</div>
+      <div style="display:flex;gap:8px;margin-top:16px;">
+        <button onclick="this.closest('div[style]').remove();editInvoice(${idx})" class="btn btn-secondary" style="flex:1;font-size:13px;">Edit invoice</button>
+        <button onclick="this.closest('div[style]').remove()" class="btn btn-primary" style="flex:1;font-size:13px;">Close</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
 }
 
 // ─── PURCHASES / INVOICE UPLOAD ─────────────────
-// ─── DUPLICATE INVOICE DETECTION ─────────────────
+function editInvoice(idx) {
+  const c = activeClient; if(!c) return;
+  const d = c.deliveries[idx];
+  if(!d || !d.lines) { showPersistToast('No line items to edit'); return; }
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:16px;padding:24px;max-width:680px;width:94%;max-height:80vh;display:flex;flex-direction:column;">
+      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;">
+        <div style="font-size:16px;font-weight:700;color:var(--text);">Edit invoice — ${d.r}</div>
+        <button onclick="this.closest('div[style]').remove()" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;">×</button>
+      </div>
+      <div style="overflow-y:auto;flex:1;">
+        ${d.lines.map((l,i)=>`
+          <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px;align-items:center;">
+            <input id="ei-name-${i}" value="${(l._cleanName||l.name||'').replace(/"/g,'&quot;')}" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;">
+            <input id="ei-qty-${i}" type="number" value="${l.qty||1}" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;text-align:right;">
+            <input id="ei-price-${i}" type="number" step="0.01" value="${parseFloat(l._incGST||l.price||0).toFixed(2)}" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;text-align:right;">
+          </div>`).join('')}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;">
+        <button onclick="this.closest('div[style]').remove()" class="btn btn-secondary" style="flex:1;">Cancel</button>
+        <button onclick="saveEditedInvoice(${idx},this)" class="btn btn-primary" style="flex:1;">Save changes</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+function saveEditedInvoice(idx, btn) {
+  const c = activeClient; if(!c) return;
+  const d = c.deliveries[idx];
+  if(!d || !d.lines) return;
+  d.lines.forEach((l,i) => {
+    const nameEl  = document.getElementById('ei-name-'+i);
+    const qtyEl   = document.getElementById('ei-qty-'+i);
+    const priceEl = document.getElementById('ei-price-'+i);
+    if(nameEl)  l._cleanName = nameEl.value.trim();
+    if(qtyEl)   l.qty        = parseFloat(qtyEl.value)||1;
+    if(priceEl) l._incGST    = parseFloat(priceEl.value)||0;
+  });
+  dbSaveClient(c);
+  btn.closest('div[style]').remove();
+  showPersistToast('Invoice updated');
+  renderPage('purchases');
+}
 // Returns the matching delivery if duplicate, null otherwise
 function isDuplicateInvoice(client, invoiceRef, invoiceDate, supplier) {
   if(!client || !client.deliveries) return null;
@@ -6299,7 +6377,7 @@ function renderDumpDetail(id, invoice, matchedClient, status) {
         <button class="btn btn-primary" style="font-size:12px;padding:5px 14px;" onclick="confirmDumpInvoice('${id}')">✓ Import</button>
       </div>
     </div>
-    <div style="font-size:11px;color:var(--text3);">${invoice.items.slice(0,3).map(i=>i.name).join(' · ')}${invoice.items.length>3?' · +' + (invoice.items.length-3) + ' more':''}</div>`;
+    <div style="font-size:11px;color:var(--text3);">${invoice.items.slice(0,3).map(i=>i._cleanName||i.name).join(' · ')}${invoice.items.length>3?' · +' + (invoice.items.length-3) + ' more':''}</div>`;
 }
 
 // ─── DUMP INVOICE STORE ──────────────────────────
@@ -8599,12 +8677,15 @@ async function dbLoadAll() {
     showLoadingBanner(false);
     renderOverview();
     renderDropdown();
-    // Set 1 Up as active in topbar without navigating away from home
-    if(!activeClient) {
+    // Update activeClient reference to fresh data from Supabase
+    if(activeClient) {
+      const fresh = clients.find(c => String(c.id) === String(activeClient.id));
+      if(fresh) activeClient = fresh;
+    } else {
       const realClient = clients.find(c => String(c.id).length > 5);
       if(realClient) selectClientOnly(realClient.id);
     }
-    // Re-render current page with fresh data from Supabase
+    // Re-render current page with fresh data
     const curPage = document.querySelector('.page.active')?.id?.replace('page-','');
     if(curPage && curPage !== 'overview' && activeClient) renderPage(curPage);
     return true;
