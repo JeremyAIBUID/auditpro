@@ -3822,6 +3822,13 @@ function needsInfoAlert(p) {
   return missing;
 }
 
+const CAT_ORDER_PROD = ['Spirits','Beer','Wine','RTD','Soft drinks','Food','Cocktails','Other'];
+const SUBCAT_ORDER = {
+  Spirits: ['Gin','Vodka','Rum','Tequila','Bourbon','Scotch','Irish','Whiskey','Brandy','Liqueur','Other'],
+  Beer:    ['Draught','Bottles','Cans','Other'],
+  Wine:    ['White','Red','Rosé','Sparkling','Other'],
+};
+
 function renderProducts(c, query) {
   const wrap = document.getElementById('prod-grouped');
   if(!wrap) return;
@@ -5662,11 +5669,9 @@ function processSalesFileStep1(file) {
 // Also handles generic CSV with product/qty/price columns
 
 function parseSalesCSV(text, filename) {
-  // Strip BOM characters everywhere — your POS adds them to every line
   text = text.replace(/\uFEFF/g, '').replace(/\r/g, '');
   const lines = text.split('\n').map(l => l.trim()).filter(l => l);
 
-  // ── Detect POS format — look for ItemID column or known POS header pattern ──
   const headerLineIdx = lines.findIndex(l => {
     const clean = l.replace(/\uFEFF/g,'').toLowerCase();
     return /itemid|item.?id|plu/.test(clean) ||
@@ -5674,11 +5679,33 @@ function parseSalesCSV(text, filename) {
            (clean.includes('units') && clean.includes('price') && clean.includes('value'));
   });
 
-  if(headerLineIdx >= 0) {
-    return parsePOSFormat(lines, headerLineIdx, filename);
+  if(headerLineIdx >= 0) return parsePOSFormat(lines, headerLineIdx, filename);
+
+  // ── Simple Item/Stock/Value format (e.g. Lightspeed basic export) ──
+  const simpleHeaderIdx = lines.findIndex(l => {
+    const clean = l.toLowerCase().replace(/\t/g,',');
+    return (clean.includes('item') || clean.includes('product') || clean.includes('name')) &&
+           (clean.includes('stock') || clean.includes('qty') || clean.includes('units') || clean.includes('sold')) &&
+           (clean.includes('value') || clean.includes('revenue') || clean.includes('total'));
+  });
+
+  if(simpleHeaderIdx >= 0) {
+    const sep = lines[simpleHeaderIdx].includes('\t') ? '\t' : ',';
+    const headers = lines[simpleHeaderIdx].split(sep).map(h => h.trim().toLowerCase());
+    const nameCol  = headers.findIndex(h => /item|product|name/.test(h));
+    const qtyCol   = headers.findIndex(h => /stock|qty|units|sold|quantity/.test(h));
+    const valCol   = headers.findIndex(h => /value|revenue|total/.test(h));
+    const rows = [];
+    for(let i = simpleHeaderIdx + 1; i < lines.length; i++) {
+      const cols = lines[i].split(sep).map(c => c.trim().replace(/^"|"$/g,''));
+      const name = cols[nameCol] || '';
+      const qty  = parseFloat(cols[qtyCol]) || 0;
+      const val  = parseFloat((cols[valCol]||'').replace(/[$,]/g,'')) || 0;
+      if(name && qty) rows.push({ name, qty, revenue: val, unit: 'serves', serveVol: 0, cat: 'Food' });
+    }
+    return rows;
   }
 
-  // ── Fallback: generic CSV ──
   return parseGenericSalesCSV(lines);
 }
 
