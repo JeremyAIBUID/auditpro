@@ -7277,24 +7277,23 @@ function applyInvoiceToProducts(id) {
   if(document.getElementById('page-variances')?.classList.contains('active')) renderVarTable();
 
   // Add to purchase history if not already there
-  const stored = getInvoiceData(id);
-  if(stored && stored.supplier) {
+  const storedInv = getInvoiceData(id);
+  if(storedInv && storedInv.supplier) {
     if(!c.deliveries) c.deliveries = [];
-    const alreadyAdded = isDuplicateInvoice(c, stored.ref, stored.date, stored.supplier);
+    const alreadyAdded = isDuplicateInvoice(c, storedInv.ref, storedInv.date, storedInv.supplier);
     if(!alreadyAdded) {
       c.deliveries.unshift({
-        s: stored.supplier,
-        d: stored.date || 'Unknown date',
-        r: stored.ref  || 'AUTO-'+Date.now(),
-        i: (stored.rows||[]).length,
-        t: '$' + (stored.rows||[]).reduce((s,r)=>s+(r._incGST||0)*(r.qty||1),0).toFixed(2),
+        s: storedInv.supplier,
+        d: storedInv.date || 'Unknown date',
+        r: storedInv.ref  || 'AUTO-'+Date.now(),
+        i: (storedInv.rows||[]).length,
+        t: '$' + (storedInv.rows||[]).reduce((s,r)=>s+(r._incGST||0)*(r.qty||1),0).toFixed(2),
         st: 'Verified', sc: 'chip-green',
-        lines: stored.rows || [],
+        lines: storedInv.rows || [],
       });
-      // Auto-populate supplier
       if(!c.suppliers) c.suppliers = [];
-      if(!c.suppliers.find(s=>s.name.toLowerCase()===stored.supplier.toLowerCase())) {
-        c.suppliers.push({ name: stored.supplier, contact:'', email:'', phone:'', notes:'' });
+      if(!c.suppliers.find(s=>s.name.toLowerCase()===storedInv.supplier.toLowerCase())) {
+        c.suppliers.push({ name: storedInv.supplier, contact:'', email:'', phone:'', notes:'' });
       }
       dbSaveClient(c);
       if(document.getElementById('page-purchases')?.classList.contains('active')) renderPage('purchases');
