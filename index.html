@@ -5701,7 +5701,18 @@ function parseSalesCSV(text, filename) {
       const name = cols[nameCol] || '';
       const qty  = parseFloat(cols[qtyCol]) || 0;
       const val  = parseFloat((cols[valCol]||'').replace(/[$,]/g,'')) || 0;
-      if(name && qty) rows.push({ name, qty, revenue: val, unit: 'serves', serveVol: 0, cat: 'Food' });
+      if(name && qty) rows.push({
+        p: name,
+        cat: 'Other',
+        qty: qty,
+        rev: val,
+        revenue: val,
+        unitPrice: qty > 0 ? val/qty : 0,
+        unit: 'serves',
+        serveVol: 0,
+        wasted: 0,
+        plu: '',
+      });
     }
     return rows;
   }
@@ -8684,14 +8695,7 @@ async function dbLoadAll() {
       });
     }
 
-    // For any venue with empty products, populate from master
-    if(masterProducts.length) {
-      clients.forEach(c => {
-        if(!c.products || c.products.length === 0) {
-          c.products = masterProducts.map(p => ({ ...p, costPrice: p.costPrice||0, sellPrice: p.sellPrice||0 }));
-        }
-      });
-    }
+    // Master catalogue is used for search/typeahead only — don't auto-populate venues
 
     // Load audit sessions per client
     const dbSessions = await DB.get('ap_audit_sessions', '?order=updated_at.desc');

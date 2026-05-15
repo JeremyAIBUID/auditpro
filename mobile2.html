@@ -1618,69 +1618,53 @@ function updateMobileProdPreview() {
 }
 
 function saveMobileProduct() {
-  const name     = document.getElementById('mp-name').value.trim();
-  const cat      = document.getElementById('mp-cat').value;
-  const unitVol  = parseFloat(document.getElementById('mp-unitvol').value)  || 0;
-  const serveVol = parseFloat(document.getElementById('mp-servevol').value) || 0;
+  const name    = document.getElementById('mp-name').value.trim();
+  const cat     = document.getElementById('mp-cat').value;
+  const unitVol = parseFloat(document.getElementById('mp-unitvol').value) || 0;
   if(!name)    { toast('Product name required'); return; }
   if(!cat)     { toast('Select a category'); return; }
   if(!unitVol) { toast('Unit volume required'); return; }
-  if(!unitVol){ toast('Unit volume required'); return; }
 
-  const costPrice = parseFloat(document.getElementById('mp-cost').value)  || 0;
-  const sellPrice = parseFloat(document.getElementById('mp-sell').value)  || 0;
-  const tareG     = parseFloat(document.getElementById('mp-tareg').value) || 0;
-  const fullG     = parseFloat(document.getElementById('mp-fullg').value) || 0;
-  const cps       = costPrice > 0 ? costPrice/(unitVol/serveVol) : 0;
-  const pc        = cps && sellPrice > 0 ? Math.round((cps/sellPrice)*100) : 0;
-  const parQty    = parseFloat(document.getElementById('mp-par').value) || 0;
-  const parUnit   = document.getElementById('mp-parunit').value;
+  const costPrice = parseFloat(document.getElementById('mp-cost')?.value)  || 0;
+  const sellPrice = parseFloat(document.getElementById('mp-sell')?.value)  || 0;
+  const tareG     = parseFloat(document.getElementById('mp-tareg')?.value) || 0;
+  const fullG     = parseFloat(document.getElementById('mp-fullg')?.value) || 0;
+  const density   = parseFloat(document.getElementById('mp-density')?.value) || 1.00;
 
   const prod = {
-    name,
-    n: name,
+    name, n: name,
     _userAdded: true,
     cat,
-    subcat:    document.getElementById('mp-subcat').value,
-    barcode:   document.getElementById('mp-barcode').value.trim(),
+    subcat:    document.getElementById('mp-subcat')?.value || '',
+    barcode:   document.getElementById('mp-barcode')?.value.trim() || '',
     soldAs:    document.getElementById('mp-soldas')?.value || 'Bottles',
-    vol:       unitVol,  unitVol,
-    fullMl:    unitVol,
-    serveVol,
-    tareG,
-    fullG,
-    density:   parseFloat(document.getElementById('mp-density').value) || 1.00,
-    costPrice,
-    sellPrice,
-    idealGP:   72,
-    par:       parQty + ' ' + parUnit.toLowerCase().slice(0,3),
-    parunit:   parUnit,
-    cost:      '$' + costPrice.toFixed(2),
-    sell:      sellPrice > 0 ? '$' + sellPrice.toFixed(2) + '/serve' : '—',
-    pc:        pc + '%',
-    pcv:       pc < 32 ? 'var-ok' : 'var-warn',
-    lastCount: null,
+    vol: unitVol, unitVol, fullMl: unitVol,
+    serveVol: cat === 'Spirits' ? 30 : cat === 'Wine' ? 150 : unitVol,
+    tareG, fullG, density, costPrice, sellPrice,
+    idealGP: 72,
+    cost:  costPrice > 0 ? '$' + costPrice.toFixed(2) : '—',
+    sell:  sellPrice > 0 ? '$' + sellPrice.toFixed(2) + '/serve' : '—',
+    pc: '—', pcv: 'var-ok', lastCount: null,
   };
+
   PRODUCTS.push(prod);
-  saveToStorage(); // persist new product
-  pushProductToSupabase(prod); // sync to Supabase so desktop + other devices see it
+  saveToStorage();
+  pushProductToSupabase(prod);
+
   // Reset form
-  ['mp-name','mp-barcode','mp-unitvol','mp-servevol','mp-tareg','mp-fullg','mp-cost','mp-sell','mp-par'].forEach(id=>{
-    const el=document.getElementById(id); if(el) el.value='';
+  ['mp-name','mp-barcode','mp-unitvol','mp-tareg','mp-fullg','mp-cost','mp-sell'].forEach(id => {
+    const el = document.getElementById(id); if(el) el.value = '';
   });
   document.getElementById('mp-cat').value = '';
   document.getElementById('mp-preview').style.display = 'none';
-  // Also reset scan button in case we came from an unknown barcode
+
   const addBtn = document.getElementById('scan-add-btn');
   if(addBtn) { addBtn.textContent='Add to count'; addBtn.style.background=''; addBtn.style.color=''; addBtn.style.border=''; addBtn.onclick=addScannedItem; }
   document.getElementById('scan-result')?.classList.remove('visible');
-  toast('✓ ' + name + ' added — scan barcode to count it', true);
-  // Return to count screen, not areas — so auditor can immediately count the new product
+  toast('✓ ' + name + ' added', true);
   showScreen('screen-count');
-  // If we came from a barcode scan, pre-fill the scan result with the new product
   if(_newProdFromBarcode) {
-    const newProd = PRODUCTS[PRODUCTS.length-1];
-    showScanResult(newProd);
+    showScanResult(PRODUCTS[PRODUCTS.length-1]);
     _newProdFromBarcode = null;
   }
 }
