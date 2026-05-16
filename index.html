@@ -3514,6 +3514,15 @@ function addClient() {
   selectClient(newC.id);
 }
 
+function deleteProduct(idx) {
+  const c = activeClient; if(!c) return;
+  const p = c.products[idx]; if(!p) return;
+  if(!confirm(`Delete "${p.n||p.name}"? This cannot be undone.`)) return;
+  c.products.splice(idx, 1);
+  dbSaveProducts(c);
+  renderProducts(c);
+}
+
 function editProduct(idx) {
   const c = activeClient; if(!c) return;
   const p = c.products[idx]; if(!p) return;
