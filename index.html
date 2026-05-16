@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-<head> 
+<head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AuditPro — Hospitality Audit Platform</title>
@@ -3934,6 +3934,7 @@ function renderProducts(c, query) {
                         : 'var(--text2)';
 
       const rows = items.map(p => {
+        const pIdx = (activeClient.products||[]).findIndex(x => (x.n||x.name) === (p.n||p.name));
         // Type badge (only for Beer subcats — most meaningful differentiation)
         const typeBadge = isDraught
           ? `<span style="font-size:10px;padding:2px 7px;border-radius:20px;background:rgba(91,156,240,0.15);color:#5b9cf0;font-weight:700;margin-left:6px;border:1px solid rgba(91,156,240,0.25);">⬡ DRAUGHT</span>`
@@ -3958,8 +3959,8 @@ function renderProducts(c, query) {
           <td class="td-main" style="padding-left:20px;">
             <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
               <span>${p.n||p.name||'Unnamed'}</span>${typeBadge}
-              ${needsTareAlert(p) ? `<span onclick="editProduct(${(activeClient.products||[]).indexOf(p)})" title="Tare weight not set — click to edit" style="cursor:pointer;font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(240,192,64,0.12);color:var(--amber);border:1px solid rgba(240,192,64,0.3);font-weight:600;white-space:nowrap;">⚖ Set tare weight</span>` : ''}
-              ${(()=>{ const m=needsInfoAlert(p).filter(x=>x!=='vessel weight'); return m.length ? `<span onclick="editProduct(${(activeClient.products||[]).indexOf(p)})" title="Missing: ${m.join(', ')} — click to edit" style="cursor:pointer;font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(240,80,80,0.12);color:var(--red);border:1px solid rgba(240,80,80,0.3);font-weight:700;white-space:nowrap;">! ${m.join(', ')}</span>` : ''; })()}
+              ${needsTareAlert(p) ? `<span onclick="editProduct(${pIdx})" title="Tare weight not set — click to edit" style="cursor:pointer;font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(240,192,64,0.12);color:var(--amber);border:1px solid rgba(240,192,64,0.3);font-weight:600;white-space:nowrap;">⚖ Set tare weight</span>` : ''}
+              ${(()=>{ const m=needsInfoAlert(p).filter(x=>x!=='vessel weight'); return m.length ? `<span onclick="editProduct(${pIdx})" title="Missing: ${m.join(', ')} — click to edit" style="cursor:pointer;font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(240,80,80,0.12);color:var(--red);border:1px solid rgba(240,80,80,0.3);font-weight:700;white-space:nowrap;">! ${m.join(', ')}</span>` : ''; })()}
             </div>
             ${p.barcode ? `<div style="font-family:var(--font-mono);font-size:10px;color:var(--text3);margin-top:1px;">${p.barcode}</div>` : ''}
           </td>
@@ -3970,8 +3971,8 @@ function renderProducts(c, query) {
           <td>${vesselHtml}</td>
           <td>${serveHtml}</td>
           <td style="display:flex;gap:6px;">
-            <button class="btn btn-secondary" style="padding:3px 10px;font-size:11px;" onclick="editProduct(${(activeClient.products||[]).indexOf(p)})">Edit</button>
-            <button class="btn btn-danger" style="padding:3px 10px;font-size:11px;" onclick="deleteProduct(${(activeClient.products||[]).indexOf(p)})">×</button>
+            <button class="btn btn-secondary" style="padding:3px 10px;font-size:11px;" onclick="editProduct(${pIdx})">Edit</button>
+            <button class="btn btn-danger" style="padding:3px 10px;font-size:11px;" onclick="deleteProduct(${pIdx})">×</button>
           </td>
         </tr>`;
       }).join('');
