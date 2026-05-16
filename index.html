@@ -6973,10 +6973,48 @@ function renderInvoiceResults(id, invoice, filename) {
 function openInvoiceReviewModal(id) {
   const res = document.getElementById(id+'-results');
   if(!res || !res._invoiceData) return;
-  const rows     = res._invoiceData;
-  const supplier = res._invoiceSupplier || '';
-  const ref      = res._invoiceRef || '';
-  const date     = res._invoiceDate || '';
+  const c = activeClient;
+
+  // Re-run matching with latest logic
+  const norm = s => s.toLowerCase().trim()
+    .replace(/'/g,'').replace(/\b\d+\s*s\b/gi,'')
+    .replace(/\bbtls?\b/gi,'').replace(/\bcans?\b/gi,'')
+    .replace(/\bkegs?\b/gi,'').replace(/\bcases?\b/gi,'')
+    .replace(/\bcar\b/gi,'').replace(/\brtd\b/gi,'')
+    .replace(/\d+(\.\d+)?\s*(ml|l|lt|ltr|litre|liters?)\b/gi,'')
+    .replace(/\s+/g,' ').trim();
+
+  const rows = res._invoiceData.map(item => {
+    // Barcode match first
+    let existing = null;
+    if(item.barcode) {
+      const bc = String(item.barcode).trim().replace(/^0+/,'');
+      existing = (c?.products||[]).find(p => p.barcode && String(p.barcode).replace(/^0+/,'') === bc);
+    }
+    if(!existing) {
+      const nn = norm(item.name||'');
+      const invWords = nn.split(' ').filter(w=>w.length>3);
+      // Exact
+      existing = (c?.products||[]).find(p=>(p.n||p.name||'').toLowerCase()===nn);
+      // Normalised exact
+      if(!existing) existing = (c?.products||[]).find(p=>norm(p.n||p.name||'')===nn && nn.length>4);
+      // Partial
+      if(!existing) existing = (c?.products||[]).find(p=>{ const pn=norm(p.n||p.name||''); return pn.length>6&&nn.length>6&&(nn.includes(pn)||pn.includes(nn)); });
+      // Best word overlap
+      if(!existing && invWords.length>=2) {
+        let bestMatch=null,bestScore=0;
+        (c?.products||[]).forEach(p=>{
+          const pn=norm(p.n||p.name||'');
+          const catWords=pn.split(' ').filter(w=>w.length>3);
+          const shared=invWords.filter(w=>catWords.includes(w)).length;
+          const score=shared/Math.max(invWords.length,catWords.length);
+          if(shared>=2&&score>bestScore){bestScore=score;bestMatch=p;}
+        });
+        existing = bestMatch;
+      }
+    }
+    return { ...item, existing, action: existing?'update':'add', _cleanName: existing?(existing.n||existing.name):'' };
+  });
   const newRows     = rows.filter(r=>r.action==='add');
   const updateCount = rows.filter(r=>r.action==='update').length;
 
