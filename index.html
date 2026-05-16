@@ -6884,13 +6884,23 @@ function renderInvoiceResults(id, invoice, filename) {
      || masterProducts.find(p=>norm(p.n||p.name||'')===nn && nn.length>4);
     if(m) return m;
 
-    // 4. Partial name match
+    // 4. Partial string match
     m = (c?.products||[]).find(p=>{
       const pn=norm(p.n||p.name||'');
       return pn.length>6 && nn.length>6 && (nn.includes(pn)||pn.includes(nn));
     }) || masterProducts.find(p=>{
       const pn=norm(p.n||p.name||'');
       return pn.length>6 && nn.length>6 && (nn.includes(pn)||pn.includes(nn));
+    });
+    if(m) return m;
+
+    // 5. Word overlap — match if 60%+ of invoice words appear in catalogue name
+    const invWords = nn.split(' ').filter(w=>w.length>3);
+    m = (c?.products||[]).find(p=>{
+      const pn = norm(p.n||p.name||'');
+      const catWords = pn.split(' ').filter(w=>w.length>3);
+      const shared = invWords.filter(w=>catWords.includes(w)).length;
+      return shared >= Math.ceil(invWords.length * 0.6) && shared >= 2;
     });
     return m||null;
   }
