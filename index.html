@@ -6818,12 +6818,17 @@ function filterInvNameList(id, idx, query) {
     ? prods.slice(0, 10)
     : prods.filter(p => (p.n||p.name||'').toLowerCase().includes(q)).slice(0, 15);
   if(!matches.length) { listEl.style.display = 'none'; return; }
-  listEl.style.display = 'block';
+
+  const rect = inputEl.getBoundingClientRect();
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const openUp = spaceBelow < 220;
+  listEl.style.cssText = `display:block;position:fixed;width:${rect.width}px;left:${rect.left}px;z-index:9999;max-height:180px;overflow-y:auto;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.4);${openUp?`bottom:${window.innerHeight-rect.top}px;top:auto;`:`top:${rect.bottom}px;bottom:auto;`}`;
+
   listEl.innerHTML = matches.map(p => {
     const name = p.n||p.name||'';
     return `<div onclick="document.getElementById('${id}-name-${idx}').value='${name.replace(/'/g,"\\'").replace(/"/g,'&quot;')}';document.getElementById('${id}-namelist-${idx}').style.display='none';"
-      style="padding:8px 12px;cursor:pointer;font-size:13px;color:var(--text);border-bottom:1px solid var(--border);"
-      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">${name}</div>`;
+      style="padding:8px 12px;cursor:pointer;font-size:13px;color:var(--text);border-bottom:1px solid var(--border);background:var(--bg2);"
+      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='var(--bg2)'">${name}</div>`;
   }).join('');
   setTimeout(() => {
     const close = (e) => { if(!listEl.contains(e.target) && e.target!==inputEl) { listEl.style.display='none'; document.removeEventListener('click',close); } };
