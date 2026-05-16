@@ -6853,14 +6853,15 @@ function renderInvoiceResults(id, invoice, filename) {
   // Fuzzy match against client products AND master catalogue
   function findMatch(name, barcode) {
     const norm = s => s.toLowerCase().trim()
-      .replace(/\b\d+\s*s\b/gi,'')     // pack sizes: 24S, 12S
-      .replace(/\bbtls?\b/gi,'')       // BTL/BTLS
-      .replace(/\bcans?\b/gi,'')       // CAN/CANS
-      .replace(/\bkegs?\b/gi,'')       // KEG/KEGS
-      .replace(/\bcases?\b/gi,'')      // CASE/CASES
-      .replace(/\bcar\b/gi,'')         // CAR
-      .replace(/\brtd\b/gi,'')         // RTD
-      .replace(/\d+(\.\d+)?\s*(ml|l|lt|ltr|litre|liters?)\b/gi,'') // volumes: 330ml, 50L
+      .replace(/'/g,'')                // strip apostrophes: Speight's → Speights
+      .replace(/\b\d+\s*s\b/gi,'')    // pack sizes: 24S, 12S
+      .replace(/\bbtls?\b/gi,'')      // BTL/BTLS
+      .replace(/\bcans?\b/gi,'')      // CAN/CANS
+      .replace(/\bkegs?\b/gi,'')      // KEG/KEGS
+      .replace(/\bcases?\b/gi,'')     // CASE/CASES
+      .replace(/\bcar\b/gi,'')        // CAR
+      .replace(/\brtd\b/gi,'')        // RTD
+      .replace(/\d+(\.\d+)?\s*(ml|l|lt|ltr|litre|liters?)\b/gi,'') // volumes
       .replace(/\s+/g,' ').trim();
 
     const n  = name.toLowerCase().trim();
