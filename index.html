@@ -6837,20 +6837,40 @@ function renderInvoiceResults(id, invoice, filename) {
   if(!res) return;
 
   // Fuzzy match against client products AND master catalogue
-  function findMatch(name) {
-    const n = name.toLowerCase().trim();
+  function findMatch(name, barcode) {
     const norm = s => s.toLowerCase().trim()
-      .replace(/\s+/g,' ')
-      .replace(/bottles?$/i,'').replace(/cans?$/i,'').replace(/kegs?$/i,'')
-      .replace(/cases?$/i,'').replace(/\bbtl\b/i,'').replace(/\bcar\b/i,'')
-      .trim();
+      .replace(/\b\d+s\b/gi,'')        // remove pack sizes: 24S, 12S
+      .replace(/\bbtls?\b/gi,'')       // remove BTL/BTLS
+      .replace(/\bcans?\b/gi,'')       // remove CAN/CANS
+      .replace(/\bkegs?\b/gi,'')       // remove KEG/KEGS
+      .replace(/\bcases?\b/gi,'')      // remove CASE/CASES
+      .replace(/\bcar\b/gi,'')         // remove CAR
+      .replace(/\brtd\b/gi,'')         // remove RTD
+      .replace(/\d+\s*ml\b/gi,'')      // remove volume: 330ml
+      .replace(/\d+\s*l\b/gi,'')       // remove volume: 1L
+      .replace(/\s+/g,' ').trim();
+
+    const n  = name.toLowerCase().trim();
     const nn = norm(name);
+
+    // 1. Barcode match (strongest)
+    if(barcode) {
+      const bc = String(barcode).trim().replace(/^0+/,'');
+      const bm = (c?.products||[]).find(p => p.barcode && String(p.barcode).replace(/^0+/,'') === bc);
+      if(bm) return bm;
+    }
+
+    // 2. Exact name match
     let m = (c?.products||[]).find(p=>(p.n||p.name||'').toLowerCase()===n)
          || getMasterProduct(name);
     if(m) return m;
+
+    // 3. Normalised exact match
     m = (c?.products||[]).find(p=>norm(p.n||p.name||'')===nn && nn.length>4)
      || masterProducts.find(p=>norm(p.n||p.name||'')===nn && nn.length>4);
     if(m) return m;
+
+    // 4. Partial name match
     m = (c?.products||[]).find(p=>{
       const pn=norm(p.n||p.name||'');
       return pn.length>6 && nn.length>6 && (nn.includes(pn)||pn.includes(nn));
@@ -6862,7 +6882,7 @@ function renderInvoiceResults(id, invoice, filename) {
   }
 
   const rows = invoice.items.map(item => {
-    const existing = findMatch(item.name);
+    const existing = findMatch(item.name, item.barcode);
     const vol      = parseVolFromName(item.name);
     const exGST    = item.unitPriceExGST || (item.unitPriceIncGST ? item.unitPriceIncGST/1.15 : (item.unitPrice||0)/1.15);
     const incGST   = item.unitPriceIncGST || item.unitPrice || 0;
