@@ -3580,6 +3580,17 @@ function updateProdSoldAs() {
   if(vesselDiv) vesselDiv.style.display = noVesselNeeded ? 'none' : 'block';
 }
 
+const PROD_SUBCATS = {
+  Spirits:      ['Gin','Vodka','Rum','Tequila','Bourbon','Scotch','Irish','Whiskey','Brandy','Liqueur','Other'],
+  Beer:         ['Draught','Bottles','Cans','Other'],
+  Wine:         ['White','Red','Rosé','Sparkling','Other'],
+  RTD:          ['Cans','Bottles','Other'],
+  'Soft drinks':['Energy','Juice','Soda','Water','Other'],
+  Food:         ['Snacks','Mains','Desserts','Other'],
+  Cocktails:    ['Classic','House','Mocktail','Other'],
+  Other:        ['Other'],
+};
+
 function updateProdSubcats(autoSetDensity = true) {
   const cat    = document.getElementById('pf-cat').value;
   const subSel = document.getElementById('pf-subcat');
