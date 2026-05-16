@@ -6894,15 +6894,17 @@ function renderInvoiceResults(id, invoice, filename) {
     });
     if(m) return m;
 
-    // 5. Word overlap — match if 60%+ of invoice words appear in catalogue name
+    // 5. Word overlap — pick product with highest overlap score
     const invWords = nn.split(' ').filter(w=>w.length>3);
-    m = (c?.products||[]).find(p=>{
+    let bestMatch = null, bestScore = 0;
+    (c?.products||[]).forEach(p=>{
       const pn = norm(p.n||p.name||'');
       const catWords = pn.split(' ').filter(w=>w.length>3);
       const shared = invWords.filter(w=>catWords.includes(w)).length;
-      return shared >= Math.ceil(invWords.length * 0.6) && shared >= 2;
+      const score = shared / Math.max(invWords.length, catWords.length);
+      if(shared >= 2 && score > bestScore) { bestScore = score; bestMatch = p; }
     });
-    return m||null;
+    return bestMatch||null;
   }
 
   const rows = invoice.items.map(item => {
