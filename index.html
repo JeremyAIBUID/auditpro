@@ -3823,6 +3823,16 @@ function needsInfoAlert(p) {
 }
 
 const CAT_ORDER_PROD = ['Spirits','Beer','Wine','RTD','Soft drinks','Food','Cocktails','Other'];
+const CAT_COLORS_PROD = {
+  Spirits:     { bg:'rgba(200,240,100,0.08)', text:'#c8f064', icon:'🥃' },
+  Beer:        { bg:'rgba(240,192,64,0.08)',  text:'#f0c040', icon:'🍺' },
+  Wine:        { bg:'rgba(240,136,74,0.08)',  text:'#f0884a', icon:'🍷' },
+  RTD:         { bg:'rgba(91,227,180,0.08)',  text:'#5be3b4', icon:'🥤' },
+  'Soft drinks':{ bg:'rgba(91,156,240,0.08)', text:'#5b9cf0', icon:'🧃' },
+  Food:        { bg:'rgba(167,139,250,0.08)', text:'#a78bfa', icon:'🍽️' },
+  Cocktails:   { bg:'rgba(240,80,80,0.08)',   text:'#f05050', icon:'🍸' },
+  Other:       { bg:'rgba(155,152,144,0.08)', text:'#9b9890', icon:'📦' },
+};
 const SUBCAT_ORDER = {
   Spirits: ['Gin','Vodka','Rum','Tequila','Bourbon','Scotch','Irish','Whiskey','Brandy','Liqueur','Other'],
   Beer:    ['Draught','Bottles','Cans','Other'],
@@ -3859,9 +3869,13 @@ function renderProducts(c, query) {
       alertBanner.style.display = 'none';
     }
   }
-  const prods = (c.products||[]).filter(p=>
-    !query || p.n.toLowerCase().includes(query.toLowerCase()) || (p.cat||'').toLowerCase().includes(query.toLowerCase()) || (p.subcat||'').toLowerCase().includes(query.toLowerCase())
-  );
+  const prods = (c.products||[]).filter(p => {
+    const name = (p.n || p.name || '').toLowerCase();
+    if(!query) return true;
+    return name.includes(query.toLowerCase()) ||
+           (p.cat||'').toLowerCase().includes(query.toLowerCase()) ||
+           (p.subcat||'').toLowerCase().includes(query.toLowerCase());
+  });
   if(!prods.length){
     wrap.innerHTML=`<div style="text-align:center;padding:48px 20px;color:var(--text3);">
       <p style="font-size:14px;color:var(--text2);margin-bottom:16px;">No products found</p>
@@ -3873,10 +3887,11 @@ function renderProducts(c, query) {
   // Group by category then subcat
   const byCat = {};
   prods.forEach(p => {
-    if(!byCat[p.cat]) byCat[p.cat] = {};
+    const cat = p.cat || 'Other';
+    if(!byCat[cat]) byCat[cat] = {};
     const sc = p.subcat || 'Other';
-    if(!byCat[p.cat][sc]) byCat[p.cat][sc] = [];
-    byCat[p.cat][sc].push(p);
+    if(!byCat[cat][sc]) byCat[cat][sc] = [];
+    byCat[cat][sc].push(p);
   });
 
   const orderedCats = CAT_ORDER_PROD.filter(c=>byCat[c])
@@ -3936,7 +3951,7 @@ function renderProducts(c, query) {
         return `<tr>
           <td class="td-main" style="padding-left:20px;">
             <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
-              <span>${p.n}</span>${typeBadge}
+              <span>${p.n||p.name||'Unnamed'}</span>${typeBadge}
               ${needsTareAlert(p) ? `<span onclick="editProduct(${(activeClient.products||[]).indexOf(p)})" title="Tare weight not set — click to edit" style="cursor:pointer;font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(240,192,64,0.12);color:var(--amber);border:1px solid rgba(240,192,64,0.3);font-weight:600;white-space:nowrap;">⚖ Set tare weight</span>` : ''}
               ${(()=>{ const m=needsInfoAlert(p).filter(x=>x!=='vessel weight'); return m.length ? `<span onclick="editProduct(${(activeClient.products||[]).indexOf(p)})" title="Missing: ${m.join(', ')} — click to edit" style="cursor:pointer;font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(240,80,80,0.12);color:var(--red);border:1px solid rgba(240,80,80,0.3);font-weight:700;white-space:nowrap;">! ${m.join(', ')}</span>` : ''; })()}
             </div>
@@ -5702,16 +5717,18 @@ function parseSalesCSV(text, filename) {
       const qty  = parseFloat(cols[qtyCol]) || 0;
       const val  = parseFloat((cols[valCol]||'').replace(/[$,]/g,'')) || 0;
       if(name && qty) rows.push({
-        p: name,
-        cat: 'Other',
-        qty: qty,
-        rev: val,
-        revenue: val,
-        unitPrice: qty > 0 ? val/qty : 0,
+        p:    name,
+        cat:  'Other',
+        qty:  qty,
+        rev:  val,
+        cog:  0,
+        gp:   0,
+        gpd:  0,
+        vs:   'ok',
+        plu:  '',
         unit: 'serves',
         serveVol: 0,
         wasted: 0,
-        plu: '',
       });
     }
     return rows;
