@@ -6813,10 +6813,18 @@ function deleteInvoice(idx) {
   overlay.querySelector('#del-inv-cancel').onclick  = () => overlay.remove();
   overlay.querySelector('#del-inv-confirm').onclick = () => {
     overlay.remove();
+    const d = c.deliveries[idx];
+    // Save to archive before deleting
+    if(!c.invoiceArchive) c.invoiceArchive = [];
+    if(d && !c.invoiceArchive.find(a=>a.r===d.r)) {
+      c.invoiceArchive.push({
+        r: d.r, s: d.s, d: d.d, t: d.t, i: d.i, items: d.lines||[]
+      });
+    }
     c.deliveries.splice(idx, 1);
     dbSaveClient(c);
     renderPage('purchases');
-    showPersistToast('Invoice removed');
+    showPersistToast('Invoice removed — available in archive to re-import');
   };
 }
 
