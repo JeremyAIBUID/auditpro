@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-<head> 
+<head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AuditPro — Hospitality Audit Platform</title>
@@ -680,6 +680,7 @@
             <thead><tr><th>Supplier</th><th>Invoice date</th><th>Invoice ref</th><th>Items</th><th>Total (excl. tax)</th><th>Source</th><th>Status</th><th></th></tr></thead>
             <tbody id="purchases-body"></tbody>
           </table>
+          <div id="invoice-archive-section" style="display:none;margin-top:8px;"></div>
         </div>
       </div>
 
@@ -2454,7 +2455,7 @@ function renderPage(page) {
     }).join('') : `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text3);">No price changes detected this period.</td></tr>`;
     // Hide panel on page load
     document.getElementById('price-changes-panel').style.display='none';
-    document.getElementById('purchases-body').innerHTML = c.deliveries.map(d=>{
+    document.getElementById('purchases-body').innerHTML = c.deliveries.map((d,idx)=>{
       const isManual = d.sc === 'chip-blue';
       const sourceBadge = isManual
         ? `<span style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(167,139,250,0.1);color:#a78bfa;border:1px solid rgba(167,139,250,0.2);">✏️ Manual</span>`
@@ -2471,11 +2472,32 @@ function renderPage(page) {
         <td>${sourceBadge}</td>
         <td>${statusChip}</td>
         <td style="display:flex;gap:6px;">
-          <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;" onclick="viewInvoice(${c.deliveries.indexOf(d)})">View</button>
-          <button class="btn btn-danger" style="padding:4px 10px;font-size:11px;" onclick="deleteInvoice(${c.deliveries.indexOf(d)})">×</button>
+          <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;" onclick="viewInvoice(${idx})">View</button>
+          <button class="btn btn-danger" style="padding:4px 10px;font-size:11px;" onclick="deleteInvoice(${idx})">×</button>
         </td>
       </tr>`;
     }).join('');
+
+    // Invoice archive — invoices previously uploaded, available for re-import
+    const archive = (c.invoiceArchive||[]).filter(a => !c.deliveries.find(d=>d.r===a.r));
+    const archiveEl = document.getElementById('invoice-archive-section');
+    if(archiveEl) {
+      if(archive.length) {
+        archiveEl.style.display = 'block';
+        archiveEl.innerHTML = `
+          <div style="font-size:13px;font-weight:700;color:var(--text2);margin:20px 0 10px;">📁 Invoice archive — previously uploaded, not in purchase history</div>
+          ${archive.map((a,i)=>`
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:6px;">
+              <div style="flex:1;">
+                <div style="font-size:13px;font-weight:600;color:var(--text);">${a.s} · ${a.r}</div>
+                <div style="font-size:11px;color:var(--text3);">${a.d} · ${a.i} items · ${a.t}</div>
+              </div>
+              <button class="btn btn-secondary" style="font-size:11px;padding:4px 12px;" onclick="reimportArchivedInvoice(${i})">Re-import →</button>
+            </div>`).join('')}`;
+      } else {
+        archiveEl.style.display = 'none';
+      }
+    }
   }
   if(page==='waste'||page==='sales'){
     // populate manual waste log inside sales page
@@ -6526,15 +6548,28 @@ function applyDumpEnrichment(enrichId, dumpId, clientId) {
 }
 
 function addDumpInvoiceToClient(c, invoice, id) {
-  const total = (invoice.invoiceTotal || invoice.items.reduce((s,i)=>s+(i.lineTotal||i.lineTotal||0),0)).toFixed(2);
+  const total = (invoice.invoiceTotal || invoice.items.reduce((s,i)=>s+(i.lineTotal||0),0)).toFixed(2);
   if(!c.deliveries) c.deliveries = [];
 
-  // Don't add if already in deliveries (may have been added by applyDumpEnrichment)
+  // Store in archive permanently (survives deletion from purchase history)
+  if(!c.invoiceArchive) c.invoiceArchive = [];
+  const archiveRef = invoice.invoiceRef || 'AUTO-'+Math.floor(Math.random()*90000+10000);
+  if(!c.invoiceArchive.find(a=>a.r===archiveRef)) {
+    c.invoiceArchive.push({
+      r: archiveRef,
+      s: invoice.supplier || 'Unknown',
+      d: invoice.invoiceDate || 'Unknown date',
+      t: '$' + total,
+      i: invoice.items.length,
+      items: invoice.items,
+    });
+  }
+
   if(!isDuplicateInvoice(c, invoice.invoiceRef, invoice.invoiceDate, invoice.supplier)) {
     c.deliveries.unshift({
       s:   invoice.supplier    || 'Unknown supplier',
       d:   invoice.invoiceDate || 'Unknown date',
-      r:   invoice.invoiceRef  || 'AUTO-'+Math.floor(Math.random()*90000+10000),
+      r:   archiveRef,
       i:   invoice.items.length,
       t:   '$' + total,
       tEx: '$' + (invoice.invoiceTotalExGST || (parseFloat(total)/1.15)).toFixed(2),
@@ -6542,11 +6577,9 @@ function addDumpInvoiceToClient(c, invoice, id) {
       st: 'Verified', sc: 'chip-green',
       lines: invoice.items,
     });
-    // Auto-populate supplier
     if(invoice.supplier) {
       if(!c.suppliers) c.suppliers = [];
-      const supExists = c.suppliers.find(s=>s.name.toLowerCase()===invoice.supplier.toLowerCase());
-      if(!supExists) {
+      if(!c.suppliers.find(s=>s.name.toLowerCase()===invoice.supplier.toLowerCase())) {
         c.suppliers.push({ name: invoice.supplier, contact:'', email:'', phone:'', notes:'' });
       }
     }
@@ -6740,6 +6773,21 @@ function viewInvoicePDF(file) {
     a.href = url; a.download = file.name; a.click();
     setTimeout(()=>URL.revokeObjectURL(url), 2000);
   }
+}
+
+function reimportArchivedInvoice(archiveIdx) {
+  const c = activeClient; if(!c) return;
+  const a = (c.invoiceArchive||[])[archiveIdx];
+  if(!a) return;
+  // Re-add to deliveries
+  if(!c.deliveries) c.deliveries = [];
+  c.deliveries.unshift({
+    s: a.s, d: a.d, r: a.r, i: a.i, t: a.t,
+    st: 'Verified', sc: 'chip-green', lines: a.items||[]
+  });
+  dbSaveClient(c);
+  renderPage('purchases');
+  showPersistToast('✓ Invoice re-imported to purchase history');
 }
 
 function deleteInvoice(idx) {
