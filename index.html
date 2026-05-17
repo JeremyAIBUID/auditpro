@@ -7015,6 +7015,9 @@ function openInvoiceReviewModal(id) {
     }
     return { ...item, existing, action: existing?'update':'add', _cleanName: existing?(existing.n||existing.name):'' };
   });
+  const supplier    = res._invoiceSupplier || '';
+  const ref         = res._invoiceRef      || '';
+  const date        = res._invoiceDate     || '';
   const newRows     = rows.filter(r=>r.action==='add');
   const updateCount = rows.filter(r=>r.action==='update').length;
 
