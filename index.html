@@ -2929,9 +2929,9 @@ function openSupplierDetail(name) {
   const c = activeClient; if(!c) return;
   const s = (c.suppliers||[]).find(s=>s.name===name);
   if(!s) return;
-  const products  = (c.products||[]).filter(p=>(p.supplier||'').toLowerCase()===name.toLowerCase());
-  const deliveries= (c.deliveries||[]).filter(d=>(d.supplier||'').toLowerCase()===name.toLowerCase()).sort((a,b)=>new Date(b.date)-new Date(a.date));
-  const totalSpend= deliveries.reduce((sum,d)=>sum+(parseFloat(d.total)||0),0);
+  const products   = (c.products||[]).filter(p=>(p.supplier||'').toLowerCase()===name.toLowerCase());
+  const deliveries = (c.deliveries||[]).filter(d=>(d.s||d.supplier||'').toLowerCase()===name.toLowerCase());
+  const totalSpend = deliveries.reduce((sum,d)=>sum+(parseFloat((d.t||d.total||'0').replace(/[$,]/g,''))||0),0);
 
   const detail = document.getElementById('supplier-detail');
   if(!detail) return;
@@ -2956,7 +2956,7 @@ function openSupplierDetail(name) {
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;">
           <div class="stat-card blue"><div class="stat-label">Products supplied</div><div class="stat-value">${products.length}</div></div>
           <div class="stat-card green"><div class="stat-label">Total spend</div><div class="stat-value">$${totalSpend.toFixed(0)}</div></div>
-          <div class="stat-card blue"><div class="stat-label">Deliveries</div><div class="stat-value">${deliveries.length}</div></div>
+          <div class="stat-card blue"><div class="stat-label">Invoices</div><div class="stat-value">${deliveries.length}</div></div>
         </div>
         ${s.contact||s.phone||s.email ? `
         <div style="background:var(--bg3);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
@@ -2973,38 +2973,39 @@ function openSupplierDetail(name) {
     <div class="card" style="margin-bottom:16px;">
       <div class="card-header"><span class="card-title">Products supplied (${products.length})</span></div>
       ${products.length ? `<div style="overflow-x:auto;"><table>
-        <thead><tr><th>Product</th><th>Category</th><th>Last cost</th><th>Price history</th><th>Trend</th></tr></thead>
+        <thead><tr><th>Product</th><th>Category</th><th>Last cost</th><th>Trend</th></tr></thead>
         <tbody>${products.map(p => {
-          const hist = (p.costHistory||[]).slice(-5);
+          const hist = (p.costHistory||[]).slice(-3);
           const trend = hist.length>=2 ? (hist[hist.length-1].price > hist[hist.length-2].price ? '↑ Rising' : hist[hist.length-1].price < hist[hist.length-2].price ? '↓ Falling' : '→ Stable') : '—';
           const tCol  = trend.startsWith('↑')?'var(--red)':trend.startsWith('↓')?'var(--green)':'var(--text3)';
           return `<tr>
-            <td class="td-main">${p.n||p.name}</td>
+            <td class="td-main" style="cursor:pointer;" onclick="navigate('products');setTimeout(()=>document.querySelector('[data-prod-name]')?.scrollIntoView(),300)">${p.n||p.name}</td>
             <td><span class="chip chip-default">${p.cat||'—'}</span></td>
             <td class="td-mono">$${(p.costPrice||0).toFixed(2)}</td>
-            <td style="font-size:11px;color:var(--text3);">${hist.map(h=>`$${h.price.toFixed(2)}`).join(' → ')||'—'}</td>
             <td style="font-size:12px;font-weight:600;color:${tCol}">${trend}</td>
           </tr>`;
         }).join('')}</tbody>
-      </table></div>` : '<div style="padding:16px;color:var(--text3);font-size:13px;">No products linked to this supplier yet</div>'}
+      </table></div>` : '<div style="padding:16px;color:var(--text3);font-size:13px;">No products linked — set supplier on products to link them here</div>'}
     </div>
 
-    <!-- Recent deliveries -->
+    <!-- Invoices -->
     <div class="card">
-      <div class="card-header"><span class="card-title">Recent deliveries</span></div>
+      <div class="card-header"><span class="card-title">Invoices (${deliveries.length})</span></div>
       ${deliveries.length ? `<div style="overflow-x:auto;"><table>
-        <thead><tr><th>Date</th><th>Invoice ref</th><th>Lines</th><th>Total</th></tr></thead>
-        <tbody>${deliveries.slice(0,10).map(d=>`<tr>
-          <td>${new Date(d.date||'').toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'})}</td>
-          <td class="td-mono">${d.ref||'—'}</td>
-          <td>${(d.lines||[]).length}</td>
-          <td class="td-mono">$${(parseFloat(d.total)||0).toFixed(2)}</td>
+        <thead><tr><th>Date</th><th>Invoice ref</th><th>Items</th><th>Total</th><th></th></tr></thead>
+        <tbody>${deliveries.map((d,di)=>`<tr>
+          <td>${d.d||'—'}</td>
+          <td class="td-mono">${d.r||'—'}</td>
+          <td>${d.i||0}</td>
+          <td class="td-mono">${d.t||'—'}</td>
+          <td><button class="btn btn-secondary" style="padding:3px 8px;font-size:11px;" onclick="viewInvoice(${(c.deliveries||[]).indexOf(d)})">View</button></td>
         </tr>`).join('')}</tbody>
-      </table></div>` : '<div style="padding:16px;color:var(--text3);font-size:13px;">No deliveries recorded</div>'}
+      </table></div>` : '<div style="padding:16px;color:var(--text3);font-size:13px;">No invoices recorded</div>'}
     </div>`;
 
   detail.scrollIntoView({behavior:'smooth',block:'start'});
 }
+
 
 function openAddSupplierModal() {
   ['sup-name','sup-contact','sup-phone','sup-email','sup-account','sup-notes'].forEach(id => {
@@ -4858,7 +4859,11 @@ function renderVarTable() {
       // Purchases popover
       const popId   = `pop-${cat.replace(/\s/g,'')}-${idx}`;
       const purRows = r.purchases && r.purchases.length
-        ? r.purchases.map(p=>`<div class="pur-popover-row"><span style="color:var(--text2);">${p.sup}</span><span class="td-mono" style="color:var(--text);">${p.qty}</span><span class="td-mono" style="color:var(--text3);">${p.date}</span><span class="td-mono" style="color:var(--accent);font-size:11px;">${p.inv}</span></div>`).join('')
+        ? r.purchases.map(p=>{
+            const invIdx = (activeClient?.deliveries||[]).findIndex(d=>d.r===p.inv||d.r===p.invoiceRef);
+            const invLink = invIdx>=0 ? `onclick="togglePurPopover('${popId}',event);viewInvoice(${invIdx})" style="cursor:pointer;color:var(--accent);text-decoration:underline;"` : '';
+            return `<div class="pur-popover-row"><span style="color:var(--text2);">${p.sup}</span><span class="td-mono" style="color:var(--text);">${p.qty}</span><span class="td-mono" style="color:var(--text3);">${p.date}</span><span class="td-mono" style="font-size:11px;" ${invLink}>${p.inv||'—'}</span></div>`;
+          }).join('')
         : `<div style="font-size:12px;color:var(--text3);padding:4px 0;">No purchases this period</div>`;
       const purCell = `
         <td class="pur-cell" onclick="togglePurPopover('${popId}',event)">
@@ -6819,13 +6824,21 @@ function deleteInvoice(idx) {
     // Save to archive before deleting
     if(!c.invoiceArchive) c.invoiceArchive = [];
     if(d && !c.invoiceArchive.find(a=>a.r===d.r)) {
-      c.invoiceArchive.push({
-        r: d.r, s: d.s, d: d.d, t: d.t, i: d.i, items: d.lines||[]
+      c.invoiceArchive.push({ r:d.r, s:d.s, d:d.d, t:d.t, i:d.i, items:d.lines||[] });
+    }
+    // Remove purchases from open session that came from this invoice
+    const openSession = (c.auditSessions||[]).find(s=>s.status==='open') || (c.auditSessions||[])[c.auditSessions.length-1];
+    if(openSession && openSession.purchases && d) {
+      Object.keys(openSession.purchases).forEach(name => {
+        if(openSession.purchases[name].invoiceRef === d.r) {
+          delete openSession.purchases[name];
+        }
       });
     }
     c.deliveries.splice(idx, 1);
     dbSaveClient(c);
     renderPage('purchases');
+    if(document.getElementById('page-variances')?.classList.contains('active')) renderVarTable();
     showPersistToast('Invoice removed — available in archive to re-import');
   };
 }
