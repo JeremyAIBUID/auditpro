@@ -4459,7 +4459,9 @@ function computeVariances(client) {
     const saleData   = (sales || {})[name];
     let salesUnits = 0, salesMl = 0, salesRev = 0;
     if (saleData) {
-      const sv   = saleData.serveVol || serveVol;
+      // For bottles/cans/kegs sold as whole units, each sale = 1 full unit
+      const soldAsUnit = ['Bottles','Cans','Kegs'].includes(prod.soldAs);
+      const sv   = soldAsUnit ? unitVol : (saleData.serveVol || serveVol || unitVol);
       salesMl    = (parseFloat(saleData.qty) || 0) * sv;
       salesUnits = salesMl / unitVol;
       salesRev   = saleData.revenue || 0;
@@ -7527,7 +7529,7 @@ function applyInvoiceToProducts(id) {
         i: (storedInv.rows||[]).length,
         t: '$' + (storedInv.rows||[]).reduce((s,r)=>s+(r._incGST||0)*(r.qty||1),0).toFixed(2),
         st: 'Verified', sc: 'chip-green',
-        lines: storedInv.rows || [],
+        lines: (storedInv.rows && storedInv.rows.length) ? storedInv.rows : (res?._invoiceData || []),
       });
       if(!c.suppliers) c.suppliers = [];
       if(!c.suppliers.find(s=>s.name.toLowerCase()===storedInv.supplier.toLowerCase())) {
