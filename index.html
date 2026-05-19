@@ -4401,17 +4401,41 @@ function computeVariances(client) {
   const prodMap = {};
   (client.products || []).forEach(p => { prodMap[p.n||p.name] = p; });
 
-  // Build purchases map from deliveries if session has no purchases
+  // Build purchases map from deliveries
   const sessionPurchases = purchases || {};
   const deliveryPurchases = {};
+  const normName = s => s.toLowerCase().trim()
+    .replace(/'/g,'').replace(/\b\d+\s*s\b/gi,'')
+    .replace(/\bbtls?\b/gi,'').replace(/\bcans?\b/gi,'')
+    .replace(/\bkegs?\b/gi,'').replace(/\bcases?\b/gi,'')
+    .replace(/\brtd\b/gi,'').replace(/\bcar\b/gi,'')
+    .replace(/\d+(\.\d+)?\s*(ml|l|lt|ltr|litre|liters?)\b/gi,'')
+    .replace(/\s+/g,' ').trim();
+
   (client.deliveries || []).forEach(del => {
     (del.lines || []).forEach(line => {
-      const name = line._cleanName || line.name || '';
+      // Use _cleanName if available, else try to match against catalogue
+      let name = line._cleanName || '';
+      if(!name) {
+        const raw = line.name || '';
+        const nn  = normName(raw);
+        const invWords = nn.split(' ').filter(w=>w.length>3);
+        // Find best catalogue match
+        let bestMatch = null, bestScore = 0;
+        Object.keys(prodMap).forEach(pName => {
+          const pn = normName(pName);
+          const catWords = pn.split(' ').filter(w=>w.length>3);
+          const shared = invWords.filter(w=>catWords.includes(w)).length;
+          const score = shared / Math.max(invWords.length||1, catWords.length||1);
+          if(shared >= 2 && score > bestScore) { bestScore = score; bestMatch = pName; }
+        });
+        name = bestMatch || raw;
+      }
       if(!name) return;
-      const qty = parseFloat(line.qty) || 1;
+      const qty  = parseFloat(line.qty) || 1;
       const cost = parseFloat(line._incGST || line.unitPrice || 0);
       if(!deliveryPurchases[name]) {
-        deliveryPurchases[name] = { qty: 0, costPrice: cost, unit: line.unit || 'Bottles' };
+        deliveryPurchases[name] = { qty: 0, costPrice: cost, unit: line.unit || 'Bottles', invoiceRef: del.r };
       }
       deliveryPurchases[name].qty += qty;
     });
