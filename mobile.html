@@ -2969,12 +2969,18 @@ async function acceptAndSync() {
   const areas  = Object.keys(session.counts).filter(a=>session.counts[a].length>0);
   const lines  = areas.reduce((s,a)=>s+session.counts[a].length,0);
   const total  = areas.reduce((s,a)=>s+session.counts[a].reduce((ss,r)=>ss+parseFloat(r.qty),0),0);
-  document.getElementById('sync-client').textContent   = session.client;
-  document.getElementById('sync-areas').textContent    = areas.length + ' of ' + AREAS.length;
-  document.getElementById('sync-lines').textContent    = lines;
-  document.getElementById('sync-total').textContent    = total.toFixed(2);
-  document.getElementById('sync-code-val').textContent = session.code;
-  document.getElementById('export-code-display').textContent = session.code;
+  const syncClientEl = document.getElementById('sync-client');
+  const syncAreasEl  = document.getElementById('sync-areas');
+  const syncLinesEl  = document.getElementById('sync-lines');
+  const syncTotalEl  = document.getElementById('sync-total');
+  const syncCodeEl   = document.getElementById('sync-code-val');
+  const exportCodeEl = document.getElementById('export-code-display');
+  if(syncClientEl) syncClientEl.textContent = session.client;
+  if(syncAreasEl)  syncAreasEl.textContent  = areas.length + ' of ' + AREAS.length;
+  if(syncLinesEl)  syncLinesEl.textContent  = lines;
+  if(syncTotalEl)  syncTotalEl.textContent  = total.toFixed(2);
+  if(syncCodeEl)   syncCodeEl.textContent   = session.code;
+  if(exportCodeEl) exportCodeEl.textContent = session.code;
 
   // Build CSV
   let csv = `Client,${session.client}\nClientId,${session.clientId||''}\nSessionCode,${session.code}\n\nProduct,Category,Area,Quantity,Unit,Method\n`;
