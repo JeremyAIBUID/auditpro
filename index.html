@@ -4463,17 +4463,39 @@ function computeVariances(client) {
     });
   });
 
-  // Merge: deliveries are source of truth for invoice purchases.
-  // Session purchases only contribute manual entries (no invoiceRef, or ref no longer in active deliveries).
+  // Merge strategy:
+  // 1. Build from delivery lines where available (most accurate)
+  // 2. Fall back to session.purchases for invoices whose delivery has empty lines
+  // 3. Only exclude session.purchases whose invoiceRef no longer exists in deliveries (true ghosts)
   const activeInvoiceRefs = new Set((client.deliveries||[]).map(d=>d.r).filter(Boolean));
-  const manualSessionPurchases = {};
+  const emptyLineRefs = new Set((client.deliveries||[]).filter(d=>!d.lines||!d.lines.length).map(d=>d.r).filter(Boolean));
+
+  const fallbackSessionPurchases = {};
   Object.entries(sessionPurchases).forEach(([name, entry]) => {
     const ref = entry.invoiceRef || '';
-    if (!ref || !activeInvoiceRefs.has(ref)) {
-      manualSessionPurchases[name] = entry;
+    // Keep if: no ref (manual), ref is active (valid invoice), or ref matches empty-lines delivery (fallback)
+    if (!ref || activeInvoiceRefs.has(ref)) {
+    // Expand cases into units for session purchases
+    const entryUnit = (entry.unit||'').toLowerCase();
+    const prod = prodMap[name] || {};
+    const cs = prod.caseSize || parseCaseSize(name) || 1;
+    const expandedQty = (entryUnit === 'cases' || entryUnit === 'car') ? (parseFloat(entry.qty)||0) * cs : (parseFloat(entry.qty)||0);
+    fallbackSessionPurchases[name] = {
+      ...entry,
+      qty: expandedQty,
+      unit: entryUnit === 'kegs' ? 'Kegs' : 'Bottles',
+      lines: [{
+        qty: entry.qty + ' ' + (entry.unit||''),
+        date: '—',
+        sup: entry.supplier || '—',
+        inv: entry.invoiceRef || '—',
+        invIdx: (client.deliveries||[]).findIndex(d=>d.r===entry.invoiceRef),
+      }]
+    };
     }
   });
-  const mergedPurchases = { ...manualSessionPurchases, ...deliveryPurchases };
+  // Delivery lines win where they exist; session fills in where lines are empty
+  const mergedPurchases = { ...fallbackSessionPurchases, ...deliveryPurchases };
 
   // Collect all product names — only include products in the catalogue
   const catalogueNames = new Set(Object.keys(prodMap));
@@ -8979,8 +9001,8 @@ async function dbSaveBatches() {
 
 // Load everything from Supabase on startup
 function purgeGhostPurchases() {
-  // Remove session.purchases entries whose invoiceRef points to a deleted invoice.
-  // Saves each affected session back to Supabase immediately.
+  // Only remove session.purchases whose invoiceRef doesn't exist in c.deliveries at all.
+  // Keep entries for active invoices even if delivery lines are empty (used as fallback).
   clients.forEach(c => {
     const activeRefs = new Set((c.deliveries||[]).map(d=>d.r).filter(Boolean));
     (c.auditSessions||[]).forEach(sess => {
@@ -8988,6 +9010,7 @@ function purgeGhostPurchases() {
       let sessionDirty = false;
       Object.keys(sess.purchases).forEach(name => {
         const ref = sess.purchases[name].invoiceRef || '';
+        // Only purge if ref exists AND is not in active deliveries (true ghost)
         if (ref && !activeRefs.has(ref)) {
           console.log('[AuditPro] Purging ghost purchase:', name, 'ref:', ref);
           delete sess.purchases[name];
