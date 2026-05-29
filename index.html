@@ -6812,7 +6812,7 @@ Extract every product line item and return ONLY a JSON object (no markdown, no e
 
 Rules:
 - For "unit" use: Bottles, Cans, Cases, Kegs, Litres, Units
-- For "cat" use: Spirits, Beer, Wine, Soft drinks, Food, Other
+- For "cat" use: Spirits, Beer, Wine, RTD, Soft drinks, Food, Other
 - Extract ALL line items. If a price is per case, note qty as number of cases and unit as Cases.
 - Expand all abbreviations in product names as much as possible from context
 - NZ GST is 15% — if prices are GST inclusive, calculate ex-GST as price / 1.15
@@ -7339,7 +7339,7 @@ function needsWeighing(cat, subcat) {
 let customCategories = [];
 
 function getInvCatOptions(selected) {
-  const cats = ['Spirits','Beer','Wine','Soft drinks','Food','Cocktails','Other',...customCategories];
+  const cats = ['Spirits','Beer','Wine','RTD','Soft drinks','Food','Cocktails','Other',...customCategories];
   return cats.map(c=>`<option${c===selected?' selected':''}>${c}</option>`).join('');
 }
 
@@ -7525,6 +7525,12 @@ function applyInvoiceToProducts(id) {
     if(existing) {
       if(cleanName !== (existing.n||existing.name)) { existing.n=cleanName; existing.name=cleanName; }
       existing.cat = cleanCat;
+      // Always update unitVol, tareG, caseSize from import modal — user may have corrected them
+      if(unitVol && unitVol > 0) existing.unitVol = unitVol;
+      if(tareG > 0) existing.tareG = tareG;
+      if(fullG > 0) existing.fullG = fullG;
+      if(caseSize) existing.caseSize = caseSize;
+      if(density) existing.density = density;
       if(costPriceAdj && costPriceAdj !== existing.costPrice) {
         existing.costHistory = existing.costHistory||[];
         existing.costHistory.push({ price: costPriceAdj, priceExGST: costExGSTAdj, date: new Date().toLocaleDateString('en-NZ'), source: 'invoice' });
