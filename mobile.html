@@ -2488,14 +2488,27 @@ function searchProducts(q) {
 
   if(!matches.length) {
     // No match — show create product prompt
+    window._mobileCreateName = q;
     res.innerHTML = `
       <div style="padding:14px 16px;border-bottom:1px solid var(--border);">
         <div style="font-size:13px;color:var(--text2);margin-bottom:10px;">No product found for <strong style="color:var(--text);">"${q}"</strong></div>
-        <button onclick="openProductFormWithName('${q.replace(/'/g,"\\'")}');document.getElementById('search-results').classList.remove('visible');"
-          style="width:100%;padding:12px;border-radius:12px;background:rgba(200,240,100,0.1);border:1px solid rgba(200,240,100,0.3);color:var(--accent);font-family:var(--font-ui);font-size:14px;font-weight:700;cursor:pointer;touch-action:manipulation;text-align:center;">
+        <button id="mobile-create-btn"
+          style="width:100%;padding:14px;border-radius:12px;background:rgba(200,240,100,0.1);border:2px solid rgba(200,240,100,0.4);color:var(--accent);font-family:var(--font-ui);font-size:15px;font-weight:700;cursor:pointer;touch-action:manipulation;text-align:center;">
           + Create "${q}"
         </button>
       </div>`;
+    setTimeout(() => {
+      const btn = document.getElementById('mobile-create-btn');
+      if(btn) {
+        const handler = function(e) {
+          e.preventDefault(); e.stopPropagation();
+          document.getElementById('search-results').classList.remove('visible');
+          openProductFormWithName(window._mobileCreateName || '');
+        };
+        btn.addEventListener('touchend', handler, {passive:false});
+        btn.addEventListener('click', handler);
+      }
+    }, 80);
     return;
   }
 

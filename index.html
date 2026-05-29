@@ -6321,7 +6321,17 @@ function viewInvoice(idx) {
   const d = c.deliveries[idx];
   if(!d) return;
 
-  const lines = d.lines || [];
+  // Build line items — from d.lines if available, else from session purchases matching this invoice
+  let lines = d.lines || [];
+  if(!lines.length) {
+    const sess = (c.auditSessions||[]).find(s => s.purchases && Object.values(s.purchases).some(p=>p.invoiceRef===d.r));
+    if(sess) {
+      lines = Object.entries(sess.purchases)
+        .filter(([,p]) => p.invoiceRef === d.r)
+        .map(([name,p]) => ({ _cleanName: name, qty: p.qty, unit: p.unit, _incGST: p.costPrice, lineTotal: (p.qty * p.costPrice).toFixed(2) }));
+    }
+  }
+
   const linesHtml = lines.length
     ? `<table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead><tr style="border-bottom:1px solid var(--border2);">
@@ -6339,7 +6349,11 @@ function viewInvoice(idx) {
           </tr>`).join('')}
         </tbody>
       </table>`
-    : '<div style="color:var(--text3);font-size:13px;padding:16px 0;">No line items recorded.</div>';
+    : '<div style="color:var(--text3);font-size:13px;padding:16px 0;">No line items recorded — re-import the invoice to populate line data.</div>';
+
+  // Check if we have a stored PDF blob
+  const storedInv = getInvoiceData ? getInvoiceData(d.r) : null;
+  const hasPDF = storedInv && storedInv.pdfBlob;
 
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
@@ -6349,13 +6363,13 @@ function viewInvoice(idx) {
       <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;">
         <div>
           <div style="font-size:16px;font-weight:700;color:var(--text);">${d.s} — ${d.r}</div>
-          <div style="font-size:12px;color:var(--text3);margin-top:2px;">${d.d} · ${d.i} items · ${d.t}</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:2px;">${d.d} · ${d.i||lines.length} items · ${d.t||''}</div>
         </div>
         <button onclick="document.getElementById('invoice-view-overlay').remove()" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;line-height:1;">×</button>
       </div>
       <div style="overflow-y:auto;flex:1;">${linesHtml}</div>
       <div style="display:flex;gap:8px;margin-top:16px;">
-        <button onclick="document.getElementById('invoice-view-overlay').remove();editInvoice(${idx})" class="btn btn-secondary" style="flex:1;font-size:13px;">Edit invoice</button>
+        <button onclick="document.getElementById('invoice-view-overlay').remove();editInvoice(${idx})" class="btn btn-secondary" style="flex:1;font-size:13px;">✏️ Edit invoice</button>
         <button onclick="document.getElementById('invoice-view-overlay').remove()" class="btn btn-primary" style="flex:1;font-size:13px;">Close</button>
       </div>
     </div>`;
@@ -6366,7 +6380,22 @@ function viewInvoice(idx) {
 function editInvoice(idx) {
   const c = activeClient; if(!c) return;
   const d = c.deliveries[idx];
-  if(!d || !d.lines) { showPersistToast('No line items to edit'); return; }
+  if(!d) return;
+
+  // Build editable lines from d.lines or fall back to session purchases
+  let editLines = d.lines || [];
+  if(!editLines.length) {
+    const sess = (c.auditSessions||[]).find(s => s.purchases && Object.values(s.purchases).some(p=>p.invoiceRef===d.r));
+    if(sess) {
+      editLines = Object.entries(sess.purchases)
+        .filter(([,p]) => p.invoiceRef === d.r)
+        .map(([name,p]) => ({ _cleanName: name, qty: p.qty, unit: p.unit, _incGST: p.costPrice }));
+    }
+  }
+  if(!editLines.length) { showPersistToast('No line items to edit — re-import the invoice first'); return; }
+
+  // Store for saveEditedInvoice
+  d._editLines = editLines;
 
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
@@ -6381,7 +6410,7 @@ function editInvoice(idx) {
         <span>Catalogue name</span><span style="text-align:right;">Qty</span><span style="text-align:right;">Price inc GST</span>
       </div>
       <div style="overflow-y:auto;flex:1;">
-        ${d.lines.map((l,i)=>`
+        ${editLines.map((l,i)=>`
           <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px;align-items:center;">
             <input id="ei-name-${i}" value="${(l._cleanName||l.name||'').replace(/"/g,'&quot;')}" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;">
             <input id="ei-qty-${i}" type="number" value="${l.qty||1}" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;text-align:right;">
@@ -6722,6 +6751,56 @@ function addDumpInvoiceToClient(c, invoice, id) {
 }
 // Reads PDF invoices via Anthropic API and extracts line items
 
+// Restore a previously imported invoice back to the processing bay for re-review
+function restoreInvoiceToProcessingBay(d) {
+  const area = document.getElementById('invoice-processing-area');
+  const list = document.getElementById('invoice-processing-list');
+  if(!area || !list) return;
+  area.style.display = 'block';
+
+  const id = 'inv-restored-' + (d.r||Date.now()).replace(/[^a-z0-9]/gi,'');
+  // Build line items from delivery lines
+  const lines = d.lines || [];
+  const rows = lines.map(l => ({
+    name: l._cleanName || l.name || '',
+    _cleanName: l._cleanName || l.name || '',
+    qty: l.qty || 1,
+    unit: l.unit || 'Bottles',
+    _incGST: l._incGST || l.price || 0,
+    _exGST: l._exGST || 0,
+    cat: l.cat || l._cat || '',
+    action: 'update',
+  }));
+
+  const div = document.createElement('div');
+  div.id = id;
+  div.style.cssText = 'background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:14px 16px;';
+  div.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:0;" id="${id}-hdr">
+      <div style="width:36px;height:36px;border-radius:8px;background:rgba(200,240,100,0.1);border:1px solid rgba(200,240,100,0.2);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px;">📄</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;color:var(--text);">${d.s} · ${d.r}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;" id="${id}-status">${d.d} · ${d.i||rows.length} items · ${d.t||''} — restored for re-review</div>
+      </div>
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--accent);flex-shrink:0;" id="${id}-badge">Review</div>
+      <button onclick="dismissInvoiceCard('${id}')" title="Dismiss" style="background:none;border:none;color:var(--text3);font-size:18px;cursor:pointer;padding:0;line-height:1;flex-shrink:0;">×</button>
+    </div>
+    <div id="${id}-results" style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px;"></div>`;
+  list.appendChild(div);
+
+  // Store data and show review UI
+  storeInvoiceData(id, rows, d.s||'', d.r||'', d.d||'');
+  const res = document.getElementById(id+'-results');
+  if(res && rows.length) {
+    res._invoiceData = rows;
+    res._invoiceSupplier = d.s||'';
+    res._invoiceRef = d.r||'';
+    res._invoiceDate = d.d||'';
+    // Trigger the standard review modal
+    setTimeout(() => openInvoiceReviewModal(id), 100);
+  }
+}
+
 async function processInvoiceWithAI(file) {
   const area = document.getElementById('invoice-processing-area');
   const list = document.getElementById('invoice-processing-list');
@@ -6962,6 +7041,8 @@ function deleteInvoice(idx) {
     });
     c.deliveries.splice(idx, 1);
     dbSaveClient(c);
+    // Restore to processing bay
+    restoreInvoiceToProcessingBay(d);
     renderPage('purchases');
     if(document.getElementById('page-variances')?.classList.contains('active')) renderVarTable();
     showPersistToast('Invoice sent back to review bay');
