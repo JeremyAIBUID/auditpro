@@ -4389,8 +4389,10 @@ function latestCostPrice(prod, purchaseEntry) {
 function computeVariances(client) {
   const sessions = client.auditSessions || [];
   
-  // Use the most recent session — finalised or active
-  const session = sessions.length ? sessions[sessions.length - 1] : null;
+  // Prefer open session first, then most recent session with purchases, then just last session
+  const openSession = sessions.find(s => s.status === 'open');
+  const sessionWithPurchases = [...sessions].reverse().find(s => s.purchases && Object.keys(s.purchases).length > 0);
+  const session = openSession || sessionWithPurchases || (sessions.length ? sessions[sessions.length - 1] : null);
   
   // If no session at all, check if there are deliveries we can show
   const deliveries = client.deliveries || [];
@@ -4478,7 +4480,8 @@ function computeVariances(client) {
     // Expand cases into units for session purchases
     const entryUnit = (entry.unit||'').toLowerCase();
     const prod = prodMap[name] || {};
-    const cs = prod.caseSize || parseCaseSize(name) || 1;
+    // Use stored caseSize from import, then product caseSize, then parse from name, then default 12
+    const cs = entry.caseSize || prod.caseSize || parseCaseSize(entry.originalName || name) || 12;
     const expandedQty = (entryUnit === 'cases' || entryUnit === 'car') ? (parseFloat(entry.qty)||0) * cs : (parseFloat(entry.qty)||0);
     fallbackSessionPurchases[name] = {
       ...entry,
@@ -7610,6 +7613,8 @@ function applyInvoiceToProducts(id) {
           costPrice:  unitCost,
           supplier:   res._invoiceSupplier || '',
           invoiceRef: res._invoiceRef || '',
+          originalName: item.name || '',
+          caseSize:   caseQty,
         };
       }
     });
