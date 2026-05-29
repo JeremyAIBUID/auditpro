@@ -4432,12 +4432,31 @@ function computeVariances(client) {
         name = bestMatch || raw;
       }
       if(!name) return;
-      const qty  = parseFloat(line.qty) || 1;
+      const rawQty = parseFloat(line.qty) || 1;
+      const lineUnit = (line.unit || '').toLowerCase();
+      // Expand cases/cartons into individual bottles using product's caseSize
+      const caseSize = (prodMap[name] && prodMap[name].caseSize) || parseCaseSize(line.name || '') || 1;
+      const qty = (lineUnit === 'cases' || lineUnit === 'car' || lineUnit === 'cartons' || lineUnit === 'ctn')
+        ? rawQty * caseSize
+        : rawQty;
       const cost = parseFloat(line._incGST || line.unitPrice || 0);
+      // Per-unit cost (divide by caseSize if line price was per-case)
+      const unitCost = (lineUnit === 'cases' || lineUnit === 'car' || lineUnit === 'cartons' || lineUnit === 'ctn') && cost > 0
+        ? cost / caseSize
+        : cost;
       if(!deliveryPurchases[name]) {
-        deliveryPurchases[name] = { qty: 0, costPrice: cost, unit: line.unit || 'Bottles', invoiceRef: del.r };
+        deliveryPurchases[name] = { qty: 0, costPrice: unitCost || cost, unit: lineUnit === 'keg' || lineUnit === 'kegs' ? 'Kegs' : 'Bottles', invoiceRef: del.r, lines: [] };
       }
+      if(unitCost > 0) deliveryPurchases[name].costPrice = unitCost;
       deliveryPurchases[name].qty += qty;
+      // Store per-invoice detail for popover
+      deliveryPurchases[name].lines.push({
+        qty:    rawQty + ' ' + (line.unit || 'btl'),
+        date:   del.d || '—',
+        sup:    del.s || '—',
+        inv:    del.r || '—',
+        invIdx: (client.deliveries||[]).indexOf(del),
+      });
     });
   });
 
@@ -4535,12 +4554,18 @@ function computeVariances(client) {
     const onHandCost = actual * costPrice;
 
     // ── Purchase detail for popover ───────────────────
-    const purDetail = purEntry && purUnits > 0 ? [{
-      qty:  purUnits + ' ' + (purEntry.unit || 'btl'),
-      date: session.openDate || '—',
-      sup:  purEntry.supplier || 'See invoices',
-      inv:  purEntry.invoiceRef || session.id,
-    }] : [];
+    const purDetail = purEntry && purUnits > 0
+      ? (purEntry.lines && purEntry.lines.length
+          ? purEntry.lines.map(l => ({
+              qty:    l.qty + ' ' + (l.unit || 'btl'),
+              date:   l.date || '—',
+              sup:    l.sup  || 'See invoices',
+              inv:    l.inv  || '—',
+              invIdx: l.invIdx != null ? l.invIdx : -1,
+            }))
+          : [{ qty: purUnits + ' ' + (purEntry.unit || 'btl'), date: session?.openDate || '—', sup: purEntry.supplier || 'See invoices', inv: purEntry.invoiceRef || '—', invIdx: -1 }]
+        )
+      : [];
 
     // ── Sales ml for display ──────────────────────────
     const salesMlDisplay = salesMl >= 1000
@@ -4713,6 +4738,32 @@ function fmtCost(cost) {
     : `<span class="cost-pos">+$${Math.abs(cost).toFixed(2)}</span>`;
 }
 
+function togglePurPopover(id, e) {
+  e && e.stopPropagation();
+  const el = document.getElementById(id);
+  if (!el) return;
+  const isOpen = el.classList.contains('open');
+  // Close all open popovers first
+  document.querySelectorAll('.pur-popover.open, .sales-popover.open').forEach(p => p.classList.remove('open'));
+  if (!isOpen) el.classList.add('open');
+}
+
+function toggleSalesPopover(id, e) {
+  e && e.stopPropagation();
+  const el = document.getElementById(id);
+  if (!el) return;
+  const isOpen = el.classList.contains('open');
+  document.querySelectorAll('.pur-popover.open, .sales-popover.open').forEach(p => p.classList.remove('open'));
+  if (!isOpen) el.classList.add('open');
+}
+
+// Close popovers when clicking elsewhere
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.pur-cell') && !e.target.closest('.sales-cell')) {
+    document.querySelectorAll('.pur-popover.open, .sales-popover.open').forEach(p => p.classList.remove('open'));
+  }
+});
+
 function renderVarTable() {
   const c = activeClient; if (!c) return;
   if(!DB._ready) {
@@ -4884,8 +4935,12 @@ function renderVarTable() {
       const popId   = `pop-${cat.replace(/\s/g,'')}-${idx}`;
       const purRows = r.purchases && r.purchases.length
         ? r.purchases.map(p=>{
-            const invIdx = (activeClient?.deliveries||[]).findIndex(d=>d.r===p.inv||d.r===p.invoiceRef);
-            const invLink = invIdx>=0 ? `onclick="togglePurPopover('${popId}',event);viewInvoice(${invIdx})" style="cursor:pointer;color:var(--accent);text-decoration:underline;"` : '';
+            const invIdx = p.invIdx != null && p.invIdx >= 0
+              ? p.invIdx
+              : (activeClient?.deliveries||[]).findIndex(d=>d.r===p.inv||d.r===p.invoiceRef);
+            const invLink = invIdx>=0
+              ? `onclick="document.querySelectorAll('.pur-popover.open,.sales-popover.open').forEach(x=>x.classList.remove('open'));viewInvoice(${invIdx})" style="cursor:pointer;color:var(--accent);text-decoration:underline;font-weight:600;"`
+              : '';
             return `<div class="pur-popover-row"><span style="color:var(--text2);">${p.sup}</span><span class="td-mono" style="color:var(--text);">${p.qty}</span><span class="td-mono" style="color:var(--text3);">${p.date}</span><span class="td-mono" style="font-size:11px;" ${invLink}>${p.inv||'—'}</span></div>`;
           }).join('')
         : `<div style="font-size:12px;color:var(--text3);padding:4px 0;">No purchases this period</div>`;
