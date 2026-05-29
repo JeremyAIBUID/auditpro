@@ -4978,7 +4978,12 @@ function renderVarTable() {
             const invLink = invIdx>=0
               ? `onclick="document.querySelectorAll('.pur-popover.open,.sales-popover.open').forEach(x=>x.classList.remove('open'));viewInvoice(${invIdx})" style="cursor:pointer;color:var(--accent);text-decoration:underline;font-weight:600;"`
               : '';
-            return `<div class="pur-popover-row"><span style="color:var(--text2);">${p.sup}</span><span class="td-mono" style="color:var(--text);">${p.qty}</span><span class="td-mono" style="color:var(--text3);">${p.date}</span><span class="td-mono" style="font-size:11px;" ${invLink}>${p.inv||'—'}</span></div>`;
+            const actionBtns = invIdx>=0 ? `
+              <div style="display:flex;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
+                <button onclick="document.querySelectorAll('.pur-popover.open,.sales-popover.open').forEach(x=>x.classList.remove('open'));viewInvoice(${invIdx})" style="flex:1;padding:5px 8px;font-size:11px;border-radius:7px;background:rgba(91,156,240,0.12);border:1px solid rgba(91,156,240,0.25);color:#5b9cf0;cursor:pointer;font-family:var(--font-ui);font-weight:600;">📄 View invoice</button>
+                <button onclick="document.querySelectorAll('.pur-popover.open,.sales-popover.open').forEach(x=>x.classList.remove('open'));editInvoice(${invIdx})" style="flex:1;padding:5px 8px;font-size:11px;border-radius:7px;background:rgba(200,240,100,0.08);border:1px solid rgba(200,240,100,0.2);color:var(--accent);cursor:pointer;font-family:var(--font-ui);font-weight:600;">✏️ Edit</button>
+              </div>` : '';
+            return `<div class="pur-popover-row"><span style="color:var(--text2);">${p.sup}</span><span class="td-mono" style="color:var(--text);">${p.qty}</span><span class="td-mono" style="color:var(--text3);">${p.date}</span><span class="td-mono" style="font-size:11px;" ${invLink}>${p.inv||'—'}</span></div>${actionBtns}`;
           }).join('')
         : `<div style="font-size:12px;color:var(--text3);padding:4px 0;">No purchases this period</div>`;
       const purCell = `
@@ -6921,19 +6926,46 @@ function deleteInvoice(idx) {
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
   overlay.innerHTML = `
     <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:16px;padding:24px;max-width:380px;width:90%;">
-      <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:8px;">Delete invoice?</div>
+      <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:8px;">Remove invoice?</div>
       <div style="font-size:13px;color:var(--text2);margin-bottom:20px;line-height:1.6;">
         <strong>${d.s}</strong> · ${d.d} · ${d.r}<br>
-        ${d.t} · ${d.i} items<br>
-        <span style="color:var(--text3);">This removes it from the purchases list only — products already added to the catalogue are not affected.</span>
+        ${d.t} · ${d.i} items
       </div>
-      <div style="display:flex;gap:10px;">
-        <button id="del-inv-cancel" style="flex:1;padding:10px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-family:var(--font-ui);font-size:14px;font-weight:600;cursor:pointer;">Cancel</button>
-        <button id="del-inv-confirm" style="flex:1;padding:10px;border-radius:10px;background:rgba(240,80,80,0.15);border:1px solid rgba(240,80,80,0.3);color:var(--red);font-family:var(--font-ui);font-size:14px;font-weight:600;cursor:pointer;">Delete</button>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <button id="del-inv-rearchive" style="padding:10px;border-radius:10px;background:rgba(200,240,100,0.08);border:1px solid rgba(200,240,100,0.2);color:var(--accent);font-family:var(--font-ui);font-size:13px;font-weight:600;cursor:pointer;text-align:left;">
+          ↩ Send back to review bay<br><span style="font-size:11px;font-weight:400;color:var(--text3);">Re-review and re-import when ready</span>
+        </button>
+        <button id="del-inv-confirm" style="padding:10px;border-radius:10px;background:rgba(240,80,80,0.15);border:1px solid rgba(240,80,80,0.3);color:var(--red);font-family:var(--font-ui);font-size:13px;font-weight:600;cursor:pointer;text-align:left;">
+          🗑 Delete permanently<br><span style="font-size:11px;font-weight:400;color:var(--text3);">Removes from history and archive</span>
+        </button>
+        <button id="del-inv-cancel" style="padding:8px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text3);font-family:var(--font-ui);font-size:13px;cursor:pointer;">Cancel</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
   overlay.querySelector('#del-inv-cancel').onclick  = () => overlay.remove();
+  overlay.querySelector('#del-inv-rearchive').onclick = () => {
+    overlay.remove();
+    const d = c.deliveries[idx];
+    if(!d) return;
+    // Save to invoice archive for re-review
+    if(!c.invoiceArchive) c.invoiceArchive = [];
+    if(!c.invoiceArchive.find(a=>a.r===d.r)) {
+      c.invoiceArchive.push({ r:d.r, s:d.s, d:d.d, t:d.t, i:d.i, items:d.lines||[], pendingReview:true });
+    }
+    // Clean session purchases
+    (c.auditSessions||[]).forEach(sess => {
+      if(sess.purchases && d) {
+        Object.keys(sess.purchases).forEach(name => {
+          if(sess.purchases[name].invoiceRef === d.r) delete sess.purchases[name];
+        });
+      }
+    });
+    c.deliveries.splice(idx, 1);
+    dbSaveClient(c);
+    renderPage('purchases');
+    if(document.getElementById('page-variances')?.classList.contains('active')) renderVarTable();
+    showPersistToast('Invoice sent back to review bay');
+  };
   overlay.querySelector('#del-inv-confirm').onclick = () => {
     overlay.remove();
     const d = c.deliveries[idx];
@@ -6953,10 +6985,11 @@ function deleteInvoice(idx) {
       }
     });
     c.deliveries.splice(idx, 1);
+    if(d && c.invoiceArchive) c.invoiceArchive = c.invoiceArchive.filter(a=>a.r!==d.r);
     dbSaveClient(c);
     renderPage('purchases');
     if(document.getElementById('page-variances')?.classList.contains('active')) renderVarTable();
-    showPersistToast('Invoice removed — available in archive to re-import');
+    showPersistToast('Invoice permanently deleted');
   };
 }
 
@@ -7531,6 +7564,7 @@ function applyInvoiceToProducts(id) {
       if(fullG > 0) existing.fullG = fullG;
       if(caseSize) existing.caseSize = caseSize;
       if(density) existing.density = density;
+      if(res._invoiceSupplier && !existing.supplier) existing.supplier = res._invoiceSupplier;
       if(costPriceAdj && costPriceAdj !== existing.costPrice) {
         existing.costHistory = existing.costHistory||[];
         existing.costHistory.push({ price: costPriceAdj, priceExGST: costExGSTAdj, date: new Date().toLocaleDateString('en-NZ'), source: 'invoice' });
