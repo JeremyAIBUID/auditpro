@@ -2420,18 +2420,6 @@ function renderPage(page) {
     document.getElementById('dash-metrics').innerHTML=c.metrics.map(m=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);"><span style="font-size:13px;color:var(--text2);">${m.l}</span><span style="font-family:var(--font-mono);font-size:14px;color:${m.ok?'var(--green)':'var(--amber)'};">${m.v}</span></div>`).join('');
   }
   if(page==='purchases'){
-    // Auto-dismiss any processing cards that are already in purchase history
-    const list = document.getElementById('invoice-processing-list');
-    if(list) {
-      list.querySelectorAll('[id^="inv-"]').forEach(card => {
-        const badge = card.querySelector('[id$="-badge"]');
-        if(badge && badge.textContent === 'Done') {
-          card.remove();
-        }
-      });
-      const area = document.getElementById('invoice-processing-area');
-      if(area && list && !list.children.length) area.style.display = 'none';
-    }
     document.getElementById('pur-count').textContent = c.deliveries.length;
     const total = c.deliveries.reduce((s,d)=>s+parseFloat(d.t.replace('$','').replace(',','')),0);
     document.getElementById('pur-total').textContent = '$'+Math.round(total).toLocaleString();
@@ -7156,25 +7144,7 @@ function dismissInvoiceCard(id) {
 }
 
 function importAllInvoices() {
-  const list = document.getElementById('invoice-processing-list');
-  if(!list) return;
-  let imported = 0, needsReview = 0;
-  list.querySelectorAll('[id$="-results"]').forEach(res => {
-    if(!res._invoiceData) return;
-    const hasNew = res._invoiceData.some(r=>r.action==='add');
-    const id = res.id.replace('-results','');
-    if(hasNew) {
-      needsReview++;
-    } else {
-      applyInvoiceToProducts(id);
-      imported++;
-    }
-  });
-  let msg = '';
-  if(imported)    msg += `✓ Imported ${imported} invoice${imported!==1?'s':''}`;
-  if(needsReview) msg += `${msg?' · ':''}⚠ ${needsReview} invoice${needsReview!==1?'s':''} need product review first — click "Review new products →"`;
-  if(!imported && !needsReview) msg = 'No invoices ready to import';
-  showPersistToast(msg);
+  showPersistToast('Use Quick import or Review on each invoice to import them individually');
 }
 
 // ─── INVOICE DATA STORE ──────────────────────────
@@ -7338,7 +7308,7 @@ function renderInvoiceResults(id, invoice, filename) {
         ${isDuplicateInvoice(activeClient, invoice.invoiceRef, invoice.invoiceDate, invoice.supplier)
           ? `<span style="font-size:12px;padding:6px 14px;border-radius:8px;background:rgba(91,227,180,0.1);color:var(--green);border:1px solid rgba(91,227,180,0.2);font-weight:600;">✓ Already in purchase history</span>
              <button class="btn btn-secondary" style="font-size:12px;padding:7px 16px;" onclick="openInvoiceReviewModal('${id}')">🔍 Review anyway</button>`
-          : `<button class="btn btn-secondary" style="font-size:12px;padding:7px 16px;" onclick="applyInvoiceToProducts('${id}');setTimeout(()=>dismissInvoiceCard('${id}'),800);">⚡ Quick import</button>
+          : `<button class="btn btn-secondary" style="font-size:12px;padding:7px 16px;" onclick="applyInvoiceToProducts('${id}')">⚡ Quick import</button>
              <button class="btn btn-primary" style="font-size:12px;padding:7px 16px;" onclick="openInvoiceReviewModal('${id}')">🔍 Review all ${rows.length} items →</button>`
         }
       </div>
