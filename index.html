@@ -2420,6 +2420,18 @@ function renderPage(page) {
     document.getElementById('dash-metrics').innerHTML=c.metrics.map(m=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);"><span style="font-size:13px;color:var(--text2);">${m.l}</span><span style="font-family:var(--font-mono);font-size:14px;color:${m.ok?'var(--green)':'var(--amber)'};">${m.v}</span></div>`).join('');
   }
   if(page==='purchases'){
+    // Auto-dismiss any processing cards that are already in purchase history
+    const list = document.getElementById('invoice-processing-list');
+    if(list) {
+      list.querySelectorAll('[id^="inv-"]').forEach(card => {
+        const badge = card.querySelector('[id$="-badge"]');
+        if(badge && badge.textContent === 'Done') {
+          card.remove();
+        }
+      });
+      const area = document.getElementById('invoice-processing-area');
+      if(area && list && !list.children.length) area.style.display = 'none';
+    }
     document.getElementById('pur-count').textContent = c.deliveries.length;
     const total = c.deliveries.reduce((s,d)=>s+parseFloat(d.t.replace('$','').replace(',','')),0);
     document.getElementById('pur-total').textContent = '$'+Math.round(total).toLocaleString();
