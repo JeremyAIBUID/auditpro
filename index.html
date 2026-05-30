@@ -2256,6 +2256,7 @@ function navigate(page) {
   const titles = {overview:'All clients',dashboard:activeClient?activeClient.name:'Dashboard',stocktake:'Stocktake',purchases:'Purchases',sales:'Sales & Wastage',waste:'Waste & Spillage',variances:'Variance Analysis',insights:'AI Insights',products:'Products',suppliers:'Suppliers',finalise:'Finalise Audit',reports:'Reports',clientinfo:'Client Information'};
   document.getElementById('page-title').textContent = titles[page]||page;
   if(page==='overview') { renderOverview(); return; }
+  if(page==='purchases') refreshProcessingCards();
   renderPage(page);
 }
 
@@ -4784,6 +4785,24 @@ function updateInvLineTotal(id, idx) {
   if(el) el.textContent = '$' + (qty * price).toFixed(2);
 }
 
+function refreshProcessingCards() {
+  const list = document.getElementById('invoice-processing-list');
+  if(!list || !activeClient) return;
+  list.querySelectorAll('[id^="inv-"]').forEach(card => {
+    const resEl = card.querySelector('[id$="-results"]');
+    if(!resEl || !resEl._invoiceRef) return;
+    const isDupe = isDuplicateInvoice(activeClient, resEl._invoiceRef, resEl._invoiceDate, resEl._invoiceSupplier);
+    if(!isDupe) return;
+    // Find and replace the buttons area
+    const btns = resEl.querySelector('div[style*="display:flex;gap:8px;align-items:center"]');
+    if(btns && !btns.innerHTML.includes('Already in purchase history')) {
+      btns.innerHTML = `
+        <span style="font-size:12px;padding:6px 14px;border-radius:8px;background:rgba(91,227,180,0.1);color:var(--green);border:1px solid rgba(91,227,180,0.2);font-weight:600;">✓ Already in purchase history</span>
+        <button class="btn btn-secondary" style="font-size:12px;padding:7px 16px;" onclick="openInvoiceReviewModal('${card.id}')">🔍 Review anyway</button>`;
+    }
+  });
+}
+
 function togglePurPopover(id, e) {
   e && e.stopPropagation();
   const el = document.getElementById(id);
@@ -6989,26 +7008,8 @@ Rules:
 
     renderInvoiceResults(id, invoice, file.name);
 
-    // Add to deliveries table — with duplicate check
-    if(activeClient) {
-      const dupe = isDuplicateInvoice(activeClient, invoice.invoiceRef, invoice.invoiceDate, invoice.supplier);
-      if(dupe) {
-        setStatus(`⚠ Duplicate — ref "${dupe.r||invoice.invoiceRef}" from ${dupe.s} on ${dupe.d} already exists. Not added.`, 'var(--amber)');
-        setBadge('Duplicate', 'var(--amber)');
-      } else {
-        activeClient.deliveries.unshift({
-          s:   invoice.supplier || file.name,
-          d:   invoice.invoiceDate || 'Today',
-          r:   invoice.invoiceRef  || 'AUTO-'+Math.floor(Math.random()*90000+10000),
-          i:   invoice.items.length,
-          t:   '$' + (invoice.invoiceTotal || invoice.items.reduce((s,i)=>s+(i.lineTotal||0),0)).toFixed(2),
-          tEx: '$' + (invoice.invoiceTotalExGST || (invoice.invoiceTotal||0)/1.15).toFixed(2),
-          gst: '$' + (invoice.invoiceGST || (invoice.invoiceTotal||0)/1.15*0.15).toFixed(2),
-          st: 'Verified', sc: 'chip-green',
-        });
-        renderPage('purchases');
-      }
-    }
+    // Show results for user review — do NOT auto-import
+    renderInvoiceResults(id, invoice, file.name);
 
   } catch(err) {
     setStatus('❌ ' + err.message, 'var(--red)');
