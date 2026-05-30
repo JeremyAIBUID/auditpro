@@ -7899,6 +7899,14 @@ function applyInvoiceToProducts(id) {
       }
     }
   }
+  // Update processing card to show imported state
+  const cardEl = document.getElementById(id);
+  if(cardEl) {
+    const btnsEl = cardEl.querySelector('[style*="display:flex;gap:8px;align-items:center"]');
+    if(btnsEl) btnsEl.innerHTML = `<span style="font-size:12px;padding:6px 14px;border-radius:8px;background:rgba(91,227,180,0.1);color:var(--green);border:1px solid rgba(91,227,180,0.2);font-weight:600;">✓ Imported to purchase history</span>`;
+    const badgeEl = document.getElementById(id+'-badge');
+    if(badgeEl) { badgeEl.textContent = '✓ Imported'; badgeEl.style.color = 'var(--green)'; }
+  }
 }
 
 // Helper — extract ml volume from product name string
