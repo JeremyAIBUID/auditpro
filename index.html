@@ -4777,6 +4777,13 @@ function fmtCost(cost) {
     : `<span class="cost-pos">+$${Math.abs(cost).toFixed(2)}</span>`;
 }
 
+function updateInvLineTotal(id, idx) {
+  const qty   = parseFloat(document.getElementById(`${id}-qty-${idx}`)?.value) || 0;
+  const price = parseFloat(document.getElementById(`${id}-price-${idx}`)?.value) || 0;
+  const el    = document.getElementById(`${id}-linetotal-${idx}`);
+  if(el) el.textContent = '$' + (qty * price).toFixed(2);
+}
+
 function togglePurPopover(id, e) {
   e && e.stopPropagation();
   const el = document.getElementById(id);
@@ -6946,6 +6953,7 @@ Rules:
 - For "unit" use: Bottles, Cans, Cases, Kegs, Litres, Units
 - For "cat" use: Spirits, Beer, Wine, RTD, Soft drinks, Food, Other
 - Extract ALL line items. If a price is per case, note qty as number of cases and unit as Cases.
+- IMPORTANT: qty must be the QTY column value for each line item only. Do NOT use carrier numbers, load totals, delivery numbers, or any footer/summary values as qty.
 - Expand all abbreviations in product names as much as possible from context
 - NZ GST is 15% — if prices are GST inclusive, calculate ex-GST as price / 1.15
 - If prices are already ex-GST, calculate inc-GST as price * 1.15
@@ -7436,15 +7444,19 @@ function openInvoiceReviewModal(id) {
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Invoice qty</div>
-          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--accent);font-family:var(--font-mono);">${r.qty||1} ${r.unit||''}</div>
+          <input id="${id}-qty-${globalIdx}" type="number" value="${r.qty||1}" min="0.1" step="0.1"
+            style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--accent);font-family:var(--font-mono);outline:none;"
+            oninput="updateInvLineTotal('${id}',${globalIdx})">
         </div>
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Unit price inc GST</div>
-          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--accent);font-family:var(--font-mono);">$${(r._incGST||0).toFixed(2)}</div>
+          <input id="${id}-price-${globalIdx}" type="number" step="0.01" value="${(r._incGST||0).toFixed(2)}"
+            style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--accent);font-family:var(--font-mono);outline:none;"
+            oninput="updateInvLineTotal('${id}',${globalIdx})">
         </div>
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Line total</div>
-          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--text2);font-family:var(--font-mono);">$${((r._incGST||0)*(r.qty||1)).toFixed(2)}</div>
+          <div id="${id}-linetotal-${globalIdx}" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--text2);font-family:var(--font-mono);">$${((r._incGST||0)*(r.qty||1)).toFixed(2)}</div>
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
@@ -7804,15 +7816,19 @@ function applyInvoiceToProducts(id) {
       const soldasEl      = document.getElementById(id+'-soldas-'+i);
       const casesizeEl    = document.getElementById(id+'-casesize-'+i);
       const casesplitEl   = document.getElementById(id+'-casesplit-'+i);
+      const qtyInput      = document.getElementById(id+'-qty-'+i);
+      const priceInput    = document.getElementById(id+'-price-'+i);
       const cleanName     = nameInput ? nameInput.value.trim() : item.name;
       if(!cleanName) return;
 
+      // Use edited qty/price from inputs if available, fall back to item data
+      const editedQty   = qtyInput   ? (parseFloat(qtyInput.value)   || item.qty   || 1) : (item.qty   || 1);
+      const editedPrice = priceInput ? (parseFloat(priceInput.value) || item._incGST || 0) : (item._incGST || 0);
+
       const isSplit   = casesplitEl?.checked && soldasEl?.value==='Cases';
       const caseQty   = parseInt(casesizeEl?.value) || parseCaseSize(item.name) || 1;
-      const purchaseQty = isSplit ? (item.qty||1) * caseQty : (item.qty||1);
-      const unitCost  = isSplit
-        ? (item._incGST||item.unitPrice||item.unitPriceIncGST||0) / caseQty
-        : (item._incGST||item.unitPrice||item.unitPriceIncGST||0);
+      const purchaseQty = isSplit ? editedQty * caseQty : editedQty;
+      const unitCost  = isSplit ? editedPrice / caseQty : editedPrice;
 
       if(!unitCost) return;
       const existing = openSession.purchases[cleanName];
