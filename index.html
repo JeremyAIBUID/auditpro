@@ -7895,12 +7895,6 @@ function applyInvoiceToProducts(id) {
         });
       }
     }
-      if(!c.suppliers.find(s=>s.name.toLowerCase()===storedInv.supplier.toLowerCase())) {
-        c.suppliers.push({ name: storedInv.supplier, contact:'', email:'', phone:'', notes:'' });
-      }
-      dbSaveClient(c);
-      if(document.getElementById('page-purchases')?.classList.contains('active')) renderPage('purchases');
-    }
   }
 }
 
