@@ -7323,8 +7323,12 @@ function renderInvoiceResults(id, invoice, filename) {
         </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
-        <button class="btn btn-secondary" style="font-size:12px;padding:7px 16px;" onclick="applyInvoiceToProducts('${id}')">⚡ Quick import</button>
-        <button class="btn btn-primary" style="font-size:12px;padding:7px 16px;" onclick="openInvoiceReviewModal('${id}')">🔍 Review all ${rows.length} items →</button>
+        ${isDuplicateInvoice(activeClient, invoice.invoiceRef, invoice.invoiceDate, invoice.supplier)
+          ? `<span style="font-size:12px;padding:6px 14px;border-radius:8px;background:rgba(91,227,180,0.1);color:var(--green);border:1px solid rgba(91,227,180,0.2);font-weight:600;">✓ Already in purchase history</span>
+             <button class="btn btn-secondary" style="font-size:12px;padding:7px 16px;" onclick="openInvoiceReviewModal('${id}')">🔍 Review anyway</button>`
+          : `<button class="btn btn-secondary" style="font-size:12px;padding:7px 16px;" onclick="applyInvoiceToProducts('${id}');setTimeout(()=>dismissInvoiceCard('${id}'),800);">⚡ Quick import</button>
+             <button class="btn btn-primary" style="font-size:12px;padding:7px 16px;" onclick="openInvoiceReviewModal('${id}')">🔍 Review all ${rows.length} items →</button>`
+        }
       </div>
     </div>`;
 }
