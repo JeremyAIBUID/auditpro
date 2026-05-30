@@ -2083,8 +2083,8 @@ function openProductFormWithName(name) {
   document.getElementById('search-add-btn').style.display = 'none';
   updateMobileProdSubcats();
   showScreen('screen-new-product');
-  setTimeout(()=>document.getElementById('mp-cat')?.focus(), 350);
-  toast('Fill in details for "' + name + '"');
+  setTimeout(()=>document.getElementById('mp-name')?.focus(), 200);
+  if(name) toast('Creating new product: "' + name + '"');
 }
 
 let _newProdFromBarcode = null;
@@ -2487,28 +2487,9 @@ function searchProducts(q) {
   res.classList.add('visible');
 
   if(!matches.length) {
-    // No match — show create product prompt
-    window._mobileCreateName = q;
-    res.innerHTML = `
-      <div style="padding:14px 16px;border-bottom:1px solid var(--border);">
-        <div style="font-size:13px;color:var(--text2);margin-bottom:10px;">No product found for <strong style="color:var(--text);">"${q}"</strong></div>
-        <button id="mobile-create-btn"
-          style="width:100%;padding:14px;border-radius:12px;background:rgba(200,240,100,0.1);border:2px solid rgba(200,240,100,0.4);color:var(--accent);font-family:var(--font-ui);font-size:15px;font-weight:700;cursor:pointer;touch-action:manipulation;text-align:center;">
-          + Create "${q}"
-        </button>
-      </div>`;
-    setTimeout(() => {
-      const btn = document.getElementById('mobile-create-btn');
-      if(btn) {
-        const handler = function(e) {
-          e.preventDefault(); e.stopPropagation();
-          document.getElementById('search-results').classList.remove('visible');
-          openProductFormWithName(window._mobileCreateName || '');
-        };
-        btn.addEventListener('touchend', handler, {passive:false});
-        btn.addEventListener('click', handler);
-      }
-    }, 80);
+    // No match — navigate directly to product form with name pre-filled
+    document.getElementById('search-results').classList.remove('visible');
+    openProductFormWithName(q);
     return;
   }
 

@@ -2462,7 +2462,9 @@ function renderPage(page) {
       const isManual = d.sc === 'chip-blue';
       const sourceBadge = isManual
         ? `<span style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(167,139,250,0.1);color:#a78bfa;border:1px solid rgba(167,139,250,0.2);">✏️ Manual</span>`
-        : `<span style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(91,156,240,0.1);color:#5b9cf0;border:1px solid rgba(91,156,240,0.2);">📄 PDF</span>`;
+        : d.pdfUrl
+          ? `<a href="${d.pdfUrl}" target="_blank" style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(91,156,240,0.1);color:#5b9cf0;border:1px solid rgba(91,156,240,0.2);text-decoration:none;cursor:pointer;">📄 PDF ↗</a>`
+          : `<span style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(91,156,240,0.1);color:#5b9cf0;border:1px solid rgba(91,156,240,0.2);">📄 PDF</span>`;
       const statusChip = isManual
         ? `<span class="chip chip-purple">Manual entry</span>`
         : `<span class="chip ${d.sc}">${d.st}</span>`;
@@ -6369,6 +6371,7 @@ function viewInvoice(idx) {
       </div>
       <div style="overflow-y:auto;flex:1;">${linesHtml}</div>
       <div style="display:flex;gap:8px;margin-top:16px;">
+        ${d.pdfUrl ? `<button onclick="window.open('${d.pdfUrl}','_blank')" class="btn btn-secondary" style="flex:1;font-size:13px;">📄 View PDF</button>` : ''}
         <button onclick="document.getElementById('invoice-view-overlay').remove();editInvoice(${idx})" class="btn btn-secondary" style="flex:1;font-size:13px;">✏️ Edit invoice</button>
         <button onclick="document.getElementById('invoice-view-overlay').remove()" class="btn btn-primary" style="flex:1;font-size:13px;">Close</button>
       </div>
@@ -6406,18 +6409,20 @@ function editInvoice(idx) {
         <div style="font-size:16px;font-weight:700;color:var(--text);">Edit invoice — ${d.r}</div>
         <button onclick="document.getElementById('invoice-edit-overlay').remove()" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;line-height:1;">×</button>
       </div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;padding:0 0 4px;">
-        <span>Catalogue name</span><span style="text-align:right;">Qty</span><span style="text-align:right;">Price inc GST</span>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;display:grid;grid-template-columns:2fr 1fr 1fr 24px;gap:8px;padding:0 0 4px;">
+        <span>Catalogue name</span><span style="text-align:right;">Qty</span><span style="text-align:right;">Price inc GST</span><span></span>
       </div>
-      <div style="overflow-y:auto;flex:1;">
+      <div id="ei-lines" style="overflow-y:auto;flex:1;">
         ${editLines.map((l,i)=>`
-          <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px;align-items:center;">
+          <div id="ei-row-${i}" style="display:grid;grid-template-columns:2fr 1fr 1fr 24px;gap:8px;margin-bottom:8px;align-items:center;">
             <input id="ei-name-${i}" value="${(l._cleanName||l.name||'').replace(/"/g,'&quot;')}" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;">
             <input id="ei-qty-${i}" type="number" value="${l.qty||1}" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;text-align:right;">
             <input id="ei-price-${i}" type="number" step="0.01" value="${parseFloat(l._incGST||l.price||0).toFixed(2)}" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;text-align:right;">
+            <button onclick="document.getElementById('ei-row-${i}').remove()" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0;line-height:1;">×</button>
           </div>`).join('')}
       </div>
-      <div style="display:flex;gap:8px;margin-top:16px;">
+      <button onclick="addEditInvoiceLine()" style="width:100%;padding:7px;margin-top:8px;border-radius:8px;background:var(--bg3);border:1px dashed var(--border2);color:var(--text3);font-family:var(--font-ui);font-size:12px;cursor:pointer;">+ Add line item</button>
+      <div style="display:flex;gap:8px;margin-top:12px;">
         <button onclick="document.getElementById('invoice-edit-overlay').remove()" class="btn btn-secondary" style="flex:1;">Cancel</button>
         <button onclick="saveEditedInvoice(${idx})" class="btn btn-primary" style="flex:1;">Save changes</button>
       </div>
@@ -6425,22 +6430,47 @@ function editInvoice(idx) {
   document.body.appendChild(overlay);
 }
 
-function saveEditedInvoice(idx, btn) {
+function addEditInvoiceLine() {
+  const container = document.getElementById('ei-lines');
+  if(!container) return;
+  const i = Date.now(); // unique id
+  const row = document.createElement('div');
+  row.id = `ei-row-${i}`;
+  row.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr 24px;gap:8px;margin-bottom:8px;align-items:center;';
+  row.innerHTML = `
+    <input id="ei-name-${i}" placeholder="Product name" style="background:var(--bg3);border:1px solid var(--accent);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;">
+    <input id="ei-qty-${i}" type="number" value="1" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;text-align:right;">
+    <input id="ei-price-${i}" type="number" step="0.01" value="0.00" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;text-align:right;">
+    <button onclick="this.closest('[id^=ei-row]').remove()" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0;line-height:1;">×</button>`;
+  container.appendChild(row);
+  row.querySelector('input').focus();
+}
+
+function saveEditedInvoice(idx) {
   const c = activeClient; if(!c) return;
   const d = c.deliveries[idx];
-  if(!d || !d.lines) return;
-  d.lines.forEach((l,i) => {
-    const nameEl  = document.getElementById('ei-name-'+i);
-    const qtyEl   = document.getElementById('ei-qty-'+i);
-    const priceEl = document.getElementById('ei-price-'+i);
-    if(nameEl)  l._cleanName = nameEl.value.trim();
-    if(qtyEl)   l.qty        = parseFloat(qtyEl.value)||1;
-    if(priceEl) l._incGST    = parseFloat(priceEl.value)||0;
-  });
+  if(!d) return;
+
+  // Read all rows from DOM
+  const container = document.getElementById('ei-lines');
+  const rows = container ? Array.from(container.querySelectorAll('[id^="ei-row-"]')) : [];
+  const newLines = rows.map(row => {
+    const id = row.id.replace('ei-row-','');
+    const nameEl  = document.getElementById('ei-name-'+id);
+    const qtyEl   = document.getElementById('ei-qty-'+id);
+    const priceEl = document.getElementById('ei-price-'+id);
+    if(!nameEl) return null;
+    const name  = nameEl.value.trim();
+    const qty   = parseFloat(qtyEl?.value) || 1;
+    const price = parseFloat(priceEl?.value) || 0;
+    if(!name) return null;
+    return { _cleanName: name, name, qty, unit: 'Bottles', _incGST: price, _exGST: +(price/1.15).toFixed(4) };
+  }).filter(Boolean);
+
+  d.lines = newLines;
   dbSaveClient(c);
   document.getElementById('invoice-edit-overlay')?.remove();
-  showPersistToast('Invoice updated');
-  renderPage('purchases');
+  showPersistToast(`✓ Invoice updated — ${newLines.length} line items saved`);
 }
 // Returns the matching delivery if duplicate, null otherwise
 function isDuplicateInvoice(client, invoiceRef, invoiceDate, supplier) {
@@ -6759,45 +6789,63 @@ function restoreInvoiceToProcessingBay(d) {
   area.style.display = 'block';
 
   const id = 'inv-restored-' + (d.r||Date.now()).replace(/[^a-z0-9]/gi,'');
-  // Build line items from delivery lines
-  const lines = d.lines || [];
-  const rows = lines.map(l => ({
+
+  // Build rows from delivery lines or session purchases
+  const sess = (activeClient?.auditSessions||[]).find(s => s.purchases && Object.values(s.purchases).some(p=>p.invoiceRef===d.r));
+  let rows = (d.lines||[]).map(l => ({
     name: l._cleanName || l.name || '',
     _cleanName: l._cleanName || l.name || '',
     qty: l.qty || 1,
     unit: l.unit || 'Bottles',
-    _incGST: l._incGST || l.price || 0,
-    _exGST: l._exGST || 0,
+    _incGST: parseFloat(l._incGST || l.price || 0),
+    _exGST: parseFloat(l._exGST || 0),
     cat: l.cat || l._cat || '',
     action: 'update',
   }));
+  if(!rows.length && sess) {
+    rows = Object.entries(sess.purchases)
+      .filter(([,p]) => p.invoiceRef === d.r)
+      .map(([name,p]) => ({
+        name, _cleanName: name,
+        qty: p.qty || 1,
+        unit: p.unit || 'Bottles',
+        _incGST: parseFloat(p.costPrice || 0),
+        _exGST: parseFloat((p.costPrice||0) / 1.15),
+        cat: '',
+        action: 'update',
+      }));
+  }
 
   const div = document.createElement('div');
   div.id = id;
   div.style.cssText = 'background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:14px 16px;';
   div.innerHTML = `
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:0;" id="${id}-hdr">
+    <div style="display:flex;align-items:center;gap:12px;" id="${id}-hdr">
       <div style="width:36px;height:36px;border-radius:8px;background:rgba(200,240,100,0.1);border:1px solid rgba(200,240,100,0.2);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px;">📄</div>
       <div style="flex:1;min-width:0;">
         <div style="font-size:13px;font-weight:600;color:var(--text);">${d.s} · ${d.r}</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:2px;" id="${id}-status">${d.d} · ${d.i||rows.length} items · ${d.t||''} — restored for re-review</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">${d.d} · ${rows.length} items · ${d.t||''}</div>
       </div>
-      <div style="font-family:var(--font-mono);font-size:11px;color:var(--accent);flex-shrink:0;" id="${id}-badge">Review</div>
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--accent);flex-shrink:0;" id="${id}-badge">↩ Restored</div>
       <button onclick="dismissInvoiceCard('${id}')" title="Dismiss" style="background:none;border:none;color:var(--text3);font-size:18px;cursor:pointer;padding:0;line-height:1;flex-shrink:0;">×</button>
     </div>
-    <div id="${id}-results" style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px;"></div>`;
+    <div style="margin-top:12px;display:flex;gap:8px;">
+      <button onclick="openInvoiceReviewModal('${id}')" style="flex:1;padding:8px;border-radius:9px;background:rgba(200,240,100,0.1);border:1px solid rgba(200,240,100,0.25);color:var(--accent);font-family:var(--font-ui);font-size:13px;font-weight:600;cursor:pointer;">✏️ Review &amp; re-import</button>
+      <label style="flex:1;padding:8px;border-radius:9px;background:var(--bg3);border:1px solid var(--border2);color:var(--text2);font-family:var(--font-ui);font-size:13px;font-weight:600;cursor:pointer;text-align:center;">
+        📤 Upload new PDF<input type="file" accept=".pdf" style="display:none;" onchange="if(this.files[0]){dismissInvoiceCard('${id}');processInvoiceWithAI(this.files[0]);}">
+      </label>
+    </div>
+    <div id="${id}-results" style="display:none;"></div>`;
   list.appendChild(div);
 
-  // Store data and show review UI
+  // Store data for review modal
   storeInvoiceData(id, rows, d.s||'', d.r||'', d.d||'');
   const res = document.getElementById(id+'-results');
-  if(res && rows.length) {
-    res._invoiceData = rows;
-    res._invoiceSupplier = d.s||'';
-    res._invoiceRef = d.r||'';
-    res._invoiceDate = d.d||'';
-    // Trigger the standard review modal
-    setTimeout(() => openInvoiceReviewModal(id), 100);
+  if(res) {
+    res._invoiceData     = rows;
+    res._invoiceSupplier = d.s || '';
+    res._invoiceRef      = d.r || '';
+    res._invoiceDate     = d.d || '';
   }
 }
 
@@ -7040,6 +7088,8 @@ function deleteInvoice(idx) {
       }
     });
     c.deliveries.splice(idx, 1);
+    // Remove from archive too — it's now in the processing bay
+    if(d && c.invoiceArchive) c.invoiceArchive = c.invoiceArchive.filter(a => a.r !== d.r);
     dbSaveClient(c);
     // Restore to processing bay
     restoreInvoiceToProcessingBay(d);
@@ -7555,6 +7605,47 @@ function checkInvoiceReady(id, totalRows) {
   }
 }
 
+// ─── PDF STORAGE ─────────────────────────────────
+// Upload invoice PDF to Supabase Storage and return public URL
+async function uploadInvoicePDF(file, invoiceRef, clientSlug) {
+  if(!file || !SUPABASE_CONFIG.url || !SUPABASE_CONFIG.key) return null;
+  try {
+    const ext  = file.name.split('.').pop() || 'pdf';
+    const path = `${clientSlug}/${invoiceRef}.${ext}`;
+    const res  = await fetch(`${SUPABASE_CONFIG.url}/storage/v1/object/invoices/${path}`, {
+      method:  'POST',
+      headers: {
+        'apikey':        SUPABASE_CONFIG.key,
+        'Authorization': 'Bearer ' + SUPABASE_CONFIG.key,
+        'Content-Type':  file.type || 'application/pdf',
+        'x-upsert':      'true',
+      },
+      body: file,
+    });
+    if(!res.ok) { console.warn('[AuditPro] PDF upload failed:', await res.text()); return null; }
+    // Return signed URL (private bucket — valid for 10 years)
+    const signRes = await fetch(`${SUPABASE_CONFIG.url}/storage/v1/object/sign/invoices/${path}`, {
+      method:  'POST',
+      headers: {
+        'apikey':        SUPABASE_CONFIG.key,
+        'Authorization': 'Bearer ' + SUPABASE_CONFIG.key,
+        'Content-Type':  'application/json',
+      },
+      body: JSON.stringify({ expiresIn: 315360000 }), // 10 years in seconds
+    });
+    if(!signRes.ok) return null;
+    const { signedURL } = await signRes.json();
+    return signedURL ? SUPABASE_CONFIG.url + '/storage/v1' + signedURL : null;
+  } catch(e) {
+    console.error('[AuditPro] PDF upload error:', e);
+    return null;
+  }
+}
+
+function clientSlug(c) {
+  return c ? String(c.id || c.name || 'client').toLowerCase().replace(/[^a-z0-9]/g,'_') : 'client';
+}
+
 function applyInvoiceToProducts(id) {
   const c   = activeClient;
   if(!c) { alert('No client selected — please select a client first.'); return; }
@@ -7775,7 +7866,7 @@ function applyInvoiceToProducts(id) {
     if(!c.deliveries) c.deliveries = [];
     const alreadyAdded = isDuplicateInvoice(c, storedInv.ref, storedInv.date, storedInv.supplier);
     if(!alreadyAdded) {
-      c.deliveries.unshift({
+      const delivery = {
         s: storedInv.supplier,
         d: storedInv.date || 'Unknown date',
         r: storedInv.ref  || 'AUTO-'+Date.now(),
@@ -7783,8 +7874,27 @@ function applyInvoiceToProducts(id) {
         t: '$' + (storedInv.rows||[]).reduce((s,r)=>s+(r._incGST||0)*(r.qty||1),0).toFixed(2),
         st: 'Verified', sc: 'chip-green',
         lines: (storedInv.rows && storedInv.rows.length) ? storedInv.rows : (res?._invoiceData || []),
-      });
+        pdfUrl: null,
+      };
+      c.deliveries.unshift(delivery);
       if(!c.suppliers) c.suppliers = [];
+      if(!c.suppliers.find(s=>s.name.toLowerCase()===storedInv.supplier.toLowerCase())) {
+        c.suppliers.push({ name: storedInv.supplier, contact:'', email:'', phone:'', notes:'' });
+      }
+      dbSaveClient(c);
+      if(document.getElementById('page-purchases')?.classList.contains('active')) renderPage('purchases');
+      // Upload PDF to Supabase Storage in background
+      const sourceFile = document.getElementById(id)?._sourceFile;
+      if(sourceFile && delivery.r) {
+        uploadInvoicePDF(sourceFile, delivery.r, clientSlug(c)).then(url => {
+          if(url) {
+            delivery.pdfUrl = url;
+            dbSaveClient(c);
+            console.log('[AuditPro] PDF stored:', url);
+          }
+        });
+      }
+    }
       if(!c.suppliers.find(s=>s.name.toLowerCase()===storedInv.supplier.toLowerCase())) {
         c.suppliers.push({ name: storedInv.supplier, contact:'', email:'', phone:'', notes:'' });
       }
