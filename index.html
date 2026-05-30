@@ -6494,6 +6494,22 @@ function saveEditedInvoice(idx) {
   }).filter(Boolean);
 
   d.lines = newLines;
+
+  // Also update session.purchases so variance reflects the edited quantities
+  ;(c.auditSessions||[]).forEach(sess => {
+    if(!sess.purchases) return;
+    Object.keys(sess.purchases).forEach(name => {
+      if(sess.purchases[name].invoiceRef === d.r) {
+        const match = newLines.find(l => (l._cleanName||l.name||'').toLowerCase() === name.toLowerCase());
+        if(match) {
+          sess.purchases[name].qty = match.qty;
+          sess.purchases[name].costPrice = match._incGST;
+        }
+      }
+    });
+    dbSaveSession(c, sess);
+  });
+
   dbSaveClient(c);
   document.getElementById('invoice-edit-overlay')?.remove();
   showPersistToast(`✓ Invoice updated — ${newLines.length} line items saved`);
@@ -7894,6 +7910,8 @@ function applyInvoiceToProducts(id) {
             delivery.pdfUrl = url;
             dbSaveClient(c);
             console.log('[AuditPro] PDF stored:', url);
+            // Re-render purchases page so PDF ↗ link appears
+            if(document.getElementById('page-purchases')?.classList.contains('active')) renderPage('purchases');
           }
         });
       }

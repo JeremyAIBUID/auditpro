@@ -1205,11 +1205,9 @@ async function loadProductsFromSupabase() {
 }
 
 async function pushProductToSupabase(prod) {
-  if(!SUPABASE_URL || !SUPABASE_KEY) { console.warn('pushProduct: no Supabase config'); return; }
+  if(!SUPABASE_URL || !SUPABASE_KEY) return;
   try {
-    const slug = session.clientId || ('c_' + (session.client||'').toLowerCase().replace(/[^a-z0-9]/g,'_'));
-    if(!slug || slug === 'c_') { console.warn('pushProduct: no clientId/client set'); toast('No venue selected — product saved locally only'); return; }
-    console.log('[Mobile] Pushing product to slug:', slug);
+    const slug = session.clientId || 'c_1775024388916';
 
     // Load current client data
     const res = await fetch(`${SUPABASE_URL}/rest/v1/ap_clients?slug=eq.${encodeURIComponent(slug)}&select=data`, {
@@ -1618,8 +1616,7 @@ function saveMobileProduct() {
   const unitVol = parseFloat(document.getElementById('mp-unitvol').value) || 0;
   if(!name)    { toast('Product name required'); return; }
   if(!cat)     { toast('Select a category'); return; }
-  if(!unitVol) { toast('Unit volume required (e.g. 700 for 700ml)'); return; }
-  if(!session.clientId && !session.client) { toast('Select a venue first before adding products'); return; }
+  if(!unitVol) { toast('Unit volume required'); return; }
 
   const costPrice = parseFloat(document.getElementById('mp-cost')?.value)  || 0;
   const sellPrice = parseFloat(document.getElementById('mp-sell')?.value)  || 0;
@@ -2083,8 +2080,11 @@ function openProductFormWithName(name) {
   document.getElementById('search-add-btn').style.display = 'none';
   updateMobileProdSubcats();
   showScreen('screen-new-product');
-  setTimeout(()=>document.getElementById('mp-name')?.focus(), 200);
-  if(name) toast('Creating new product: "' + name + '"');
+  setTimeout(() => {
+    const nameEl = document.getElementById('mp-name');
+    if(nameEl) { nameEl.focus(); nameEl.select(); }
+  }, 200);
+  if(name) toast('Creating: "' + name + '" — fill in details below');
 }
 
 let _newProdFromBarcode = null;
@@ -2487,8 +2487,7 @@ function searchProducts(q) {
   res.classList.add('visible');
 
   if(!matches.length) {
-    // No match — navigate directly to product form with name pre-filled
-    document.getElementById('search-results').classList.remove('visible');
+    res.classList.remove('visible');
     openProductFormWithName(q);
     return;
   }
