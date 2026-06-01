@@ -1,7 +1,7 @@
 # AuditPro — CLAUDE.md
 
 ## Project Overview
-AuditPro is a hospitality audit platform for 1 Up Sports Bar (Auckland, NZ). Built as single-file HTML/CSS/JS apps with Supabase persistence. No framework, no build step — pure vanilla JS.
+AuditPro is a hospitality audit platform for any hospitality venue. Built as single-file HTML/CSS/JS apps with Supabase persistence. No framework, no build step — pure vanilla JS. 1 Up Sports Bar (Auckland, NZ) is the first test client.
 
 **Owner:** Jeremy (non-technical, builds entirely through Claude prompting)
 
