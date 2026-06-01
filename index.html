@@ -2479,6 +2479,7 @@ function renderPage(page) {
         <td>${statusChip}</td>
         <td style="display:flex;gap:6px;">
           <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;" onclick="${d.pdfUrl ? `window.open('${d.pdfUrl}','_blank')` : `viewInvoice(${idx})`}">📄 ${d.pdfUrl ? 'PDF' : 'View'}</button>
+          ${!d.pdfUrl && !isManual ? `<label class="btn btn-secondary" style="padding:4px 10px;font-size:11px;cursor:pointer;" title="Attach PDF retroactively">📎<input type="file" accept=".pdf,image/*" style="display:none;" onchange="attachInvoicePDF(${idx},this)"></label>` : ''}
           <button class="btn btn-danger" style="padding:4px 10px;font-size:11px;" onclick="deleteInvoice(${idx})">×</button>
         </td>
       </tr>`;
@@ -6855,13 +6856,16 @@ function restoreInvoiceToProcessingBay(d) {
 
   const enrichRow = (name, qty, unit, price, cat) => {
     const prod = prodMap[name.toLowerCase()] || {};
+    const resolvedCat = cat || prod.cat || 'Other';
     return {
       name, _cleanName: name,
       qty: qty || 1,
       unit: unit || prod.parunit || 'Bottles',
       _incGST: parseFloat(price || prod.costPrice || 0),
       _exGST: parseFloat((price || prod.costPrice || 0) / 1.15),
-      cat: cat || prod.cat || '',
+      cat:     resolvedCat,
+      _cat:    resolvedCat,
+      _unitVol: prod.unitVol || 0,
       unitVol: prod.unitVol || 0,
       caseSize: prod.caseSize || 0,
       action: 'update',
@@ -7007,7 +7011,7 @@ Extract every product line item and return ONLY a JSON object (no markdown, no e
 Rules:
 - For "unit" use: Bottles, Cans, Cases, Kegs, Litres, Units
 - For "cat" use: Spirits, Beer, Wine, RTD, Soft drinks, Food, Other
-- Category rules: Beer = all beer products including kegs (lager, ale, stout, IPA, Guinness, Speights, Steinlager, Lion Red etc). RTD = ready-to-drink cans (Smirnoff Ice, Cruiser, Kirin Hyoketsu, hard seltzer etc). Spirits = distilled spirits only (whisky, vodka, gin, rum, tequila etc). NEVER classify beer as Spirits.
+- Category rules: Beer = ALL beer products regardless of packaging — bottles, cans, OR kegs (lager, ale, stout, IPA, porter, Guinness, Speights, Steinlager, Lion Red, Tui, DB Draught, Mac's, Monteith's, Panhead, Heineken, Corona, Stella, Asahi, Peroni, etc.). ANY keg that is a beer brand MUST be Beer. RTD = ready-to-drink pre-mixed cans (Smirnoff Ice, Cruiser, Kirin Hyoketsu, Gordon's gin & tonic, hard seltzer, etc.). Spirits = distilled spirits only (whisky, vodka, gin, rum, tequila, brandy, schnapps — NOT beer, NOT kegs of beer). NEVER classify beer as Spirits even if the unit is Kegs.
 - Extract ALL line items. If a price is per case, note qty as number of cases and unit as Cases.
 - IMPORTANT: qty must be the QTY column value for each line item only. Do NOT use carrier numbers, load totals, delivery numbers, or any footer/summary values as qty.
 - Expand all abbreviations in product names as much as possible from context
@@ -7397,7 +7401,17 @@ function openInvoiceReviewModal(id) {
         existing = bestMatch;
       }
     }
-    return { ...item, existing, action: existing?'update':'add', _cleanName: existing?(existing.n||existing.name):'' };
+    return {
+      ...item,
+      existing,
+      action:     existing ? 'update' : 'add',
+      _cleanName: existing ? (existing.n||existing.name) : '',
+      ...(existing && {
+        _cat:    existing.cat    || item._cat    || item.cat    || 'Other',
+        _unitVol:existing.unitVol|| item._unitVol|| item.unitVol|| '',
+        caseSize:existing.caseSize != null ? existing.caseSize : (item.caseSize || ''),
+      }),
+    };
   });
   const supplier    = res._invoiceSupplier || '';
   const ref         = res._invoiceRef      || '';
@@ -7495,9 +7509,9 @@ function openInvoiceReviewModal(id) {
             </select>
           </div>
         </div>
-        <div id="${id}-casesize-wrap-${globalIdx}" style="${r.unit==='Cases'||r.unit==='CAR'||r.caseSize>1?'':'display:none;'}">
+        <div id="${id}-casesize-wrap-${globalIdx}" style="${r.unit==='Cases'||r.unit==='CAR'||(r.caseSize||r.existing?.caseSize||0)>1?'':'display:none;'}">
           <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Units per case</div>
-          <input id="${id}-casesize-${globalIdx}" type="number" value="${r.caseSize||parseCaseSize(r.name)||''}" placeholder="e.g. 12"
+          <input id="${id}-casesize-${globalIdx}" type="number" value="${r.caseSize||r.existing?.caseSize||parseCaseSize(r.name)||''}" placeholder="e.g. 12"
             style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-mono);font-size:13px;outline:none;">
         </div>
         <div>
@@ -7510,7 +7524,7 @@ function openInvoiceReviewModal(id) {
       </div>
 
       <!-- Case split option -->
-      <div id="${id}-casesplit-wrap-${globalIdx}" style="display:${r.unit==='Cases'||r.unit==='CAR'||r.caseSize>1?'flex':'none'};align-items:center;gap:8px;padding:8px 10px;background:rgba(200,240,100,0.05);border:1px solid rgba(200,240,100,0.15);border-radius:8px;margin-bottom:10px;">
+      <div id="${id}-casesplit-wrap-${globalIdx}" style="display:${r.unit==='Cases'||r.unit==='CAR'||(r.caseSize||r.existing?.caseSize||0)>1?'flex':'none'};align-items:center;gap:8px;padding:8px 10px;background:rgba(200,240,100,0.05);border:1px solid rgba(200,240,100,0.15);border-radius:8px;margin-bottom:10px;">
         <input type="checkbox" id="${id}-casesplit-${globalIdx}" checked style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer;">
         <label for="${id}-casesplit-${globalIdx}" style="font-size:12px;color:var(--text2);cursor:pointer;">Split into individual units — cost ÷ case size</label>
       </div>
@@ -7682,6 +7696,25 @@ function clientSlug(c) {
   return c ? String(c.id || c.name || 'client').toLowerCase().replace(/[^a-z0-9]/g,'_') : 'client';
 }
 
+async function attachInvoicePDF(idx, input) {
+  const file = input?.files?.[0];
+  const c    = activeClient;
+  if(!file || !c) return;
+  const d = c.deliveries?.[idx];
+  if(!d) return;
+  const ref = (d.r || 'invoice-' + idx).replace(/[^a-z0-9_-]/gi, '_');
+  showPersistToast('📎 Uploading PDF…');
+  const url = await uploadInvoicePDF(file, ref, clientSlug(c));
+  if(url) {
+    d.pdfUrl = url;
+    dbSaveClient(c);
+    renderPage('purchases');
+    showPersistToast('✓ PDF attached to invoice');
+  } else {
+    showPersistToast('⚠ Upload failed — check console');
+  }
+}
+
 function applyInvoiceToProducts(id) {
   const c   = activeClient;
   if(!c) { alert('No client selected — please select a client first.'); return; }
@@ -7717,13 +7750,15 @@ function applyInvoiceToProducts(id) {
     const densityInput  = document.getElementById(id+'-density-'+i);
     const casesizeInput = document.getElementById(id+'-casesize-'+i);
     const casesplitInput= document.getElementById(id+'-casesplit-'+i);
+    const priceInput    = document.getElementById(id+'-price-'+i);
+    const qtyInput      = document.getElementById(id+'-qty-'+i);
 
     let cleanName  = nameInput ? nameInput.value.trim() : (item._cleanName || item.name);
     if(cleanName === '__new__') cleanName = item._cleanName || item.name;
     const cleanCat   = cat2Input    ? cat2Input.value          : (item._cat || item.cat || 'Other');
     const cleanSubcat= subcatInput  ? subcatInput.value        : (item.existing?.subcat || '');
     const unitVol    = unitvolInput ? parseFloat(unitvolInput.value) || parseVolFromName(cleanName) || 750
-                                    : (item._unitVol || parseVolFromName(cleanName) || 750);
+                                    : (item._unitVol || item.unitVol || parseVolFromName(cleanName) || 750);
     const tareG      = taregInput   ? parseFloat(taregInput.value) || 0 : (item._tareG || 0);
     const fullG      = fullgInput   ? parseFloat(fullgInput.value) || 0 : (item._fullG || 0);
     const density    = densityInput ? densityInput.value
@@ -7734,8 +7769,10 @@ function applyInvoiceToProducts(id) {
 
     if(!cleanName) return;
 
-    const costPrice     = item._incGST || item.unitPrice || item.unitPriceIncGST || 0;
-    const costExGST     = item._exGST  || item.unitPriceExGST || costPrice/1.15;
+    // Use edited values from review modal inputs when available
+    const costPrice  = priceInput ? (parseFloat(priceInput.value) || item._incGST || 0)
+                                  : (item._incGST || item.unitPrice || item.unitPriceIncGST || 0);
+    const costExGST  = costPrice / 1.15;
     const serveVol      = item.existing?.serveVol || 0;
     const sellPrice     = item.existing?.sellPrice || 0;
 
