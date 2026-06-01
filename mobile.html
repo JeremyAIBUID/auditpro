@@ -1165,7 +1165,7 @@ async function loadProductsFromSupabase() {
 
     // Find the active venue's client record
     const slug = session.clientId || ('c_' + session.client.toLowerCase().replace(/[^a-z0-9]/g,'_'));
-    const clientRow = rows.find(r => r.slug === slug || r.slug === 'c_1775024388916');
+    const clientRow = rows.find(r => r.slug === slug);
     if(!clientRow || !clientRow.data) return;
 
     const prods = clientRow.data.products || [];
@@ -1208,8 +1208,7 @@ async function pushProductToSupabase(prod) {
   if(!SUPABASE_URL || !SUPABASE_KEY) return;
   // Derive slug: prefer explicit clientId, then derive from venue name, last-resort fallback
   const slug = session.clientId
-    || ('c_' + (session.client||'').toLowerCase().replace(/[^a-z0-9]/g,'_'))
-    || 'c_1775024388916';
+    || ('c_' + (session.client||'').toLowerCase().replace(/[^a-z0-9]/g,'_'));
   try {
     // Load current client data
     const res = await fetch(`${SUPABASE_URL}/rest/v1/ap_clients?slug=eq.${encodeURIComponent(slug)}&select=data`, {
@@ -1257,9 +1256,7 @@ async function pushProductToSupabase(prod) {
 
 // ─── VENUE SWITCHER ───────────────────────────────
 // Venues list — matches desktop app clients
-const VENUES = [
-  { name: '1 Up Sports Bar', color: '#c8f064' },
-];
+const VENUES = [];
 
 function toggleVenuePicker() {
   const picker = document.getElementById('venue-picker');
@@ -3019,7 +3016,7 @@ async function pushCountToSupabase(csv) {
   try {
     const payload = {
       code:       session.code,
-      client:     session.client || '1 Up Sports Bar',
+      client:     session.client || '',
       csv_data:   csv,
       created_at: new Date().toISOString(),
       lines:      Object.values(session.counts).flat().length
