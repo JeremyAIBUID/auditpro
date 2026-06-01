@@ -2465,7 +2465,7 @@ function renderPage(page) {
         ? `<span style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(167,139,250,0.1);color:#a78bfa;border:1px solid rgba(167,139,250,0.2);">✏️ Manual</span>`
         : d.pdfUrl
           ? `<a href="${d.pdfUrl}" target="_blank" style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(91,156,240,0.1);color:#5b9cf0;border:1px solid rgba(91,156,240,0.2);text-decoration:none;cursor:pointer;">📄 PDF ↗</a>`
-          : `<span style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(91,156,240,0.1);color:#5b9cf0;border:1px solid rgba(91,156,240,0.2);">📄 PDF</span>`;
+          : `<span onclick="viewInvoice(${idx})" style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(91,156,240,0.1);color:#5b9cf0;border:1px solid rgba(91,156,240,0.2);cursor:pointer;" title="View invoice details">📄 View</span>`;
       const statusChip = isManual
         ? `<span class="chip chip-purple">Manual entry</span>`
         : `<span class="chip ${d.sc}">${d.st}</span>`;
@@ -6850,28 +6850,32 @@ function restoreInvoiceToProcessingBay(d) {
 
   // Build rows from delivery lines or session purchases
   const sess = (activeClient?.auditSessions||[]).find(s => s.purchases && Object.values(s.purchases).some(p=>p.invoiceRef===d.r));
-  let rows = (d.lines||[]).map(l => ({
-    name: l._cleanName || l.name || '',
-    _cleanName: l._cleanName || l.name || '',
-    qty: l.qty || 1,
-    unit: l.unit || 'Bottles',
-    _incGST: parseFloat(l._incGST || l.price || 0),
-    _exGST: parseFloat(l._exGST || 0),
-    cat: l.cat || l._cat || '',
-    action: 'update',
-  }));
+  const prodMap = {};
+  (activeClient?.products||[]).forEach(p => { prodMap[(p.n||p.name||'').toLowerCase()] = p; });
+
+  const enrichRow = (name, qty, unit, price, cat) => {
+    const prod = prodMap[name.toLowerCase()] || {};
+    return {
+      name, _cleanName: name,
+      qty: qty || 1,
+      unit: unit || prod.parunit || 'Bottles',
+      _incGST: parseFloat(price || prod.costPrice || 0),
+      _exGST: parseFloat((price || prod.costPrice || 0) / 1.15),
+      cat: cat || prod.cat || '',
+      unitVol: prod.unitVol || 0,
+      caseSize: prod.caseSize || 0,
+      action: 'update',
+    };
+  };
+
+  let rows = (d.lines||[]).map(l => enrichRow(
+    l._cleanName || l.name || '',
+    l.qty, l.unit, l._incGST || l.price, l.cat || l._cat
+  ));
   if(!rows.length && sess) {
     rows = Object.entries(sess.purchases)
       .filter(([,p]) => p.invoiceRef === d.r)
-      .map(([name,p]) => ({
-        name, _cleanName: name,
-        qty: p.qty || 1,
-        unit: p.unit || 'Bottles',
-        _incGST: parseFloat(p.costPrice || 0),
-        _exGST: parseFloat((p.costPrice||0) / 1.15),
-        cat: '',
-        action: 'update',
-      }));
+      .map(([name,p]) => enrichRow(name, p.qty, p.unit, p.costPrice, ''));
   }
 
   const div = document.createElement('div');
@@ -7483,7 +7487,7 @@ function openInvoiceReviewModal(id) {
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Unit vol</div>
           <div style="display:flex;gap:4px;">
-            <input id="${id}-unitvol-${globalIdx}" type="number" value="${r._unitVol}" placeholder="e.g. 745"
+            <input id="${id}-unitvol-${globalIdx}" type="number" value="${r.unitVol||r._unitVol||''}" placeholder="e.g. 745"
               style="flex:1;min-width:0;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-mono);font-size:13px;outline:none;">
             <select id="${id}-unitvol-unit-${globalIdx}" style="width:56px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 6px;color:var(--text);font-size:12px;outline:none;">
               <option value="ml" selected>ml</option>
@@ -7491,9 +7495,9 @@ function openInvoiceReviewModal(id) {
             </select>
           </div>
         </div>
-        <div id="${id}-casesize-wrap-${globalIdx}" style="${r.unit==='Cases'||r.unit==='CAR'?'':'display:none;'}">
+        <div id="${id}-casesize-wrap-${globalIdx}" style="${r.unit==='Cases'||r.unit==='CAR'||r.caseSize>1?'':'display:none;'}">
           <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Units per case</div>
-          <input id="${id}-casesize-${globalIdx}" type="number" value="${parseCaseSize(r.name)||''}" placeholder="e.g. 12"
+          <input id="${id}-casesize-${globalIdx}" type="number" value="${r.caseSize||parseCaseSize(r.name)||''}" placeholder="e.g. 12"
             style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-mono);font-size:13px;outline:none;">
         </div>
         <div>
@@ -7506,7 +7510,7 @@ function openInvoiceReviewModal(id) {
       </div>
 
       <!-- Case split option -->
-      <div id="${id}-casesplit-wrap-${globalIdx}" style="display:${r.unit==='Cases'||r.unit==='CAR'?'flex':'none'};align-items:center;gap:8px;padding:8px 10px;background:rgba(200,240,100,0.05);border:1px solid rgba(200,240,100,0.15);border-radius:8px;margin-bottom:10px;">
+      <div id="${id}-casesplit-wrap-${globalIdx}" style="display:${r.unit==='Cases'||r.unit==='CAR'||r.caseSize>1?'flex':'none'};align-items:center;gap:8px;padding:8px 10px;background:rgba(200,240,100,0.05);border:1px solid rgba(200,240,100,0.15);border-radius:8px;margin-bottom:10px;">
         <input type="checkbox" id="${id}-casesplit-${globalIdx}" checked style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer;">
         <label for="${id}-casesplit-${globalIdx}" style="font-size:12px;color:var(--text2);cursor:pointer;">Split into individual units — cost ÷ case size</label>
       </div>
