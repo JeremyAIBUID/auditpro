@@ -353,7 +353,7 @@ select.inp-m{cursor:pointer;}
         <div class="method-tab"        id="tab-weight" onclick="setMethod('weight',this)">⚖️ Weigh</div>
       </div>
       <!-- New product shortcut -->
-      <button id="new-product-fab-btn"
+      <button id="new-product-fab-btn" onclick="showScreen('screen-new-product')"
         title="New product"
         style="flex-shrink:0;width:40px;height:40px;border-radius:10px;font-size:18px;border:1px solid var(--border2);background:var(--bg3);cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:manipulation;">🍾</button>
       <!-- Scan→Weigh handoff toggle -->
@@ -542,7 +542,7 @@ select.inp-m{cursor:pointer;}
         <div style="display:flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;">
           <input type="number" id="scale-reading" inputmode="decimal" placeholder="0"
             min="0" step="1"
-            style="flex:1;min-width:0;background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:8px 10px;color:var(--accent);font-family:var(--font-mono);font-size:28px;font-weight:700;outline:none;text-align:center;height:56px;"
+            style="flex:1;min-width:0;width:0;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:8px 10px;color:var(--accent);font-family:var(--font-mono);font-size:28px;font-weight:700;outline:none;text-align:center;height:56px;"
             onfocus="this.style.borderColor='var(--accent)'"
             onblur="this.style.borderColor='var(--border2)'"
             oninput="onManualWeightInput(this.value)"
@@ -2487,8 +2487,14 @@ function searchProducts(q) {
   res.classList.add('visible');
 
   if(!matches.length) {
-    res.classList.remove('visible');
-    openProductFormWithName(q);
+    res.classList.add('visible');
+    res.innerHTML = `<div class="search-item" onclick="openProductFormWithName('${q.replace(/'/g, "\\'")}')">
+      <div>
+        <div class="search-item-name" style="color:var(--accent);">＋ Add new: "${q}"</div>
+        <div class="search-item-cat">Not in catalogue — tap to create product</div>
+      </div>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="color:var(--accent)"><path d="M12 5v14M5 12h14"/></svg>
+    </div>`;
     return;
   }
 
