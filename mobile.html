@@ -353,7 +353,7 @@ select.inp-m{cursor:pointer;}
         <div class="method-tab"        id="tab-weight" onclick="setMethod('weight',this)">⚖️ Weigh</div>
       </div>
       <!-- New product shortcut -->
-      <button onclick="openProductFormWithName('')"
+      <button id="new-product-fab-btn"
         title="New product"
         style="flex-shrink:0;width:40px;height:40px;border-radius:10px;font-size:18px;border:1px solid var(--border2);background:var(--bg3);cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:manipulation;">🍾</button>
       <!-- Scan→Weigh handoff toggle -->
@@ -536,27 +536,25 @@ select.inp-m{cursor:pointer;}
         <button onclick="clearWeightProduct()" style="background:none;border:none;color:var(--text3);font-size:18px;cursor:pointer;padding:4px;">×</button>
       </div>
 
-      <!-- 2. SCALE READING -->
+            <!-- 2. SCALE READING -->
       <div class="scale-display" style="margin-bottom:8px;">
         <div style="font-size:11px;color:var(--text3);text-align:center;margin-bottom:6px;" id="weight-input-label">2. Place bottle on scale</div>
-        <div style="display:flex;align-items:center;gap:8px;">
+        <div style="display:flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;">
           <input type="number" id="scale-reading" inputmode="decimal" placeholder="0"
             min="0" step="1"
-            style="flex:1;background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:8px 12px;color:var(--accent);font-family:var(--font-mono);font-size:36px;font-weight:700;outline:none;text-align:center;height:64px;"
+            style="flex:1;min-width:0;background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:8px 10px;color:var(--accent);font-family:var(--font-mono);font-size:28px;font-weight:700;outline:none;text-align:center;height:56px;"
             onfocus="this.style.borderColor='var(--accent)'"
             onblur="this.style.borderColor='var(--border2)'"
             oninput="onManualWeightInput(this.value)"
             onkeydown="if(event.key==='Enter') { addWeightItem(); }">
-          <div style="display:flex;flex-direction:column;gap:4px;">
+          <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
             <button id="unit-kg-btn" onclick="setScaleUnit('kg')"
-              style="padding:6px 12px;border-radius:8px;font-size:13px;font-weight:700;border:1px solid var(--border2);background:var(--bg3);color:var(--text3);cursor:pointer;touch-action:manipulation;">kg</button>
+              style="padding:6px 10px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid var(--border2);background:var(--bg3);color:var(--text3);cursor:pointer;touch-action:manipulation;">kg</button>
             <button id="unit-g-btn" onclick="setScaleUnit('g')"
-              style="padding:6px 12px;border-radius:8px;font-size:13px;font-weight:700;border:1px solid rgba(200,240,100,0.4);background:rgba(200,240,100,0.12);color:var(--accent);cursor:pointer;touch-action:manipulation;">g</button>
+              style="padding:6px 10px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid rgba(200,240,100,0.4);background:rgba(200,240,100,0.12);color:var(--accent);cursor:pointer;touch-action:manipulation;">g</button>
           </div>
         </div>
         <div class="scale-net" id="scale-net" style="display:none;text-align:center;margin-top:6px;"></div>
-
-        <!-- Debug panel -->
         <div id="scale-debug-panel" style="display:none;margin-top:10px;background:rgba(200,240,100,0.05);border:1px solid rgba(200,240,100,0.2);border-radius:10px;padding:10px 12px;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
             <div style="font-size:11px;color:var(--accent);font-weight:700;">🔬 Raw bytes</div>
@@ -2080,11 +2078,8 @@ function openProductFormWithName(name) {
   document.getElementById('search-add-btn').style.display = 'none';
   updateMobileProdSubcats();
   showScreen('screen-new-product');
-  setTimeout(() => {
-    const nameEl = document.getElementById('mp-name');
-    if(nameEl) { nameEl.focus(); nameEl.select(); }
-  }, 200);
-  if(name) toast('Creating: "' + name + '" — fill in details below');
+  setTimeout(()=>document.getElementById('mp-cat')?.focus(), 350);
+  toast('Fill in details for "' + name + '"');
 }
 
 let _newProdFromBarcode = null;
@@ -3344,7 +3339,16 @@ if(localStorage.getItem('auditpro_mobile_v1') && !localStorage.getItem('auditpro
   localStorage.setItem('auditpro_migrated_v3', '1');
 }
 // Load venues from Supabase as soon as app starts
-document.addEventListener('DOMContentLoaded', () => loadVenuesFromSupabase());
+document.addEventListener('DOMContentLoaded', () => {
+  loadVenuesFromSupabase();
+  // Wire champagne button with proper touch handler
+  const newProdBtn = document.getElementById('new-product-fab-btn');
+  if(newProdBtn) {
+    const handler = (e) => { e.preventDefault(); openProductFormWithName(''); };
+    newProdBtn.addEventListener('touchend', handler, {passive:false});
+    newProdBtn.addEventListener('click', handler);
+  }
+});
 </script>
 </body>
 </html>

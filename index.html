@@ -2478,7 +2478,7 @@ function renderPage(page) {
         <td>${sourceBadge}</td>
         <td>${statusChip}</td>
         <td style="display:flex;gap:6px;">
-          <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;" onclick="viewInvoice(${idx})">View</button>
+          <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;" onclick="${d.pdfUrl ? `window.open('${d.pdfUrl}','_blank')` : `viewInvoice(${idx})`}">📄 ${d.pdfUrl ? 'PDF' : 'View'}</button>
           <button class="btn btn-danger" style="padding:4px 10px;font-size:11px;" onclick="deleteInvoice(${idx})">×</button>
         </td>
       </tr>`;
@@ -6459,17 +6459,31 @@ function editInvoice(idx) {
 function addEditInvoiceLine() {
   const container = document.getElementById('ei-lines');
   if(!container) return;
-  const i = Date.now(); // unique id
+  const i = Date.now();
   const row = document.createElement('div');
   row.id = `ei-row-${i}`;
-  row.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr 24px;gap:8px;margin-bottom:8px;align-items:center;';
+  row.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr 24px;gap:8px;margin-bottom:8px;align-items:center;position:relative;';
+  const prodNames = (activeClient?.products||[]).map(p=>p.n||p.name||'').filter(Boolean).sort();
+  const datalistId = `ei-prod-list-${i}`;
   row.innerHTML = `
-    <input id="ei-name-${i}" placeholder="Product name" style="background:var(--bg3);border:1px solid var(--accent);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;">
+    <div style="position:relative;">
+      <input id="ei-name-${i}" list="${datalistId}" placeholder="Search catalogue..." style="width:100%;background:var(--bg3);border:1px solid var(--accent);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;">
+      <datalist id="${datalistId}">${prodNames.map(n=>`<option value="${n.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+    </div>
     <input id="ei-qty-${i}" type="number" value="1" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;text-align:right;">
     <input id="ei-price-${i}" type="number" step="0.01" value="0.00" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;text-align:right;">
     <button onclick="this.closest('[id^=ei-row]').remove()" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0;line-height:1;">×</button>`;
   container.appendChild(row);
-  row.querySelector('input').focus();
+  // Auto-fill price from catalogue when product selected
+  const nameInput = document.getElementById(`ei-name-${i}`);
+  nameInput.addEventListener('change', function() {
+    const prod = (activeClient?.products||[]).find(p=>(p.n||p.name||'').toLowerCase()===this.value.toLowerCase());
+    if(prod) {
+      const priceEl = document.getElementById(`ei-price-${i}`);
+      if(priceEl && prod.costPrice) priceEl.value = prod.costPrice.toFixed(2);
+    }
+  });
+  nameInput.focus();
 }
 
 function saveEditedInvoice(idx) {
@@ -6513,6 +6527,8 @@ function saveEditedInvoice(idx) {
   dbSaveClient(c);
   document.getElementById('invoice-edit-overlay')?.remove();
   showPersistToast(`✓ Invoice updated — ${newLines.length} line items saved`);
+  // Re-render variance immediately if on that page
+  if(document.getElementById('page-variances')?.classList.contains('active')) renderVarTable();
 }
 // Returns the matching delivery if duplicate, null otherwise
 function isDuplicateInvoice(client, invoiceRef, invoiceDate, supplier) {
@@ -6987,6 +7003,7 @@ Extract every product line item and return ONLY a JSON object (no markdown, no e
 Rules:
 - For "unit" use: Bottles, Cans, Cases, Kegs, Litres, Units
 - For "cat" use: Spirits, Beer, Wine, RTD, Soft drinks, Food, Other
+- Category rules: Beer = all beer products including kegs (lager, ale, stout, IPA, Guinness, Speights, Steinlager, Lion Red etc). RTD = ready-to-drink cans (Smirnoff Ice, Cruiser, Kirin Hyoketsu, hard seltzer etc). Spirits = distilled spirits only (whisky, vodka, gin, rum, tequila etc). NEVER classify beer as Spirits.
 - Extract ALL line items. If a price is per case, note qty as number of cases and unit as Cases.
 - IMPORTANT: qty must be the QTY column value for each line item only. Do NOT use carrier numbers, load totals, delivery numbers, or any footer/summary values as qty.
 - Expand all abbreviations in product names as much as possible from context
