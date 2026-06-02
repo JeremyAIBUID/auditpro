@@ -353,7 +353,7 @@ select.inp-m{cursor:pointer;}
         <div class="method-tab"        id="tab-weight" onclick="setMethod('weight',this)">⚖️ Weigh</div>
       </div>
       <!-- New product shortcut -->
-      <button id="new-product-fab-btn" onclick="openProductFormWithName(document.getElementById('search-field')?.value?.trim()||'')"
+      <button id="new-product-fab-btn"
         title="New product"
         style="flex-shrink:0;width:40px;height:40px;border-radius:10px;font-size:18px;border:1px solid var(--border2);background:var(--bg3);cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:manipulation;">🍾</button>
       <!-- Scan→Weigh handoff toggle -->
@@ -2492,26 +2492,27 @@ function searchProducts(q) {
 
   res.classList.add('visible');
 
-  if(!matches.length) {
-    res.classList.add('visible');
-    res.innerHTML = `<div class="search-item" onclick="openProductFormWithName('${q.replace(/'/g, "\\'")}')">
+  const createRow = `<div class="search-item" style="border-top:1px solid var(--border2);" onclick="openProductFormWithName('${q.replace(/'/g, "\\'")}')">
       <div>
-        <div class="search-item-name" style="color:var(--accent);">＋ Add new: "${q}"</div>
-        <div class="search-item-cat">Not in catalogue — tap to create product</div>
+        <div class="search-item-name" style="color:var(--accent);">＋ Create: "${q}"</div>
+        <div class="search-item-cat">Not in catalogue — tap to add product</div>
       </div>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="color:var(--accent)"><path d="M12 5v14M5 12h14"/></svg>
     </div>`;
+
+  if(!matches.length) {
+    res.innerHTML = createRow;
     return;
   }
 
-  res.innerHTML = matches.slice(0,6).map(p=>`
+  res.innerHTML = matches.slice(0,5).map(p=>`
     <div class="search-item" onclick="selectSearchProduct('${p.name.replace(/'/g,"\\'")}')">
       <div>
         <div class="search-item-name">${p.name}</div>
         <div class="search-item-cat">${p.cat} · ${p.vol}ml${p.lastCount ? ' · <span style="color:var(--text3)">last: '+p.lastCount.qty+' '+p.lastCount.unit+'</span>' : ''}</div>
       </div>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="color:var(--text3)"><path d="M9 18l6-6-6-6"/></svg>
-    </div>`).join('');
+    </div>`).join('') + createRow;
 }
 
 function selectSearchProduct(name) {
@@ -3360,7 +3361,11 @@ document.addEventListener('DOMContentLoaded', () => {
   loadVenuesFromSupabase();
   const newProdBtn = document.getElementById('new-product-fab-btn');
   if(newProdBtn) {
-    const handler = (e) => { e.preventDefault(); openProductFormWithName(''); };
+    const handler = (e) => {
+      e.preventDefault();
+      const q = (document.getElementById('search-field')?.value || '').trim();
+      openProductFormWithName(q);
+    };
     newProdBtn.addEventListener('touchend', handler, {passive:false});
     newProdBtn.addEventListener('click', handler);
   }
