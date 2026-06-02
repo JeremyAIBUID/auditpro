@@ -2464,7 +2464,7 @@ function renderPage(page) {
       const sourceBadge = isManual
         ? `<span style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(167,139,250,0.1);color:#a78bfa;border:1px solid rgba(167,139,250,0.2);">✏️ Manual</span>`
         : d.pdfUrl
-          ? `<a href="${d.pdfUrl}" target="_blank" style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(91,156,240,0.1);color:#5b9cf0;border:1px solid rgba(91,156,240,0.2);text-decoration:none;cursor:pointer;">📄 PDF ↗</a>`
+          ? `<span onclick="window.open('${d.pdfUrl}','_blank')" style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(91,156,240,0.1);color:#5b9cf0;border:1px solid rgba(91,156,240,0.2);cursor:pointer;">📄 PDF ↗</span>`
           : `<span onclick="viewInvoice(${idx})" style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(91,156,240,0.1);color:#5b9cf0;border:1px solid rgba(91,156,240,0.2);cursor:pointer;" title="View invoice details">📄 View</span>`;
       const statusChip = isManual
         ? `<span class="chip chip-purple">Manual entry</span>`
@@ -2485,7 +2485,10 @@ function renderPage(page) {
     }).join('');
 
     // Invoice archive — invoices previously uploaded, available for re-import
-    const archive = (c.invoiceArchive||[]).filter(a => !c.deliveries.find(d=>d.r===a.r));
+    const archive = (c.invoiceArchive||[]).filter(a =>
+      !c.deliveries.find(d=>d.r===a.r) &&
+      !document.getElementById('inv-restored-' + (a.r||'').replace(/[^a-z0-9]/gi,''))
+    );
     const archiveEl = document.getElementById('invoice-archive-section');
     if(archiveEl) {
       if(archive.length) {
@@ -5003,12 +5006,16 @@ function renderVarTable() {
             const invIdx = p.invIdx != null && p.invIdx >= 0
               ? p.invIdx
               : (activeClient?.deliveries||[]).findIndex(d=>d.r===p.inv||d.r===p.invoiceRef);
+            const invDel    = invIdx>=0 ? (activeClient?.deliveries||[])[invIdx] : null;
+            const viewAct   = invDel?.pdfUrl
+              ? `window.open('${invDel.pdfUrl}','_blank')`
+              : `viewInvoice(${invIdx})`;
             const invLink = invIdx>=0
-              ? `onclick="document.querySelectorAll('.pur-popover.open,.sales-popover.open').forEach(x=>x.classList.remove('open'));viewInvoice(${invIdx})" style="cursor:pointer;color:var(--accent);text-decoration:underline;font-weight:600;"`
+              ? `onclick="document.querySelectorAll('.pur-popover.open,.sales-popover.open').forEach(x=>x.classList.remove('open'));${viewAct}" style="cursor:pointer;color:var(--accent);text-decoration:underline;font-weight:600;"`
               : '';
             const actionBtns = invIdx>=0 ? `
               <div style="display:flex;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
-                <button onclick="document.querySelectorAll('.pur-popover.open,.sales-popover.open').forEach(x=>x.classList.remove('open'));viewInvoice(${invIdx})" style="flex:1;padding:5px 8px;font-size:11px;border-radius:7px;background:rgba(91,156,240,0.12);border:1px solid rgba(91,156,240,0.25);color:#5b9cf0;cursor:pointer;font-family:var(--font-ui);font-weight:600;">📄 View invoice</button>
+                <button onclick="document.querySelectorAll('.pur-popover.open,.sales-popover.open').forEach(x=>x.classList.remove('open'));${viewAct}" style="flex:1;padding:5px 8px;font-size:11px;border-radius:7px;background:rgba(91,156,240,0.12);border:1px solid rgba(91,156,240,0.25);color:#5b9cf0;cursor:pointer;font-family:var(--font-ui);font-weight:600;">📄 View invoice</button>
                 <button onclick="document.querySelectorAll('.pur-popover.open,.sales-popover.open').forEach(x=>x.classList.remove('open'));editInvoice(${invIdx})" style="flex:1;padding:5px 8px;font-size:11px;border-radius:7px;background:rgba(200,240,100,0.08);border:1px solid rgba(200,240,100,0.2);color:var(--accent);cursor:pointer;font-family:var(--font-ui);font-weight:600;">✏️ Edit</button>
               </div>` : '';
             return `<div class="pur-popover-row"><span style="color:var(--text2);">${p.sup}</span><span class="td-mono" style="color:var(--text);">${p.qty}</span><span class="td-mono" style="color:var(--text3);">${p.date}</span><span class="td-mono" style="font-size:11px;" ${invLink}>${p.inv||'—'}</span></div>${actionBtns}`;
@@ -6859,7 +6866,7 @@ function restoreInvoiceToProcessingBay(d) {
   const prodMap = {};
   (activeClient?.products||[]).forEach(p => { prodMap[(p.n||p.name||'').toLowerCase()] = p; });
 
-  const enrichRow = (name, qty, unit, price, cat) => {
+  const enrichRow = (name, qty, unit, price, cat, lineCaseSize) => {
     const prod = prodMap[name.toLowerCase()] || {};
     const resolvedCat = cat || prod.cat || 'Other';
     return {
@@ -6872,14 +6879,16 @@ function restoreInvoiceToProcessingBay(d) {
       _cat:    resolvedCat,
       _unitVol: prod.unitVol || 0,
       unitVol: prod.unitVol || 0,
-      caseSize: prod.caseSize || 0,
+      caseSize: lineCaseSize != null ? lineCaseSize : (prod.caseSize || 0),
       action: 'update',
     };
   };
 
-  let rows = (d.lines||[]).map(l => enrichRow(
+  // Archive entries store lines as `items`; delivery objects store them as `lines`
+  const sourceLines = d.lines || d.items || [];
+  let rows = sourceLines.map(l => enrichRow(
     l._cleanName || l.name || '',
-    l.qty, l.unit, l._incGST || l.price, l.cat || l._cat
+    l.qty, l.unit, l._incGST || l.price, l.cat || l._cat, l.caseSize
   ));
   if(!rows.length && sess) {
     rows = Object.entries(sess.purchases)
@@ -7090,8 +7099,17 @@ function reimportArchivedInvoice(ref) {
   const idx = (c.invoiceArchive||[]).findIndex(a => a.r === ref);
   if(idx < 0) return;
   const a = c.invoiceArchive[idx];
-  // Remove from archive
+
+  // If a processing card for this invoice already exists, just reveal it
+  const cardId = 'inv-restored-' + (a.r||'').replace(/[^a-z0-9]/gi,'');
+  if(document.getElementById(cardId)) {
+    document.getElementById(cardId).scrollIntoView({behavior:'smooth'});
+    return;
+  }
+
+  // Remove from archive and, defensively, from deliveries (prevents isDuplicate false-positive)
   c.invoiceArchive.splice(idx, 1);
+  c.deliveries = (c.deliveries||[]).filter(d => d.r !== a.r);
   dbSaveClient(c);
   // Restore to processing bay for re-review (not directly to deliveries)
   restoreInvoiceToProcessingBay(a);
