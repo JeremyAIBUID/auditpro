@@ -701,7 +701,7 @@ select.inp-m{cursor:pointer;}
     <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">Vessel & Volume</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
       <div class="form-group-m"><label class="lbl-m">Vessel type *</label>
-        <select class="inp-m" id="mp-soldas" onchange="updateMobileProdPreview()">
+        <select class="inp-m" id="mp-soldas" onchange="updateVesselVisibility();updateMobileProdPreview()">
           <option value="Bottles">Bottles</option>
           <option value="Cans">Cans</option>
           <option value="Kegs">Kegs</option>
@@ -1576,11 +1576,7 @@ function updateMobileProdSubcats() {
     else                       densitySel.value = '1.014';
   }
 
-  // Hide vessel weights for Bottles/Cans/RTD/Soft drinks
-  const soldAs = document.getElementById('mp-soldas')?.value || '';
-  const noVessel = ['Bottles','Cans'].includes(soldAs) || ['RTD','Soft drinks','Food'].includes(cat);
-  const vesselSection = document.getElementById('mp-vessel-section');
-  if(vesselSection) vesselSection.style.display = noVessel ? 'none' : 'block';
+  updateVesselVisibility();
 
   // Auto-suggest serve size
   const sv = document.getElementById('mp-servevol');
@@ -1589,6 +1585,14 @@ function updateMobileProdSubcats() {
     else if(cat==='Wine') sv.value='150';
   }
   updateMobileProdPreview();
+}
+
+function updateVesselVisibility() {
+  const cat    = document.getElementById('mp-cat')?.value    || '';
+  const soldAs = document.getElementById('mp-soldas')?.value || '';
+  const show   = ['Spirits','Wine'].includes(cat) || soldAs === 'Kegs';
+  const section = document.getElementById('mp-vessel-section');
+  if(section) section.style.display = show ? 'block' : 'none';
 }
 
 function updateMobileProdPreview() {

@@ -1,5 +1,5 @@
-// AuditPro Service Worker v6 - force cache clear
-const CACHE_NAME = 'auditpro-v6';
+// AuditPro Service Worker v7 - force cache clear
+const CACHE_NAME = 'auditpro-v7';
 
 self.addEventListener('install', e => {
   self.skipWaiting();
