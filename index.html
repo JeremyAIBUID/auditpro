@@ -7100,18 +7100,25 @@ function reimportArchivedInvoice(ref) {
   if(idx < 0) return;
   const a = c.invoiceArchive[idx];
 
-  // If a processing card for this invoice already exists, just reveal it
   const cardId = 'inv-restored-' + (a.r||'').replace(/[^a-z0-9]/gi,'');
-  if(document.getElementById(cardId)) {
-    document.getElementById(cardId).scrollIntoView({behavior:'smooth'});
-    return;
+  const existingCard = document.getElementById(cardId);
+  if(existingCard) {
+    // Card exists and is still pending (not yet imported) — scroll to it
+    const badge = document.getElementById(cardId + '-badge');
+    if(!badge || badge.textContent.trim() !== '✓ Imported') {
+      existingCard.scrollIntoView({behavior:'smooth'});
+      return;
+    }
+    // Card was previously imported — remove it so a fresh unconfirmed card is created
+    existingCard.remove();
   }
 
-  // Remove from archive and, defensively, from deliveries (prevents isDuplicate false-positive)
+  // Remove from archive
   c.invoiceArchive.splice(idx, 1);
+  // Remove any matching delivery to prevent isDuplicate false-positive on re-import
   c.deliveries = (c.deliveries||[]).filter(d => d.r !== a.r);
   dbSaveClient(c);
-  // Restore to processing bay for re-review (not directly to deliveries)
+
   restoreInvoiceToProcessingBay(a);
   renderPage('purchases');
   showPersistToast('↩ Invoice restored to review bay');
