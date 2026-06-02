@@ -2479,7 +2479,6 @@ function renderPage(page) {
         <td>${statusChip}</td>
         <td style="display:flex;gap:6px;">
           <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;" onclick="${d.pdfUrl ? `window.open('${d.pdfUrl}','_blank')` : `viewInvoice(${idx})`}">📄 ${d.pdfUrl ? 'PDF' : 'View'}</button>
-          ${!d.pdfUrl && !isManual ? `<label class="btn btn-secondary" style="padding:4px 10px;font-size:11px;cursor:pointer;" title="Attach PDF retroactively">📎<input type="file" accept=".pdf,image/*" style="display:none;" onchange="attachInvoicePDF(${idx},this)"></label>` : ''}
           <button class="btn btn-danger" style="padding:4px 10px;font-size:11px;" onclick="deleteInvoice(${idx})">×</button>
         </td>
       </tr>`;
@@ -2499,7 +2498,7 @@ function renderPage(page) {
                 <div style="font-size:13px;font-weight:600;color:var(--text);">${a.s} · ${a.r}</div>
                 <div style="font-size:11px;color:var(--text3);">${a.d} · ${a.i} items · ${a.t}</div>
               </div>
-              <button class="btn btn-secondary" style="font-size:11px;padding:4px 12px;" onclick="reimportArchivedInvoice(${i})">Re-import →</button>
+              <button class="btn btn-secondary" style="font-size:11px;padding:4px 12px;" onclick="reimportArchivedInvoice('${a.r}')">Re-import →</button>
             </div>`).join('')}`;
       } else {
         archiveEl.style.display = 'none';
@@ -6849,6 +6848,12 @@ function restoreInvoiceToProcessingBay(d) {
 
   const id = 'inv-restored-' + (d.r||Date.now()).replace(/[^a-z0-9]/gi,'');
 
+  // Prevent duplicate cards in the processing bay
+  if(document.getElementById(id)) {
+    area.style.display = 'block';
+    return;
+  }
+
   // Build rows from delivery lines or session purchases
   const sess = (activeClient?.auditSessions||[]).find(s => s.purchases && Object.values(s.purchases).some(p=>p.invoiceRef===d.r));
   const prodMap = {};
@@ -7080,19 +7085,18 @@ function viewInvoicePDF(file) {
   }
 }
 
-function reimportArchivedInvoice(archiveIdx) {
+function reimportArchivedInvoice(ref) {
   const c = activeClient; if(!c) return;
-  const a = (c.invoiceArchive||[])[archiveIdx];
-  if(!a) return;
-  // Re-add to deliveries
-  if(!c.deliveries) c.deliveries = [];
-  c.deliveries.unshift({
-    s: a.s, d: a.d, r: a.r, i: a.i, t: a.t,
-    st: 'Verified', sc: 'chip-green', lines: a.items||[]
-  });
+  const idx = (c.invoiceArchive||[]).findIndex(a => a.r === ref);
+  if(idx < 0) return;
+  const a = c.invoiceArchive[idx];
+  // Remove from archive
+  c.invoiceArchive.splice(idx, 1);
   dbSaveClient(c);
+  // Restore to processing bay for re-review (not directly to deliveries)
+  restoreInvoiceToProcessingBay(a);
   renderPage('purchases');
-  showPersistToast('✓ Invoice re-imported to purchase history');
+  showPersistToast('↩ Invoice restored to review bay');
 }
 
 function deleteInvoice(idx) {
@@ -7764,7 +7768,7 @@ function applyInvoiceToProducts(id) {
     const density    = densityInput ? densityInput.value
                                     : (item._density || (cleanCat==='Spirits'?'0.9467':cleanCat==='Wine'?'0.9805':'1.014'));
     let soldAs       = (['Kegs','Cases','Cans','Litres','Bottles'].includes(item.unit)) ? item.unit : 'Bottles';
-    let caseSize     = casesizeInput ? parseInt(casesizeInput.value)||null : parseCaseSize(item.name)||null;
+    let caseSize     = casesizeInput ? parseInt(casesizeInput.value)||null : (item.caseSize || parseCaseSize(item.name) || null);
     const splitCase  = casesplitInput ? casesplitInput.checked && soldAs==='Cases' && caseSize>0 : false;
 
     if(!cleanName) return;
