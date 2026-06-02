@@ -1593,7 +1593,7 @@ function updateMobileProdSubcats() {
 
 function updateMobileProdPreview() {
   const unitVol   = parseFloat(document.getElementById('mp-unitvol').value)  || 0;
-  const serveVol  = parseFloat(document.getElementById('mp-servevol').value) || 0;
+  const serveVol  = parseFloat(document.getElementById('mp-servevol')?.value) || 0;
   const costPrice = parseFloat(document.getElementById('mp-cost').value)     || 0;
   const sellPrice = parseFloat(document.getElementById('mp-sell').value)     || 0;
   const tareG     = parseFloat(document.getElementById('mp-tareg').value)    || 0;
