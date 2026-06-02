@@ -18,6 +18,8 @@ AuditPro is a hospitality audit platform for any hospitality venue. Built as sin
 
 **Deploy process:** Edit local files → commit via GitHub Desktop → GitHub Pages auto-deploys in ~1 min.
 
+**mobile2.html must always be kept identical to mobile.html — update both files in every commit.**
+
 ---
 
 ## Local File Paths
