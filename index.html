@@ -6856,9 +6856,15 @@ function restoreInvoiceToProcessingBay(d) {
   const id = 'inv-restored-' + (d.r||Date.now()).replace(/[^a-z0-9]/gi,'');
 
   // Prevent duplicate cards in the processing bay
-  if(document.getElementById(id)) {
-    area.style.display = 'block';
-    return;
+  const existingRestored = document.getElementById(id);
+  if(existingRestored) {
+    const existingBadge = document.getElementById(id + '-badge');
+    if(!existingBadge || existingBadge.textContent.trim() !== '✓ Imported') {
+      area.style.display = 'block';
+      return;
+    }
+    // Card was previously imported — remove it so a fresh unconfirmed card is created
+    existingRestored.remove();
   }
 
   // Build rows from delivery lines or session purchases
@@ -6879,7 +6885,7 @@ function restoreInvoiceToProcessingBay(d) {
       _cat:    resolvedCat,
       _unitVol: prod.unitVol || 0,
       unitVol: prod.unitVol || 0,
-      caseSize: lineCaseSize != null ? lineCaseSize : (prod.caseSize || 0),
+      caseSize: lineCaseSize != null ? lineCaseSize : (prod.caseSize || parseCaseSize(name) || 0),
       action: 'update',
     };
   };
@@ -7691,7 +7697,7 @@ async function uploadInvoicePDF(file, invoiceRef, clientSlug) {
   try {
     const ext  = file.name.split('.').pop() || 'pdf';
     const path = `${clientSlug}/${invoiceRef}.${ext}`;
-    const res  = await fetch(`${SUPABASE_CONFIG.url}/storage/v1/object/invoices/${path}`, {
+    const res  = await fetch(`${SUPABASE_CONFIG.url}/storage/v1/object/Invoices/${path}`, {
       method:  'POST',
       headers: {
         'apikey':        SUPABASE_CONFIG.key,
@@ -7703,7 +7709,7 @@ async function uploadInvoicePDF(file, invoiceRef, clientSlug) {
     });
     if(!res.ok) { console.warn('[AuditPro] PDF upload failed:', await res.text()); return null; }
     // Return signed URL (private bucket — valid for 10 years)
-    const signRes = await fetch(`${SUPABASE_CONFIG.url}/storage/v1/object/sign/invoices/${path}`, {
+    const signRes = await fetch(`${SUPABASE_CONFIG.url}/storage/v1/object/sign/Invoices/${path}`, {
       method:  'POST',
       headers: {
         'apikey':        SUPABASE_CONFIG.key,
@@ -8004,13 +8010,17 @@ function applyInvoiceToProducts(id) {
       }
     }
   }
-  // Update processing card to show imported state
+  // Update processing card to show imported state — or remove it if it was a restored card
   const cardEl = document.getElementById(id);
   if(cardEl) {
-    const btnsEl = cardEl.querySelector('[style*="display:flex;gap:8px;align-items:center"]');
-    if(btnsEl) btnsEl.innerHTML = `<span style="font-size:12px;padding:6px 14px;border-radius:8px;background:rgba(91,227,180,0.1);color:var(--green);border:1px solid rgba(91,227,180,0.2);font-weight:600;">✓ Imported to purchase history</span>`;
-    const badgeEl = document.getElementById(id+'-badge');
-    if(badgeEl) { badgeEl.textContent = '✓ Imported'; badgeEl.style.color = 'var(--green)'; }
+    if(id.startsWith('inv-restored-')) {
+      dismissInvoiceCard(id);
+    } else {
+      const btnsEl = cardEl.querySelector('[style*="display:flex;gap:8px;align-items:center"]');
+      if(btnsEl) btnsEl.innerHTML = `<span style="font-size:12px;padding:6px 14px;border-radius:8px;background:rgba(91,227,180,0.1);color:var(--green);border:1px solid rgba(91,227,180,0.2);font-weight:600;">✓ Imported to purchase history</span>`;
+      const badgeEl = document.getElementById(id+'-badge');
+      if(badgeEl) { badgeEl.textContent = '✓ Imported'; badgeEl.style.color = 'var(--green)'; }
+    }
   }
 }
 
