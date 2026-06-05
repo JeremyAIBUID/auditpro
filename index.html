@@ -4788,6 +4788,39 @@ function updateInvLineTotal(id, idx) {
   if(el) el.textContent = '$' + (qty * price).toFixed(2);
 }
 
+// FIX 3 — "Line total is fixed" cost model for the invoice review modal.
+// Changing QTY keeps the invoice's line total constant and recomputes the per-unit
+// price (= lineTotal / qty), which is the unit cost saved to the product's costHistory.
+// Editing the unit PRICE recomputes & stores a new line total (= qty × price).
+function updateInvCost(id, idx, source) {
+  const qtyEl   = document.getElementById(`${id}-qty-${idx}`);
+  const priceEl = document.getElementById(`${id}-price-${idx}`);
+  const totalEl = document.getElementById(`${id}-linetotal-${idx}`);
+  if(!qtyEl || !priceEl || !totalEl) return;
+
+  const qty = parseFloat(qtyEl.value) || 0;
+  let lineTotal = parseFloat(totalEl.dataset.total);
+  if(isNaN(lineTotal)) lineTotal = qty * (parseFloat(priceEl.value) || 0);
+
+  if(source === 'price') {
+    // Unit price edited → line total follows and becomes the new fixed total
+    lineTotal = qty * (parseFloat(priceEl.value) || 0);
+  } else {
+    // Qty edited → line total stays fixed, derive the per-unit price from it
+    if(qty > 0) priceEl.value = (lineTotal / qty).toFixed(2);
+  }
+
+  totalEl.dataset.total = lineTotal.toFixed(2);
+  totalEl.textContent   = '$' + lineTotal.toFixed(2);
+
+  // Keep the read-only inc/ex unit-cost box in sync with the live unit price
+  const price = parseFloat(priceEl.value) || 0;
+  const incEl = document.getElementById(`${id}-unitinc-${idx}`);
+  const exEl  = document.getElementById(`${id}-unitex-${idx}`);
+  if(incEl) incEl.textContent = '$' + price.toFixed(2);
+  if(exEl)  exEl.textContent  = 'ex $' + (price/1.15).toFixed(2);
+}
+
 function refreshProcessingCards() {
   const list = document.getElementById('invoice-processing-list');
   if(!list || !activeClient) return;
@@ -6803,6 +6836,9 @@ function addDumpInvoiceToClient(c, invoice, id) {
   const total = (invoice.invoiceTotal || invoice.items.reduce((s,i)=>s+(i.lineTotal||0),0)).toFixed(2);
   if(!c.deliveries) c.deliveries = [];
 
+  // FIX 4 — stamp caseSize onto every line so it survives delete → re-import cycles
+  const dumpLines = preserveCaseSizes(invoice.items, c);
+
   // Store in archive permanently (survives deletion from purchase history)
   if(!c.invoiceArchive) c.invoiceArchive = [];
   const archiveRef = invoice.invoiceRef || 'AUTO-'+Math.floor(Math.random()*90000+10000);
@@ -6813,7 +6849,7 @@ function addDumpInvoiceToClient(c, invoice, id) {
       d: invoice.invoiceDate || 'Unknown date',
       t: '$' + total,
       i: invoice.items.length,
-      items: invoice.items,
+      items: dumpLines,
     });
   }
 
@@ -6827,7 +6863,7 @@ function addDumpInvoiceToClient(c, invoice, id) {
       tEx: '$' + (invoice.invoiceTotalExGST || (parseFloat(total)/1.15)).toFixed(2),
       gst: '$' + (invoice.invoiceGST || (parseFloat(total)/1.15*0.15)).toFixed(2),
       st: 'Verified', sc: 'chip-green',
-      lines: invoice.items,
+      lines: dumpLines,
     });
     if(invoice.supplier) {
       if(!c.suppliers) c.suppliers = [];
@@ -6846,6 +6882,41 @@ function addDumpInvoiceToClient(c, invoice, id) {
 }
 // Reads PDF invoices via Anthropic API and extracts line items
 
+// FIX 2/4 — Ensure every invoice line carries a numeric caseSize so it survives
+// import → delete → re-import cycles (deliveries.lines & invoiceArchive.items).
+// Falls back to the matched product's caseSize, then the name e.g. "12x745ml".
+function preserveCaseSizes(lines, c) {
+  c = c || activeClient;
+  const prodMap = {};
+  (c?.products||[]).forEach(p => { prodMap[(p.n||p.name||'').toLowerCase()] = p; });
+  return (lines||[]).map(l => {
+    const name = (l._cleanName || l.name || '');
+    const prod = prodMap[name.toLowerCase()] || {};
+    let cs = l.caseSize;
+    if(cs == null || cs === '' || Number(cs) <= 0) {
+      cs = prod.caseSize || parseCaseSize(name) || 0;
+    }
+    return { ...l, caseSize: Number(cs) || 0 };
+  });
+}
+
+// FIX 1 — Find an existing processing-bay card for an invoice ref, whether it's a
+// fresh AI-upload card (inv-<timestamp>) or a previously restored card (inv-restored-<ref>).
+function findProcessingCardByRef(ref) {
+  const list = document.getElementById('invoice-processing-list');
+  if(!list || !ref) return null;
+  // Direct match for a restored card id
+  const restoredId = 'inv-restored-' + String(ref).replace(/[^a-z0-9]/gi,'');
+  const direct = document.getElementById(restoredId);
+  if(direct) return direct;
+  // Otherwise scan for an original upload card whose results ref matches
+  for(const card of Array.from(list.children)) {
+    const res = document.getElementById(card.id + '-results');
+    if(res && res._invoiceRef && res._invoiceRef === ref) return card;
+  }
+  return null;
+}
+
 // Restore a previously imported invoice back to the processing bay for re-review
 function restoreInvoiceToProcessingBay(d) {
   const area = document.getElementById('invoice-processing-area');
@@ -6853,19 +6924,40 @@ function restoreInvoiceToProcessingBay(d) {
   if(!area || !list) return;
   area.style.display = 'block';
 
-  const id = 'inv-restored-' + (d.r||Date.now()).replace(/[^a-z0-9]/gi,'');
+  const ref = d.r || '';
 
-  // Prevent duplicate cards in the processing bay
-  const existingRestored = document.getElementById(id);
-  if(existingRestored) {
-    const existingBadge = document.getElementById(id + '-badge');
-    if(!existingBadge || existingBadge.textContent.trim() !== '✓ Imported') {
-      area.style.display = 'block';
+  // FIX 1 — Reuse the ORIGINAL processing card if it's still in the DOM instead of
+  // creating a duplicate. Reset its ✓ Imported badge and return it to a pending,
+  // editable state.
+  const existing = findProcessingCardByRef(ref);
+  if(existing) {
+    if(existing.id.startsWith('inv-restored-')) {
+      // Already a pending restored card — just resurface it, don't duplicate
+      existing.scrollIntoView({behavior:'smooth', block:'nearest'});
       return;
     }
-    // Card was previously imported — remove it so a fresh unconfirmed card is created
-    existingRestored.remove();
+    // Original AI-upload card — its results summary was overwritten on import.
+    // Re-render it from the stored invoice data to restore the pending state.
+    const res = document.getElementById(existing.id + '-results');
+    if(res) {
+      const invoice = {
+        supplier:    res._invoiceSupplier || d.s || '',
+        invoiceDate: res._invoiceDate     || d.d || '',
+        invoiceRef:  res._invoiceRef       || ref,
+        items:       (res._invoiceData && res._invoiceData.length) ? res._invoiceData : (d.lines || d.items || []),
+      };
+      renderInvoiceResults(existing.id, invoice, '');
+    }
+    const badge = document.getElementById(existing.id + '-badge');
+    if(badge) { badge.textContent = '↩ Restored'; badge.style.color = 'var(--accent)'; }
+    existing.scrollIntoView({behavior:'smooth', block:'nearest'});
+    return;
   }
+
+  // No existing card — build a fresh restored card
+  const id = 'inv-restored-' + String(ref||Date.now()).replace(/[^a-z0-9]/gi,'');
+  const stale = document.getElementById(id);
+  if(stale) stale.remove();
 
   // Build rows from delivery lines or session purchases
   const sess = (activeClient?.auditSessions||[]).find(s => s.purchases && Object.values(s.purchases).some(p=>p.invoiceRef===d.r));
@@ -6885,7 +6977,10 @@ function restoreInvoiceToProcessingBay(d) {
       _cat:    resolvedCat,
       _unitVol: prod.unitVol || 0,
       unitVol: prod.unitVol || 0,
-      caseSize: lineCaseSize != null ? lineCaseSize : (prod.caseSize || parseCaseSize(name) || 0),
+      // FIX 2 — prefer the stored line caseSize; only fall back when it's missing/zero
+      caseSize: (lineCaseSize != null && lineCaseSize !== '' && Number(lineCaseSize) > 0)
+                  ? Number(lineCaseSize)
+                  : (prod.caseSize || parseCaseSize(name) || 0),
       action: 'update',
     };
   };
@@ -7106,26 +7201,14 @@ function reimportArchivedInvoice(ref) {
   if(idx < 0) return;
   const a = c.invoiceArchive[idx];
 
-  const cardId = 'inv-restored-' + (a.r||'').replace(/[^a-z0-9]/gi,'');
-  const existingCard = document.getElementById(cardId);
-  if(existingCard) {
-    // Card exists and is still pending (not yet imported) — scroll to it
-    const badge = document.getElementById(cardId + '-badge');
-    if(!badge || badge.textContent.trim() !== '✓ Imported') {
-      existingCard.scrollIntoView({behavior:'smooth'});
-      return;
-    }
-    // Card was previously imported — remove it so a fresh unconfirmed card is created
-    existingCard.remove();
-  }
-
-  // Remove from archive
+  // FIX 1 — remove from invoiceArchive AND deliveries BEFORE restoring so the
+  // invoice isn't duplicated and isDuplicateInvoice won't false-positive.
   c.invoiceArchive.splice(idx, 1);
-  // Remove any matching delivery to prevent isDuplicate false-positive on re-import
   c.deliveries = (c.deliveries||[]).filter(d => d.r !== a.r);
   dbSaveClient(c);
 
-  restoreInvoiceToProcessingBay(a);
+  // FIX 2/4 — guarantee caseSize is present on every line handed to the restore flow.
+  restoreInvoiceToProcessingBay({ ...a, items: preserveCaseSizes(a.items || a.lines, c) });
   renderPage('purchases');
   showPersistToast('↩ Invoice restored to review bay');
 }
@@ -7159,25 +7242,23 @@ function deleteInvoice(idx) {
     overlay.remove();
     const d = c.deliveries[idx];
     if(!d) return;
-    // Save to invoice archive for re-review
-    if(!c.invoiceArchive) c.invoiceArchive = [];
-    if(!c.invoiceArchive.find(a=>a.r===d.r)) {
-      c.invoiceArchive.push({ r:d.r, s:d.s, d:d.d, t:d.t, i:d.i, items:d.lines||[], pendingReview:true });
-    }
-    // Clean session purchases
+    // FIX 2/4 — capture the lines with caseSize preserved BEFORE mutating anything,
+    // so it survives the delete → restore → re-import cycle.
+    const restoredLines = preserveCaseSizes(d.lines, c);
+    // Clean session purchases that came from this invoice
     (c.auditSessions||[]).forEach(sess => {
-      if(sess.purchases && d) {
+      if(sess.purchases) {
         Object.keys(sess.purchases).forEach(name => {
           if(sess.purchases[name].invoiceRef === d.r) delete sess.purchases[name];
         });
       }
     });
+    // FIX 1 — remove from BOTH deliveries and invoiceArchive before restoring
     c.deliveries.splice(idx, 1);
-    // Remove from archive too — it's now in the processing bay
-    if(d && c.invoiceArchive) c.invoiceArchive = c.invoiceArchive.filter(a => a.r !== d.r);
+    if(c.invoiceArchive) c.invoiceArchive = c.invoiceArchive.filter(a => a.r !== d.r);
     dbSaveClient(c);
-    // Restore to processing bay
-    restoreInvoiceToProcessingBay(d);
+    // Restore to processing bay (reuses the original card if it's still in the DOM)
+    restoreInvoiceToProcessingBay({ ...d, lines: restoredLines });
     renderPage('purchases');
     if(document.getElementById('page-variances')?.classList.contains('active')) renderVarTable();
     showPersistToast('Invoice sent back to review bay');
@@ -7185,14 +7266,10 @@ function deleteInvoice(idx) {
   overlay.querySelector('#del-inv-confirm').onclick = () => {
     overlay.remove();
     const d = c.deliveries[idx];
-    // Save to archive before deleting
-    if(!c.invoiceArchive) c.invoiceArchive = [];
-    if(d && !c.invoiceArchive.find(a=>a.r===d.r)) {
-      c.invoiceArchive.push({ r:d.r, s:d.s, d:d.d, t:d.t, i:d.i, items:d.lines||[] });
-    }
+    if(!d) return;
     // Remove purchases from ALL sessions that came from this invoice
     (c.auditSessions||[]).forEach(sess => {
-      if(sess.purchases && d) {
+      if(sess.purchases) {
         Object.keys(sess.purchases).forEach(name => {
           if(sess.purchases[name].invoiceRef === d.r) {
             delete sess.purchases[name];
@@ -7200,8 +7277,9 @@ function deleteInvoice(idx) {
         });
       }
     });
+    // Permanent delete — remove from history AND archive
     c.deliveries.splice(idx, 1);
-    if(d && c.invoiceArchive) c.invoiceArchive = c.invoiceArchive.filter(a=>a.r!==d.r);
+    if(c.invoiceArchive) c.invoiceArchive = c.invoiceArchive.filter(a=>a.r!==d.r);
     dbSaveClient(c);
     renderPage('purchases');
     if(document.getElementById('page-variances')?.classList.contains('active')) renderVarTable();
@@ -7444,7 +7522,11 @@ function openInvoiceReviewModal(id) {
       ...(existing && {
         _cat:    existing.cat    || item._cat    || item.cat    || 'Other',
         _unitVol:existing.unitVol|| item._unitVol|| item.unitVol|| '',
-        caseSize:existing.caseSize != null ? existing.caseSize : (item.caseSize || ''),
+        // FIX 2 — prefer the line's stamped caseSize (authoritative per-invoice value,
+        // survives split-import nulling the product's caseSize); fall back to product.
+        caseSize:(item.caseSize != null && item.caseSize !== '' && Number(item.caseSize) > 0)
+                   ? item.caseSize
+                   : (existing.caseSize || ''),
       }),
     };
   });
@@ -7519,17 +7601,17 @@ function openInvoiceReviewModal(id) {
           <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Invoice qty</div>
           <input id="${id}-qty-${globalIdx}" type="number" value="${r.qty||1}" min="0.1" step="0.1"
             style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--accent);font-family:var(--font-mono);outline:none;"
-            oninput="updateInvLineTotal('${id}',${globalIdx})">
+            oninput="updateInvCost('${id}',${globalIdx},'qty')">
         </div>
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Unit price inc GST</div>
           <input id="${id}-price-${globalIdx}" type="number" step="0.01" value="${(r._incGST||0).toFixed(2)}"
             style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--accent);font-family:var(--font-mono);outline:none;"
-            oninput="updateInvLineTotal('${id}',${globalIdx})">
+            oninput="updateInvCost('${id}',${globalIdx},'price')">
         </div>
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Line total</div>
-          <div id="${id}-linetotal-${globalIdx}" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--text2);font-family:var(--font-mono);">$${((r._incGST||0)*(r.qty||1)).toFixed(2)}</div>
+          <div id="${id}-linetotal-${globalIdx}" data-total="${(r.lineTotal||(r._incGST||0)*(r.qty||1)).toFixed(2)}" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--text2);font-family:var(--font-mono);">$${(r.lineTotal||(r._incGST||0)*(r.qty||1)).toFixed(2)}</div>
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
@@ -7552,8 +7634,8 @@ function openInvoiceReviewModal(id) {
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Price inc-GST</div>
           <div style="background:var(--bg4);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-family:var(--font-mono);font-size:13px;color:var(--text);">
-            $${r._incGST.toFixed(2)}
-            <div style="font-size:10px;color:var(--text3);">ex $${r._exGST.toFixed(2)}</div>
+            <span id="${id}-unitinc-${globalIdx}">$${r._incGST.toFixed(2)}</span>
+            <div id="${id}-unitex-${globalIdx}" style="font-size:10px;color:var(--text3);">ex $${r._exGST.toFixed(2)}</div>
           </div>
         </div>
       </div>
@@ -7801,6 +7883,12 @@ function applyInvoiceToProducts(id) {
     let soldAs       = (['Kegs','Cases','Cans','Litres','Bottles'].includes(item.unit)) ? item.unit : 'Bottles';
     let caseSize     = casesizeInput ? parseInt(casesizeInput.value)||null : (item.caseSize || parseCaseSize(item.name) || null);
     const splitCase  = casesplitInput ? casesplitInput.checked && soldAs==='Cases' && caseSize>0 : false;
+
+    // FIX 2/4 — persist the resolved units-per-case onto the stored line so it survives
+    // delete → re-import cycles. deliveries.lines / invoiceArchive.items are built from
+    // these same row objects, and this value outlives the case-split below (which nulls
+    // the PRODUCT's caseSize but must not erase the line's record of it).
+    if(caseSize && caseSize > 0) item.caseSize = caseSize;
 
     if(!cleanName) return;
 
