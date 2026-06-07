@@ -7632,6 +7632,13 @@ function openInvoiceReviewModal(id) {
             oninput="updateInvCost('${id}',${globalIdx},'total')">
         </div>
       </div>
+      <div style="margin-bottom:10px;">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Sold as</div>
+        <select id="${id}-soldas-${globalIdx}" onchange="updateInvCaseSize('${id}',${globalIdx})"
+          style="width:160px;max-width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:12px;outline:none;">
+          ${getInvSoldAsOptions(r)}
+        </select>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Unit vol</div>
@@ -7652,8 +7659,8 @@ function openInvoiceReviewModal(id) {
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Price inc-GST</div>
           <div style="background:var(--bg4);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-family:var(--font-mono);font-size:13px;color:var(--text);">
-            <span id="${id}-unitinc-${globalIdx}">$${r._incGST.toFixed(2)}</span>
-            <div id="${id}-unitex-${globalIdx}" style="font-size:10px;color:var(--text3);">ex $${r._exGST.toFixed(2)}</div>
+            <span id="${id}-unitinc-${globalIdx}">$${(r._incGST||0).toFixed(2)}</span>
+            <div id="${id}-unitex-${globalIdx}" style="font-size:10px;color:var(--text3);">ex $${(r._exGST||0).toFixed(2)}</div>
           </div>
         </div>
       </div>
@@ -7708,6 +7715,17 @@ function getInvSubcatOptions(cat, selected) {
   return opts.map(s=>`<option${s===selected?' selected':''}>${s}</option>`).join('');
 }
 
+// Sold-as ("unit") options for a review-modal row. Defaults to the MATCHED
+// catalogue product's soldAs (e.g. Kegs) so a known keg never reverts to Bottles.
+// Only falls back to the invoice's parsed unit, then Bottles, when unmatched.
+function getInvSoldAsOptions(r) {
+  const opts = ['Bottles','Cans','Kegs','Cases','Litres'];
+  const sel = (r.existing && r.existing.soldAs)
+    || (opts.includes(r.unit) ? r.unit : '')
+    || 'Bottles';
+  return opts.map(o=>`<option${o===sel?' selected':''}>${o}</option>`).join('');
+}
+
 function updateInvSubcat(id, i) {
   const catSel    = document.getElementById(`${id}-cat2-${i}`);
   const subcatSel = document.getElementById(`${id}-subcat-${i}`);
@@ -7752,8 +7770,11 @@ function updateInvCaseSize(id, i) {
 }
 
 // Parse case size from name e.g. "12x745ml" → 12, "24x330" → 24
+// Null-safe: called inline during the review-modal render, where a missing name
+// would otherwise throw and abort the whole row map (leaving inputs unrendered).
 function parseCaseSize(name) {
-  const m = name.match(/(\d+)\s*[xX×]\s*\d+/);
+  if(!name) return null;
+  const m = String(name).match(/(\d+)\s*[xX×]\s*\d+/);
   return m ? parseInt(m[1]) : null;
 }
 
@@ -7794,14 +7815,17 @@ function checkInvoiceReady(id, totalRows) {
 // Upload invoice PDF to Supabase Storage and return public URL
 async function uploadInvoicePDF(file, invoiceRef, clientSlug) {
   if(!file || !SUPABASE_CONFIG.url || !SUPABASE_CONFIG.key) return null;
+  // FIX 3 — Storage uploads return 403 (RLS) with the anon key, so use the service
+  // role key for the Storage requests ONLY. Everything else still uses the anon key.
+  const storageKey = SUPABASE_CONFIG.serviceKey || SUPABASE_CONFIG.key;
   try {
     const ext  = file.name.split('.').pop() || 'pdf';
     const path = `${clientSlug}/${invoiceRef}.${ext}`;
     const res  = await fetch(`${SUPABASE_CONFIG.url}/storage/v1/object/Invoices/${path}`, {
       method:  'POST',
       headers: {
-        'apikey':        SUPABASE_CONFIG.key,
-        'Authorization': 'Bearer ' + SUPABASE_CONFIG.key,
+        'apikey':        storageKey,
+        'Authorization': 'Bearer ' + storageKey,
         'Content-Type':  file.type || 'application/pdf',
         'x-upsert':      'true',
       },
@@ -7812,8 +7836,8 @@ async function uploadInvoicePDF(file, invoiceRef, clientSlug) {
     const signRes = await fetch(`${SUPABASE_CONFIG.url}/storage/v1/object/sign/Invoices/${path}`, {
       method:  'POST',
       headers: {
-        'apikey':        SUPABASE_CONFIG.key,
-        'Authorization': 'Bearer ' + SUPABASE_CONFIG.key,
+        'apikey':        storageKey,
+        'Authorization': 'Bearer ' + storageKey,
         'Content-Type':  'application/json',
       },
       body: JSON.stringify({ expiresIn: 315360000 }), // 10 years in seconds
@@ -7902,11 +7926,15 @@ function applyInvoiceToProducts(id) {
     const fullG      = fullgInput   ? parseFloat(fullgInput.value) || 0 : (item._fullG || 0);
     const density    = densityInput ? densityInput.value
                                     : (item._density || (cleanCat==='Spirits'?'0.9467':cleanCat==='Wine'?'0.9805':'1.014'));
-    // FIX — preserve soldAs from the original catalogue product so a keg/can/case isn't
-    // reset to Bottles on re-import. Catalogue value wins over the invoice unit, which
-    // can be lost across delete → archive → re-import cycles.
+    // FIX — preserve soldAs so a keg/can/case isn't reset to Bottles. Priority:
+    // (1) the review modal's "Sold as" dropdown (defaults to the catalogue value),
+    // (2) the matched catalogue product's soldAs, (3) the matched row's soldAs,
+    // (4) the invoice's parsed unit, (5) Bottles. The invoice unit can be lost
+    // across delete → archive → re-import, so it's the last resort, never a default.
+    const soldasInput = document.getElementById(id+'-soldas-'+i);
     const _catSoldAs = (c.products.find(p => (p.n||p.name||'').toLowerCase() === (cleanName||'').toLowerCase()) || {}).soldAs;
-    let soldAs       = _catSoldAs
+    let soldAs       = soldasInput?.value
+                       || _catSoldAs
                        || item.existing?.soldAs
                        || (['Kegs','Cases','Cans','Litres','Bottles'].includes(item.unit) ? item.unit : 'Bottles');
     let caseSize     = casesizeInput ? parseInt(casesizeInput.value)||null : (item.caseSize || parseCaseSize(item.name) || null);
@@ -7960,6 +7988,9 @@ function applyInvoiceToProducts(id) {
       if(fullG > 0) existing.fullG = fullG;
       if(caseSize) existing.caseSize = caseSize;
       if(density) existing.density = density;
+      // Persist the resolved soldAs (defaults to the catalogue value, so this is a
+      // no-op unless the user changed it in the review modal — never reverts to Bottles).
+      if(soldAs) existing.soldAs = soldAs;
       if(res._invoiceSupplier && !existing.supplier) existing.supplier = res._invoiceSupplier;
       if(costPriceAdj && costPriceAdj !== existing.costPrice) {
         existing.costHistory = existing.costHistory||[];
@@ -9276,6 +9307,11 @@ function removeRow(btn) { btn.closest('tr').remove(); updateSessionLines(); }
 const SUPABASE_CONFIG = {
   url: 'https://hjtguzieguogfjbwikwt.supabase.co',
   key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqdGd1emllZ3VvZ2ZqYndpa3d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwMDg1NDUsImV4cCI6MjA5MDU4NDU0NX0.yH_TrwX6jdeSi6WNOWvvQ4yzkznoXvCWEmDKFg9-DEE',
+  // Service role key — used ONLY for Storage PDF uploads (uploadInvoicePDF), which
+  // hit a 403 RLS error with the anon key. ⚠ This bypasses ALL row-level security
+  // and is publicly visible in the deployed page source. Safer long-term: move the
+  // upload behind the Cloudflare Worker proxy so the service key stays server-side.
+  serviceKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqdGd1emllZ3VvZ2ZqYndpa3d0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTAwODU0NSwiZXhwIjoyMDkwNTg0NTQ1fQ.Iyt8MzLOjGI9StCysg-aPe1t5BsE6jdOnahPo8EdXo4',
 };
 
 // ── Lightweight Supabase REST client (no SDK needed) ──
@@ -9662,7 +9698,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-07-r3';
+const APP_VERSION = '2026-06-07-r4';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
