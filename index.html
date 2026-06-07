@@ -4788,33 +4788,33 @@ function updateInvLineTotal(id, idx) {
   if(el) el.textContent = '$' + (qty * price).toFixed(2);
 }
 
-// FIX 3 — "Line total is fixed" cost model for the invoice review modal.
-// Changing QTY keeps the invoice's line total constant and recomputes the per-unit
-// price (= lineTotal / qty), which is the unit cost saved to the product's costHistory.
-// Editing the unit PRICE recomputes & stores a new line total (= qty × price).
+// Unit-price-anchored cost model for the invoice review modal.
+// Unit price is always the anchor: editing QTY or unit PRICE recomputes the line
+// total (= qty × price). Only editing the line TOTAL directly recomputes the
+// per-unit price (= total / qty), which is the unit cost saved to costHistory.
 function updateInvCost(id, idx, source) {
   const qtyEl   = document.getElementById(`${id}-qty-${idx}`);
   const priceEl = document.getElementById(`${id}-price-${idx}`);
   const totalEl = document.getElementById(`${id}-linetotal-${idx}`);
   if(!qtyEl || !priceEl || !totalEl) return;
 
-  const qty = parseFloat(qtyEl.value) || 0;
-  let lineTotal = parseFloat(totalEl.dataset.total);
-  if(isNaN(lineTotal)) lineTotal = qty * (parseFloat(priceEl.value) || 0);
+  const qty   = parseFloat(qtyEl.value) || 0;
+  let   price = parseFloat(priceEl.value) || 0;
+  let   lineTotal;
 
-  if(source === 'price') {
-    // Unit price edited → line total follows and becomes the new fixed total
-    lineTotal = qty * (parseFloat(priceEl.value) || 0);
+  if(source === 'total') {
+    // Line total edited directly → derive the per-unit price from it.
+    lineTotal = parseFloat(totalEl.value) || 0;
+    if(qty > 0) { price = lineTotal / qty; priceEl.value = price.toFixed(2); }
   } else {
-    // Qty edited → line total stays fixed, derive the per-unit price from it
-    if(qty > 0) priceEl.value = (lineTotal / qty).toFixed(2);
+    // Qty or unit price edited → unit price is the anchor, line total follows.
+    lineTotal = qty * price;
+    totalEl.value = lineTotal.toFixed(2);
   }
 
   totalEl.dataset.total = lineTotal.toFixed(2);
-  totalEl.textContent   = '$' + lineTotal.toFixed(2);
 
   // Keep the read-only inc/ex unit-cost box in sync with the live unit price
-  const price = parseFloat(priceEl.value) || 0;
   const incEl = document.getElementById(`${id}-unitinc-${idx}`);
   const exEl  = document.getElementById(`${id}-unitex-${idx}`);
   if(incEl) incEl.textContent = '$' + price.toFixed(2);
@@ -6850,6 +6850,7 @@ function addDumpInvoiceToClient(c, invoice, id) {
       t: '$' + total,
       i: invoice.items.length,
       items: dumpLines,
+      pdfUrl: invoice.pdfUrl || null,
     });
   }
 
@@ -6944,6 +6945,7 @@ function restoreInvoiceToProcessingBay(d) {
         supplier:    res._invoiceSupplier || d.s || '',
         invoiceDate: res._invoiceDate     || d.d || '',
         invoiceRef:  res._invoiceRef       || ref,
+        pdfUrl:      res._pdfUrl           || d.pdfUrl || null,
         items:       (res._invoiceData && res._invoiceData.length) ? res._invoiceData : (d.lines || d.items || []),
       };
       renderInvoiceResults(existing.id, invoice, '');
@@ -6970,7 +6972,10 @@ function restoreInvoiceToProcessingBay(d) {
     return {
       name, _cleanName: name,
       qty: qty || 1,
-      unit: unit || prod.parunit || 'Bottles',
+      // FIX — preserve how the product is sold (Kegs/Cans/Cases) from the catalogue
+      // so a restored line isn't silently defaulted to Bottles when the stored unit
+      // is missing. Catalogue soldAs is the source of truth.
+      unit: unit || prod.soldAs || prod.parunit || 'Bottles',
       _incGST: parseFloat(price || prod.costPrice || 0),
       _exGST: parseFloat((price || prod.costPrice || 0) / 1.15),
       cat:     resolvedCat,
@@ -7020,13 +7025,14 @@ function restoreInvoiceToProcessingBay(d) {
   list.appendChild(div);
 
   // Store data for review modal
-  storeInvoiceData(id, rows, d.s||'', d.r||'', d.d||'');
+  storeInvoiceData(id, rows, d.s||'', d.r||'', d.d||'', d.pdfUrl||null);
   const res = document.getElementById(id+'-results');
   if(res) {
     res._invoiceData     = rows;
     res._invoiceSupplier = d.s || '';
     res._invoiceRef      = d.r || '';
     res._invoiceDate     = d.d || '';
+    res._pdfUrl          = d.pdfUrl || null;
   }
 }
 
@@ -7201,6 +7207,10 @@ function reimportArchivedInvoice(ref) {
   if(idx < 0) return;
   const a = c.invoiceArchive[idx];
 
+  // Preserve any uploaded PDF link (from the archive entry or a still-present delivery)
+  // so it survives the re-import and the 📄 PDF ↗ badge keeps opening the PDF.
+  const pdfUrl = a.pdfUrl || (c.deliveries||[]).find(d => d.r === a.r)?.pdfUrl || null;
+
   // FIX 1 — remove from invoiceArchive AND deliveries BEFORE restoring so the
   // invoice isn't duplicated and isDuplicateInvoice won't false-positive.
   c.invoiceArchive.splice(idx, 1);
@@ -7208,7 +7218,7 @@ function reimportArchivedInvoice(ref) {
   dbSaveClient(c);
 
   // FIX 2/4 — guarantee caseSize is present on every line handed to the restore flow.
-  restoreInvoiceToProcessingBay({ ...a, items: preserveCaseSizes(a.items || a.lines, c) });
+  restoreInvoiceToProcessingBay({ ...a, pdfUrl, items: preserveCaseSizes(a.items || a.lines, c) });
   renderPage('purchases');
   showPersistToast('↩ Invoice restored to review bay');
 }
@@ -7306,8 +7316,8 @@ function importAllInvoices() {
 // Store invoice data by element id — avoids losing data when innerHTML is reassigned
 const _invoiceDataStore = {};
 
-function storeInvoiceData(id, rows, supplier, ref, date) {
-  _invoiceDataStore[id] = { rows, supplier, ref, date };
+function storeInvoiceData(id, rows, supplier, ref, date, pdfUrl) {
+  _invoiceDataStore[id] = { rows, supplier, ref, date, pdfUrl: pdfUrl || null };
 }
 function getInvoiceData(id) {
   return _invoiceDataStore[id] || null;
@@ -7438,7 +7448,8 @@ function renderInvoiceResults(id, invoice, filename) {
   res._invoiceSupplier = invoice.supplier || '';
   res._invoiceRef      = invoice.invoiceRef || '';
   res._invoiceDate     = invoice.invoiceDate || '';
-  storeInvoiceData(id, rows, invoice.supplier||'', invoice.invoiceRef||'', invoice.invoiceDate||'');
+  res._pdfUrl          = invoice.pdfUrl || res._pdfUrl || null;
+  storeInvoiceData(id, rows, invoice.supplier||'', invoice.invoiceRef||'', invoice.invoiceDate||'', res._pdfUrl);
 
   res.style.display = 'block';
 
@@ -7611,7 +7622,9 @@ function openInvoiceReviewModal(id) {
         </div>
         <div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Line total</div>
-          <div id="${id}-linetotal-${globalIdx}" data-total="${(r.lineTotal||(r._incGST||0)*(r.qty||1)).toFixed(2)}" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--text2);font-family:var(--font-mono);">$${(r.lineTotal||(r._incGST||0)*(r.qty||1)).toFixed(2)}</div>
+          <input id="${id}-linetotal-${globalIdx}" type="number" step="0.01" min="0" data-total="${(r.lineTotal||(r._incGST||0)*(r.qty||1)).toFixed(2)}" value="${(r.lineTotal||(r._incGST||0)*(r.qty||1)).toFixed(2)}"
+            style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--accent);font-family:var(--font-mono);outline:none;"
+            oninput="updateInvCost('${id}',${globalIdx},'total')">
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
@@ -7845,7 +7858,11 @@ function applyInvoiceToProducts(id) {
     res._invoiceSupplier = stored.supplier;
     res._invoiceRef      = stored.ref;
     res._invoiceDate     = stored.date;
+    res._pdfUrl          = stored.pdfUrl || null;
   }
+  // FIX — keep any previously-uploaded PDF link so re-imported invoices still show
+  // the 📄 PDF ↗ badge (and open the PDF) instead of falling back to the View modal.
+  if(res._pdfUrl == null && stored?.pdfUrl) res._pdfUrl = stored.pdfUrl;
   if(!res._invoiceData) {
     console.error('applyInvoiceToProducts: no invoice data found for id:', id);
     alert('Invoice data not found — please re-upload the invoice.');
@@ -7880,7 +7897,13 @@ function applyInvoiceToProducts(id) {
     const fullG      = fullgInput   ? parseFloat(fullgInput.value) || 0 : (item._fullG || 0);
     const density    = densityInput ? densityInput.value
                                     : (item._density || (cleanCat==='Spirits'?'0.9467':cleanCat==='Wine'?'0.9805':'1.014'));
-    let soldAs       = (['Kegs','Cases','Cans','Litres','Bottles'].includes(item.unit)) ? item.unit : 'Bottles';
+    // FIX — preserve soldAs from the original catalogue product so a keg/can/case isn't
+    // reset to Bottles on re-import. Catalogue value wins over the invoice unit, which
+    // can be lost across delete → archive → re-import cycles.
+    const _catSoldAs = (c.products.find(p => (p.n||p.name||'').toLowerCase() === (cleanName||'').toLowerCase()) || {}).soldAs;
+    let soldAs       = _catSoldAs
+                       || item.existing?.soldAs
+                       || (['Kegs','Cases','Cans','Litres','Bottles'].includes(item.unit) ? item.unit : 'Bottles');
     let caseSize     = casesizeInput ? parseInt(casesizeInput.value)||null : (item.caseSize || parseCaseSize(item.name) || null);
     const splitCase  = casesplitInput ? casesplitInput.checked && soldAs==='Cases' && caseSize>0 : false;
 
@@ -8074,7 +8097,7 @@ function applyInvoiceToProducts(id) {
         t: '$' + (storedInv.rows||[]).reduce((s,r)=>s+(r._incGST||0)*(r.qty||1),0).toFixed(2),
         st: 'Verified', sc: 'chip-green',
         lines: (storedInv.rows && storedInv.rows.length) ? storedInv.rows : (res?._invoiceData || []),
-        pdfUrl: null,
+        pdfUrl: res._pdfUrl || null,
       };
       c.deliveries.unshift(delivery);
       if(!c.suppliers) c.suppliers = [];
