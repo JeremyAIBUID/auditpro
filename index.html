@@ -2461,11 +2461,11 @@ function renderPage(page) {
     document.getElementById('price-changes-panel').style.display='none';
     document.getElementById('purchases-body').innerHTML = c.deliveries.map((d,idx)=>{
       const isManual = d.sc === 'chip-blue';
+      // Blue badge opens the EDIT modal so the invoice can be modified after import.
+      // PDF/View stays on the dedicated action button below.
       const sourceBadge = isManual
         ? `<span style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(167,139,250,0.1);color:#a78bfa;border:1px solid rgba(167,139,250,0.2);">✏️ Manual</span>`
-        : d.pdfUrl
-          ? `<span onclick="window.open('${d.pdfUrl}','_blank')" style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(91,156,240,0.1);color:#5b9cf0;border:1px solid rgba(91,156,240,0.2);cursor:pointer;">📄 PDF ↗</span>`
-          : `<span onclick="viewInvoice(${idx})" style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(91,156,240,0.1);color:#5b9cf0;border:1px solid rgba(91,156,240,0.2);cursor:pointer;" title="View invoice details">📄 View</span>`;
+        : `<span onclick="editInvoice(${idx})" style="font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(91,156,240,0.1);color:#5b9cf0;border:1px solid rgba(91,156,240,0.2);cursor:pointer;" title="Edit invoice line items">✏️ Edit</span>`;
       const statusChip = isManual
         ? `<span class="chip chip-purple">Manual entry</span>`
         : `<span class="chip ${d.sc}">${d.st}</span>`;
@@ -6553,6 +6553,10 @@ function saveEditedInvoice(idx) {
   }).filter(Boolean);
 
   d.lines = newLines;
+  // Keep the purchase-history total + item count in sync with the edited lines
+  // (incl GST), so editing via this modal doesn't leave a stale total.
+  d.i = newLines.length;
+  d.t = '$' + newLines.reduce((s,l)=>s + (parseFloat(l._incGST)||0)*(parseFloat(l.qty)||0), 0).toFixed(2);
 
   // Also update session.purchases so variance reflects the edited quantities
   ;(c.auditSessions||[]).forEach(sess => {
@@ -6665,7 +6669,9 @@ Extract the invoice details and return ONLY a JSON object (no markdown, no expla
   "items": [
     { "name": "full product name including size", "qty": 1, "unit": "Bottles", "unitPrice": 0.00, "lineTotal": 0.00, "cat": "Spirits" }
   ]
-}` }
+}
+
+For "invoiceTotal" use the printed INVOICE TOTAL (Incl. GST) — the final amount payable, inclusive of GST and any surcharges and deposits. NEVER calculate it by summing the line items.` }
           ]
         }]
       })
@@ -6951,6 +6957,7 @@ function restoreInvoiceToProcessingBay(d) {
         invoiceDate: res._invoiceDate     || d.d || '',
         invoiceRef:  res._invoiceRef       || ref,
         pdfUrl:      res._pdfUrl           || d.pdfUrl || null,
+        invoiceTotal: res._invoiceTotal   || parseFloat(String(d.t||'').replace(/[^0-9.]/g,'')) || 0,
         items:       (res._invoiceData && res._invoiceData.length) ? res._invoiceData : (d.lines || d.items || []),
       };
       renderInvoiceResults(existing.id, invoice, '');
@@ -7038,6 +7045,7 @@ function restoreInvoiceToProcessingBay(d) {
     res._invoiceRef      = d.r || '';
     res._invoiceDate     = d.d || '';
     res._pdfUrl          = d.pdfUrl || null;
+    res._invoiceTotal    = parseFloat(String(d.t||'').replace(/[^0-9.]/g,'')) || 0;
   }
 }
 
@@ -7135,6 +7143,8 @@ Extract every product line item and return ONLY a JSON object (no markdown, no e
 }
 
 Rules:
+- "invoiceTotal" MUST be the printed grand total the customer pays — the figure labelled "INVOICE TOTAL", "Total (Incl. GST)", "Total Due", "Amount Payable" or "Balance Due" on the invoice. It is INCLUSIVE of GST and already reflects any discounts, fuel/freight surcharges, and container/keg deposits. NEVER calculate invoiceTotal by adding up the line items — line items often exclude GST, surcharges and deposits, so a sum will be wrong. Read the printed total verbatim.
+- "invoiceTotalExGST" = the printed subtotal/total EXCLUDING GST; "invoiceGST" = the printed GST amount. Use the printed figures when visible rather than calculating.
 - For "unit" use: Bottles, Cans, Cases, Kegs, Litres, Units
 - For "cat" use: Spirits, Beer, Wine, RTD, Soft drinks, Food, Other
 - Category rules: Beer = ALL beer products regardless of packaging — bottles, cans, OR kegs (lager, ale, stout, IPA, porter, Guinness, Speights, Steinlager, Lion Red, Tui, DB Draught, Mac's, Monteith's, Panhead, Heineken, Corona, Stella, Asahi, Peroni, etc.). ANY keg that is a beer brand MUST be Beer. RTD = ready-to-drink pre-mixed cans (Smirnoff Ice, Cruiser, Kirin Hyoketsu, Gordon's gin & tonic, hard seltzer, etc.). Spirits = distilled spirits only (whisky, vodka, gin, rum, tequila, brandy, schnapps — NOT beer, NOT kegs of beer). NEVER classify beer as Spirits even if the unit is Kegs.
@@ -7454,6 +7464,7 @@ function renderInvoiceResults(id, invoice, filename) {
   res._invoiceRef      = invoice.invoiceRef || '';
   res._invoiceDate     = invoice.invoiceDate || '';
   res._pdfUrl          = invoice.pdfUrl || res._pdfUrl || null;
+  res._invoiceTotal    = parseFloat(invoice.invoiceTotal) || 0;   // printed INVOICE TOTAL (incl GST)
   storeInvoiceData(id, rows, invoice.supplier||'', invoice.invoiceRef||'', invoice.invoiceDate||'', res._pdfUrl);
 
   res.style.display = 'block';
@@ -8125,12 +8136,38 @@ function applyInvoiceToProducts(id) {
     if(!c.deliveries) c.deliveries = [];
     const alreadyAdded = isDuplicateInvoice(c, storedInv.ref, storedInv.date, storedInv.supplier);
     if(!alreadyAdded) {
+      // FIX 1 — recompute the saved invoice total from the FINAL (possibly edited) line
+      // values. If any line was changed in the review modal, use the sum of the final
+      // line totals (incl GST); otherwise keep the printed INVOICE TOTAL (incl GST),
+      // which also covers surcharges/deposits that aren't line items. Edited qty/price
+      // are written back onto the stored lines so the saved record matches the total.
+      let editedSum = 0, anyEdit = false;
+      (storedInv.rows||[]).forEach((r,i) => {
+        const initial = (parseFloat(r.lineTotal) || (r._incGST||0)*(r.qty||1)) || 0;
+        const tEl = document.getElementById(id+'-linetotal-'+i);
+        const qEl = document.getElementById(id+'-qty-'+i);
+        const pEl = document.getElementById(id+'-price-'+i);
+        let current;
+        if(tEl && tEl.value !== '') current = parseFloat(tEl.value) || 0;
+        else if(qEl && pEl)         current = (parseFloat(qEl.value)||0) * (parseFloat(pEl.value)||0);
+        else                        current = initial;
+        if(Math.abs(current - initial) > 0.005) {
+          anyEdit = true;
+          if(qEl) r.qty = parseFloat(qEl.value) || r.qty;
+          if(pEl) { r._incGST = parseFloat(pEl.value) || r._incGST; r._exGST = (r._incGST||0)/1.15; }
+          r.lineTotal = +current.toFixed(2);
+        }
+        editedSum += current;
+      });
+      const printedTotal = parseFloat(res._invoiceTotal) || 0;
+      const finalTotal   = anyEdit ? editedSum : (printedTotal > 0 ? printedTotal : editedSum);
+
       const delivery = {
         s: storedInv.supplier,
         d: storedInv.date || 'Unknown date',
         r: storedInv.ref  || 'AUTO-'+Date.now(),
         i: (storedInv.rows||[]).length,
-        t: '$' + (storedInv.rows||[]).reduce((s,r)=>s+(r._incGST||0)*(r.qty||1),0).toFixed(2),
+        t: '$' + finalTotal.toFixed(2),
         st: 'Verified', sc: 'chip-green',
         lines: (storedInv.rows && storedInv.rows.length) ? storedInv.rows : (res?._invoiceData || []),
         pdfUrl: res._pdfUrl || null,
@@ -9698,7 +9735,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-07-r4';
+const APP_VERSION = '2026-06-07-r5';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
