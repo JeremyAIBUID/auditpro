@@ -4819,6 +4819,11 @@ function updateInvCost(id, idx, source) {
   const exEl  = document.getElementById(`${id}-unitex-${idx}`);
   if(incEl) incEl.textContent = '$' + price.toFixed(2);
   if(exEl)  exEl.textContent  = 'ex $' + (price/1.15).toFixed(2);
+
+  // Keep the always-visible row header price in sync too, so the displayed unit
+  // price reflects edits even when the row is collapsed.
+  const hdrEl = document.getElementById(`${id}-hdrprice-${idx}`);
+  if(hdrEl) hdrEl.textContent = '$' + price.toFixed(2);
 }
 
 function refreshProcessingCards() {
@@ -7570,7 +7575,7 @@ function openInvoiceReviewModal(id) {
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:${isMatched?'0':'12px'};">
         ${badge}
         <div style="font-size:13px;font-weight:700;color:var(--text);flex:1;">${r._cleanName}</div>
-        <div style="font-size:12px;font-family:var(--font-mono);color:var(--accent);">$${(r._incGST||0).toFixed(2)}</div>
+        <div id="${id}-hdrprice-${globalIdx}" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);">$${(r._incGST||0).toFixed(2)}</div>
         ${isMatched ? `<button onclick="var ex=document.getElementById('${id}-expand-${globalIdx}');ex.classList.toggle('hidden');" style="font-size:11px;color:var(--text3);background:none;border:none;cursor:pointer;padding:2px 6px;">Edit ▾</button>` : ''}
       </div>
       <div id="${id}-expand-${globalIdx}" class="irm-expand${isMatched?' hidden':''}">
@@ -8106,18 +8111,30 @@ function applyInvoiceToProducts(id) {
       }
       dbSaveClient(c);
       if(document.getElementById('page-purchases')?.classList.contains('active')) renderPage('purchases');
-      // Upload PDF to Supabase Storage in background
+      // Upload PDF to Supabase Storage (async) — surface progress so the 📄 PDF ↗
+      // badge visibly appears on first import. _sourceFile is stamped on the card
+      // by processInvoiceWithAI; restored cards have none and reuse res._pdfUrl.
       const sourceFile = document.getElementById(id)?._sourceFile;
       if(sourceFile && delivery.r) {
+        showPersistToast('📎 Uploading invoice PDF…');
         uploadInvoicePDF(sourceFile, delivery.r, clientSlug(c)).then(url => {
           if(url) {
             delivery.pdfUrl = url;
             dbSaveClient(c);
             console.log('[AuditPro] PDF stored:', url);
-            // Re-render purchases page so PDF ↗ link appears
-            if(document.getElementById('page-purchases')?.classList.contains('active')) renderPage('purchases');
+            showPersistToast('✓ Invoice PDF saved');
+          } else {
+            console.warn('[AuditPro] PDF upload returned no URL for', delivery.r);
+            showPersistToast('⚠ PDF upload failed — invoice saved without PDF');
           }
+          // Always refresh purchases so the badge reflects the upload result
+          if(document.getElementById('page-purchases')?.classList.contains('active')) renderPage('purchases');
+        }).catch(e => {
+          console.error('[AuditPro] PDF upload error:', e);
+          showPersistToast('⚠ PDF upload error — see console');
         });
+      } else if(!sourceFile && !delivery.pdfUrl) {
+        console.warn('[AuditPro] No source PDF on card', id, '— PDF badge will show “View” until a PDF is attached');
       }
     }
   }
@@ -9642,6 +9659,11 @@ function showSupabaseSetup() {
 }
 
 // ── Startup ──────────────────────────────────────────
+// Build stamp — open DevTools console (F12) and check this matches the latest
+// deploy. If it shows an older value, you're on a cached version: hard-refresh
+// with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
+const APP_VERSION = '2026-06-07-r3';
+console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
 renderDropdown();
