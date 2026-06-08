@@ -3002,7 +3002,7 @@ function openSupplierDetail(name) {
           <td class="td-mono">${d.r||'—'}</td>
           <td>${d.i||0}</td>
           <td class="td-mono">${d.t||'—'}</td>
-          <td><button class="btn btn-secondary" style="padding:3px 8px;font-size:11px;" onclick="viewInvoice(${(c.deliveries||[]).indexOf(d)})">View</button></td>
+          <td>${d.pdfUrl ? `<button class="btn btn-secondary" style="padding:3px 8px;font-size:11px;" onclick="window.open('${d.pdfUrl}','_blank')">📄 PDF</button>` : ''}</td>
         </tr>`).join('')}</tbody>
       </table></div>` : '<div style="padding:16px;color:var(--text3);font-size:13px;">No invoices recorded</div>'}
     </div>`;
@@ -6571,6 +6571,8 @@ function saveEditedInvoice(idx) {
   dbSaveClient(c);
   document.getElementById('invoice-edit-overlay')?.remove();
   showPersistToast(`✓ Invoice updated — ${newLines.length} line items saved`);
+  // Re-render the purchases page so the recalculated total/item count show immediately
+  if(document.getElementById('page-purchases')?.classList.contains('active')) renderPage('purchases');
   // Re-render variance immediately if on that page
   if(document.getElementById('page-variances')?.classList.contains('active')) renderVarTable();
 }
