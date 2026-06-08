@@ -219,8 +219,70 @@
   ::-webkit-scrollbar{width:5px;}
   ::-webkit-scrollbar-track{background:transparent;}
   ::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:3px;}
+
+  /* ───────── FULL AUDIT REPORT (print-friendly light document) ───────── */
+  .rpt-doc{width:794px;margin:0 auto;background:#fff;color:#1a1a1a;font-family:'Helvetica Neue',Arial,sans-serif;font-size:12px;line-height:1.5;box-shadow:0 4px 24px rgba(0,0,0,0.4);}
+  .rpt-page{padding:38px 44px;min-height:1123px;position:relative;page-break-after:always;box-sizing:border-box;border-bottom:1px dashed #c9ccd1;}
+  .rpt-page:last-child{page-break-after:auto;border-bottom:none;}
+  .rpt-doc h1,.rpt-doc h2,.rpt-doc h3,.rpt-doc h4{margin:0;font-weight:700;color:#15171c;}
+  .rpt-doc h2{font-size:19px;letter-spacing:-0.01em;border-bottom:2px solid #15171c;padding-bottom:8px;margin-bottom:16px;}
+  .rpt-doc h3{font-size:14px;margin-bottom:8px;}
+  .rpt-doc p{margin:0 0 9px;}
+  .rpt-muted{color:#6b7078;}
+  .rpt-logo-box{display:inline-flex;align-items:center;justify-content:center;width:54px;height:54px;border-radius:10px;background:#15171c;color:#fff;font-size:11px;font-weight:700;text-align:center;line-height:1.2;}
+  .rpt-eyebrow{font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#8a8f97;}
+  .rpt-sec-label{font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#8a8f97;margin-bottom:3px;}
+  /* tables */
+  .rpt-table{width:100%;border-collapse:collapse;font-size:11px;margin:4px 0 10px;}
+  .rpt-table th{text-align:left;background:#f1f3f6;color:#3a3f47;font-weight:700;font-size:10px;letter-spacing:0.03em;text-transform:uppercase;padding:7px 8px;border-bottom:1.5px solid #d6dae0;}
+  .rpt-table td{padding:6px 8px;border-bottom:1px solid #eceef2;vertical-align:middle;}
+  .rpt-table tr:nth-child(even) td{background:#fafbfc;}
+  .rpt-table td.num,.rpt-table th.num{text-align:right;font-variant-numeric:tabular-nums;}
+  .rpt-table tfoot td,.rpt-table tr.rpt-total td{font-weight:700;background:#eef0f3 !important;border-top:1.5px solid #c9ccd1;}
+  .rpt-catrow td{background:#15171c !important;color:#fff;font-weight:700;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;padding:5px 8px;}
+  /* cards / metrics */
+  .rpt-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;}
+  .rpt-card{border:1px solid #e2e5ea;border-radius:9px;padding:12px 13px;background:#fff;}
+  .rpt-card .lbl{font-size:9.5px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#8a8f97;margin-bottom:5px;}
+  .rpt-card .val{font-size:21px;font-weight:700;color:#15171c;line-height:1.1;}
+  .rpt-card .sub{font-size:10.5px;color:#6b7078;margin-top:3px;}
+  /* RAG badges */
+  .rpt-badge{display:inline-block;font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:20px;line-height:1.5;white-space:nowrap;}
+  .rag-red{background:#fde2e2;color:#b42318;}
+  .rag-amber{background:#fdf0d0;color:#9a6a00;}
+  .rag-green{background:#d7f2e4;color:#0a6c44;}
+  .rag-blue{background:#dceafb;color:#1857a8;}
+  .rag-grey{background:#eceef2;color:#5a5f66;}
+  /* donut */
+  .rpt-donut-wrap{display:flex;gap:18px;align-items:center;}
+  .rpt-donut{width:140px;height:140px;border-radius:50%;flex-shrink:0;position:relative;}
+  .rpt-donut::after{content:'';position:absolute;inset:26px;background:#fff;border-radius:50%;}
+  .rpt-donut-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;z-index:1;}
+  .rpt-legend{flex:1;font-size:10.5px;}
+  .rpt-legend .lg-row{display:flex;align-items:center;gap:7px;padding:3px 0;border-bottom:1px solid #f0f2f5;}
+  .rpt-legend .lg-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0;}
+  .rpt-legend .lg-name{flex:1;color:#3a3f47;}
+  .rpt-legend .lg-val{font-weight:700;font-variant-numeric:tabular-nums;color:#15171c;}
+  .rpt-legend .lg-pct{color:#8a8f97;width:38px;text-align:right;}
+  /* GP bars */
+  .rpt-gpbar-row{margin-bottom:11px;}
+  .rpt-gpbar-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;font-size:11px;}
+  .rpt-gpbar-track{position:relative;height:18px;background:#f1f3f6;border-radius:5px;overflow:hidden;}
+  .rpt-gpbar-fill{position:absolute;top:0;left:0;height:100%;border-radius:5px;}
+  .rpt-gpbar-ideal{position:absolute;top:-3px;bottom:-3px;width:2px;background:#15171c;}
+  /* editable */
+  .rpt-edit{outline:none;border:1px dashed transparent;border-radius:5px;padding:3px 5px;margin:-3px -5px;transition:border 0.15s,background 0.15s;}
+  .rpt-edit:hover{border-color:#cfd4db;}
+  .rpt-edit:focus{border-color:#5b9cf0;background:#f5f9ff;}
+  .rpt-editable-hint{font-size:9.5px;color:#aeb3ba;font-style:italic;}
+  /* signature */
+  .rpt-sig-line{border-bottom:1.5px solid #15171c;height:34px;margin-bottom:5px;}
+  .rpt-footer{position:absolute;left:44px;right:44px;bottom:20px;display:flex;justify-content:space-between;font-size:9px;color:#9aa0a8;border-top:1px solid #e2e5ea;padding-top:7px;}
+  .rpt-conf{display:inline-block;font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#b42318;border:1px solid #f3c0bb;border-radius:4px;padding:2px 8px;}
+  @media print{ .rpt-doc{box-shadow:none;width:auto;} #fullrpt-preview-wrap{background:#fff !important;padding:0 !important;} }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
 <div class="shell">
@@ -1093,6 +1155,7 @@
       <!-- Report type tabs -->
       <div style="display:flex;gap:4px;background:var(--bg3);border-radius:10px;padding:4px;margin-bottom:20px;width:fit-content;">
         <button class="tab active" id="rpt-tab-audit" onclick="switchRptTab('audit',this)">📋 Audit reports</button>
+        <button class="tab" id="rpt-tab-full" onclick="switchRptTab('full',this)">📄 Full audit report (PDF)</button>
         <button class="tab" id="rpt-tab-intelipar" onclick="switchRptTab('intelipar',this)">📦 Intelipar order report</button>
       </div>
 
@@ -1195,6 +1258,65 @@
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- ── FULL PDF AUDIT REPORT ── -->
+      <div id="rpt-view-full" style="display:none;">
+
+        <!-- Explainer -->
+        <div style="background:linear-gradient(135deg,rgba(91,156,240,0.07),rgba(91,227,180,0.03));border:1px solid rgba(91,156,240,0.18);border-radius:12px;padding:16px 18px;margin-bottom:20px;display:flex;align-items:flex-start;gap:14px;">
+          <div style="width:36px;height:36px;background:rgba(91,156,240,0.12);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px;">📄</div>
+          <div>
+            <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px;">Full audit report</div>
+            <div style="font-size:13px;color:var(--text2);line-height:1.7;">Generates a complete, client-ready stock audit report — executive summary, variance analysis, GP analysis, AI auditor commentary, loss/gain leaders and full product detail. Edit the AI comments inline, then export to PDF.</div>
+          </div>
+        </div>
+
+        <!-- Builder controls -->
+        <div class="card" style="margin-bottom:18px;">
+          <div class="card-body" style="padding:16px 18px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px;">
+              <div class="form-group" style="margin-bottom:0;">
+                <label>Audit period</label>
+                <select id="fullrpt-session" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;color:var(--text);font-family:var(--font-ui);font-size:13px;outline:none;width:100%;"></select>
+              </div>
+              <div class="form-group" style="margin-bottom:0;">
+                <label>Auditor name</label>
+                <input type="text" id="fullrpt-auditor" placeholder="e.g. Jeremy" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;color:var(--text);font-family:var(--font-ui);font-size:13px;outline:none;width:100%;">
+              </div>
+              <div class="form-group" style="margin-bottom:0;">
+                <label>Company / brand name</label>
+                <input type="text" id="fullrpt-company" placeholder="[Your company name]" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;color:var(--text);font-family:var(--font-ui);font-size:13px;outline:none;width:100%;">
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+              <button class="btn btn-primary" onclick="generateFullReport()">📊 Generate report</button>
+              <button class="btn btn-secondary" id="fullrpt-export-btn" style="display:none;" onclick="exportReportPDF()">⬇ Export PDF</button>
+              <button class="btn btn-secondary" id="fullrpt-regen-btn" style="display:none;" onclick="regenerateReportAIComments()">↻ Regenerate AI comments</button>
+              <span id="fullrpt-status" style="font-size:12px;color:var(--text3);"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Loading state -->
+        <div id="fullrpt-loading" style="display:none;text-align:center;padding:48px 20px;color:var(--text3);">
+          <div style="font-size:28px;margin-bottom:12px;animation:spin 1s linear infinite;display:inline-block;">⟳</div>
+          <div id="fullrpt-loading-msg" style="font-size:15px;font-weight:600;color:var(--text2);">Building report…</div>
+          <style>@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}</style>
+        </div>
+
+        <!-- Empty state -->
+        <div id="fullrpt-empty" style="text-align:center;padding:48px 20px;color:var(--text3);">
+          <div style="font-size:48px;margin-bottom:12px;">📄</div>
+          <div style="font-size:16px;font-weight:600;color:var(--text2);margin-bottom:6px;">Generate a full audit report</div>
+          <div style="font-size:13px;">Select an audit period and click Generate. The report appears here for review and PDF export.</div>
+        </div>
+
+        <!-- Report preview (light theme document) -->
+        <div id="fullrpt-preview-wrap" style="display:none;background:#525659;padding:24px;border-radius:12px;overflow-x:auto;">
+          <div id="report-preview" class="rpt-doc"></div>
+        </div>
+
       </div>
 
       <!-- ── AUDIT REPORTS ── -->
@@ -3213,8 +3335,9 @@ function emailAIQuestions() {
 }
 
 function switchRptTab(tab, btn) {
-  ['intelipar','audit'].forEach(t=>{ showEl('rpt-view-'+t, t===tab); setActive('rpt-tab-'+t, t===tab); });
+  ['intelipar','audit','full'].forEach(t=>{ showEl('rpt-view-'+t, t===tab); setActive('rpt-tab-'+t, t===tab); });
   if(tab==='intelipar') renderIntelipar();
+  if(tab==='full') renderFullReportTab();
 }
 
 // ─── INTELIPAR REPORT ────────────────────────────
@@ -3368,6 +3491,724 @@ function printIntelipar() {
   document.getElementById('ipar-footer').style.display='block';
   window.print();
   setTimeout(()=>document.getElementById('ipar-footer').style.display='none', 1000);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   FULL PDF AUDIT REPORT GENERATOR
+   - calculateReportData()  builds all numbers from computeVariances()
+   - renderReportDocument() renders the light-theme HTML document
+   - genReportAIComments()  fills the contenteditable AI commentary
+   - exportReportPDF()      html2pdf → A4 portrait, saves a report record
+   ════════════════════════════════════════════════════════════════════ */
+
+const REPORT_CAT_ORDER  = ['Spirits','Wine','Sparkling','Draught','Beer & Cider','RTD','Misc'];
+const REPORT_CAT_COLORS = {
+  'Spirits':'#378ADD', 'Wine':'#D85A30', 'Sparkling':'#1D9E75', 'Draught':'#BA7517',
+  'Beer & Cider':'#639922', 'RTD':'#7F77DD', 'Misc':'#888780'
+};
+// Variance thresholds — flag a category if its variance % falls below this.
+const REPORT_CAT_THRESHOLDS = {
+  'Spirits':0, 'Wine':-2, 'Sparkling':-2, 'Draught':-3,
+  'Beer & Cider':-0.5, 'RTD':-0.5, 'Misc':-0.5
+};
+const REPORT_PAR_DAYS = 17.5; // ideal stock holding (2.5 weeks) — matches Intelipar / par widget
+
+let _fullReportData = null;   // last calculated dataset
+let _fullReportMeta = null;   // { venue, address, period, auditor, company, reportDate, sessionIdx }
+
+// Map a product onto one of the 7 report categories.
+function reportCategory(prod) {
+  const cat    = (prod.cat || '').toLowerCase();
+  const sub    = (prod.subcat || '').toLowerCase();
+  const soldAs = prod.soldAs || '';
+  if (cat === 'spirits') return 'Spirits';
+  if (cat === 'wine') {
+    return (sub.includes('spark') || sub.includes('champ') || sub.includes('prosecc') || sub.includes('methode') || sub.includes('méthode'))
+      ? 'Sparkling' : 'Wine';
+  }
+  if (cat === 'beer' || cat === 'cider' || cat === 'beer & cider') {
+    return soldAs === 'Kegs' ? 'Draught' : 'Beer & Cider';
+  }
+  if (cat === 'rtd') return 'RTD';
+  return 'Misc'; // Soft drinks, Food, Cocktails, Other
+}
+
+// RAG status for a variance % against its category threshold.
+function reportRAG(variancePct, reportCat) {
+  const T = REPORT_CAT_THRESHOLDS[reportCat] != null ? REPORT_CAT_THRESHOLDS[reportCat] : -0.5;
+  if (variancePct >= T)       return 'green';
+  if (variancePct >= T - 2)   return 'amber';
+  return 'red';
+}
+function ragClass(rag)  { return rag === 'green' ? 'rag-green' : rag === 'amber' ? 'rag-amber' : 'rag-red'; }
+function ragLabel(rag)  { return rag === 'green' ? 'OK' : rag === 'amber' ? 'Watch' : 'Action'; }
+
+// ─── Formatting helpers ──────────────────────────
+function fmtMoney(n, dp = 0) {
+  const v = Number(n) || 0;
+  const sign = v < 0 ? '-' : '';
+  return sign + '$' + Math.abs(v).toLocaleString('en-NZ', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+}
+function fmtPct(n, dp = 1) {
+  const v = Number(n) || 0;
+  return (v >= 0 ? '+' : '') + v.toFixed(dp) + '%';
+}
+function rptEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+// ─── Core calculation ────────────────────────────
+function calculateReportData(client, session) {
+  // computeVariances() is the app's canonical variance engine — reuse it so the
+  // report's numbers always match the Variance page. It targets the open /
+  // most-recent-with-purchases session; `session` here drives period labelling.
+  const varRows = computeVariances(client) || [];
+  const prodMap = {};
+  (client.products || []).forEach(p => { prodMap[p.n || p.name] = p; });
+
+  const sessions  = client.auditSessions || [];
+  const sessIdx   = session ? sessions.indexOf(session) : sessions.length - 1;
+  const prevSess  = sessIdx > 0 ? sessions[sessIdx - 1] : null;
+  const periodDays = (session && session.periodDays) || 30;
+  const prevSalesQty = name => {
+    const s = prevSess && prevSess.sales && prevSess.sales[name];
+    return s ? (parseFloat(s.qty) || 0) : 0;
+  };
+
+  // Build per-product report rows
+  const products = varRows.map(r => {
+    const prod      = prodMap[r.p] || {};
+    const cat       = reportCategory(prod);
+    const cost      = r.costPrice || 0;
+    const opening   = r.openNum || 0;
+    const purchased = r.purUnits || 0;
+    const sold      = r.salesUnits || 0;
+    const expected  = r.expectedNum || 0;
+    const actual    = r.actualNum || 0;
+    const variancePct   = r.varPctNum || 0;
+    const varianceValue = r.costImpact || 0;       // (actual − expected) × cost
+    const actualGP  = r.actualGP || 0;
+    const idealGP   = r.idealGP || 0;
+    const gpGap     = actualGP - idealGP;
+    return {
+      name: r.p, cat, soldAs: prod.soldAs || '', costPrice: cost,
+      opening, purchased, sold, expected, actual, variancePct, varianceValue,
+      openingVal:  opening   * cost,
+      purchaseVal: purchased * cost,
+      expectedVal: expected  * cost,
+      actualVal:   actual    * cost,
+      actualGP, idealGP, gpGap,
+      salesRev: r.salesRev || 0,
+      noSalesNow:  sold <= 0,
+      noSalesPrev: prevSalesQty(r.p) <= 0,
+      idealVal:    (sold / periodDays) * REPORT_PAR_DAYS * cost, // par-level holding value
+      rag: reportRAG(variancePct, cat),
+    };
+  });
+
+  // Category usage totals (for slow-mover share)
+  const catUsageUnits = {};
+  products.forEach(p => { catUsageUnits[p.cat] = (catUsageUnits[p.cat] || 0) + Math.max(0, p.sold); });
+
+  // Dead-stock / slow-mover flags
+  products.forEach(p => {
+    const hasStock = p.actual > 0.001;
+    // Dead: no sales this period AND (no prior period OR no sales last period), with stock held
+    p.deadStock = hasStock && p.noSalesNow && (prevSess ? p.noSalesPrev : true);
+    // Slow: not dead, holds stock, <2% of its category's usage this period
+    const share = catUsageUnits[p.cat] > 0 ? p.sold / catUsageUnits[p.cat] : 0;
+    p.slowMover = !p.deadStock && hasStock && share < 0.02;
+    p.gain      = p.varianceValue > 0.005;
+    // Only a GP issue if we actually have a computed GP (actualGP 0 = no data, not a real gap)
+    p.gpIssue   = p.idealGP > 0 && p.actualGP > 0 && p.actualGP < (p.idealGP - 2);
+  });
+
+  // Category aggregates (in report-category order)
+  const categories = REPORT_CAT_ORDER.map(cat => {
+    const rows = products.filter(p => p.cat === cat);
+    const openingVal  = rows.reduce((s, p) => s + p.openingVal, 0);
+    const purchaseVal = rows.reduce((s, p) => s + p.purchaseVal, 0);
+    const expectedVal = rows.reduce((s, p) => s + p.expectedVal, 0);
+    const actualVal   = rows.reduce((s, p) => s + p.actualVal, 0);
+    const varianceVal = rows.reduce((s, p) => s + p.varianceValue, 0);
+    const usageVal    = rows.reduce((s, p) => s + p.sold * p.costPrice, 0);
+    const idealVal    = rows.reduce((s, p) => s + p.idealVal, 0);
+    const variancePct = expectedVal > 0 ? (varianceVal / expectedVal) * 100 : 0;
+    return { cat, count: rows.length, openingVal, purchaseVal, expectedVal, actualVal, varianceVal, usageVal, idealVal, variancePct, rag: reportRAG(variancePct, cat) };
+  }).filter(c => c.count > 0);
+
+  // Totals
+  const totals = {
+    openingVal:  categories.reduce((s, c) => s + c.openingVal, 0),
+    purchaseVal: categories.reduce((s, c) => s + c.purchaseVal, 0),
+    expectedVal: categories.reduce((s, c) => s + c.expectedVal, 0),
+    actualVal:   categories.reduce((s, c) => s + c.actualVal, 0),
+    varianceVal: categories.reduce((s, c) => s + c.varianceVal, 0),
+    usageVal:    categories.reduce((s, c) => s + c.usageVal, 0),
+    idealVal:    categories.reduce((s, c) => s + c.idealVal, 0),
+  };
+  totals.variancePct = totals.expectedVal > 0 ? (totals.varianceVal / totals.expectedVal) * 100 : 0;
+
+  // GP averages (revenue-weighted where revenue exists, else simple mean).
+  // Only products with a real computed GP (actualGP > 0) count toward the actual avg.
+  let revSum = 0, actW = 0, idealW = 0, nA = 0, actS = 0, nI = 0, idealS = 0;
+  products.forEach(p => {
+    if (p.salesRev > 0 && p.actualGP > 0) { revSum += p.salesRev; actW += p.actualGP * p.salesRev; idealW += p.idealGP * p.salesRev; }
+    if (p.actualGP > 0) { nA++; actS += p.actualGP; }
+    if (p.idealGP  > 0) { nI++; idealS += p.idealGP; }
+  });
+  const actualGPavg = revSum > 0 ? actW / revSum : (nA ? actS / nA : 0);
+  const idealGPavg  = revSum > 0 ? idealW / revSum : (nI ? idealS / nI : 0);
+
+  // Leaders
+  const lossLeaders = products.filter(p => p.varianceValue < -0.005).sort((a, b) => a.varianceValue - b.varianceValue).slice(0, 5);
+  const gainLeaders = products.filter(p => p.varianceValue > 0.005).sort((a, b) => b.varianceValue - a.varianceValue).slice(0, 10);
+
+  // Dead / slow lists
+  const deadStock  = products.filter(p => p.deadStock);
+  const slowMovers = products.filter(p => p.slowMover);
+
+  // Priority issues (top urgent)
+  const issues = [];
+  categories.forEach(c => {
+    const T = REPORT_CAT_THRESHOLDS[c.cat];
+    if (c.variancePct < T - 0.001 && c.varianceVal < 0) {
+      issues.push({ sev: Math.abs(c.variancePct - T) + Math.abs(c.varianceVal) / 1000, color: c.rag, text: `${c.cat} variance ${fmtPct(c.variancePct)}` });
+    }
+  });
+  const worstGP = [...categories].map(c => {
+    const rows = products.filter(p => p.cat === c.cat && p.idealGP > 0 && p.actualGP > 0);
+    if (!rows.length) return null;
+    const gap = rows.reduce((s, p) => s + p.gpGap, 0) / rows.length;
+    return { cat: c.cat, gap };
+  }).filter(Boolean).sort((a, b) => a.gap - b.gap)[0];
+  if (worstGP && worstGP.gap < -2) issues.push({ sev: Math.abs(worstGP.gap), color: 'red', text: `${worstGP.cat} GP gap ${fmtPct(worstGP.gap)}` });
+  if (deadStock.length)  issues.push({ sev: deadStock.length * 3, color: 'red', text: `Dead stock: ${deadStock.length} item${deadStock.length !== 1 ? 's' : ''}` });
+  if (slowMovers.length) issues.push({ sev: slowMovers.length, color: 'amber', text: `Slow movers: ${slowMovers.length} item${slowMovers.length !== 1 ? 's' : ''}` });
+  const priorityIssues = issues.sort((a, b) => b.sev - a.sev).slice(0, 3);
+
+  // Purchase history (deliveries)
+  const purchaseHistory = (client.deliveries || []).map(d => ({
+    ref: d.r || '—', supplier: d.s || '—', date: d.d || '—',
+    items: d.i || (d.lines ? d.lines.length : 0),
+    total: parseFloat(String(d.t || '0').replace(/[^0-9.\-]/g, '')) || 0,
+  })).sort((a, b) => new Date(a.date) - new Date(b.date));
+  const purchaseTotal = purchaseHistory.reduce((s, d) => s + d.total, 0);
+
+  return {
+    products, categories, totals, actualGPavg, idealGPavg,
+    lossLeaders, gainLeaders, deadStock, slowMovers, priorityIssues,
+    purchaseHistory, purchaseTotal, periodDays,
+  };
+}
+
+// ─── Tab render: populate session selector ───────
+function renderFullReportTab() {
+  const c = activeClient; if (!c) return;
+  const sel = document.getElementById('fullrpt-session');
+  if (sel) {
+    const sessions = c.auditSessions || [];
+    if (!sessions.length) {
+      sel.innerHTML = `<option value="-1">Current data (no saved session)</option>`;
+    } else {
+      sel.innerHTML = sessions.map((s, i) => {
+        const from = s.openDate || s.label || '—', to = s.closeDate || '—';
+        const txt  = `${s.label || ('Period ' + (i + 1))} · ${from}${to && to !== from ? ' → ' + to : ''}${s.status ? ' (' + s.status + ')' : ''}`;
+        return `<option value="${i}"${i === sessions.length - 1 ? ' selected' : ''}>${rptEsc(txt)}</option>`;
+      }).join('');
+    }
+  }
+  const comp = document.getElementById('fullrpt-company');
+  if (comp && !comp.value && c.companyName) comp.value = c.companyName;
+}
+
+// ─── Generate ────────────────────────────────────
+async function generateFullReport() {
+  const c = activeClient;
+  if (!c) { alert('Select a client first.'); return; }
+
+  const sel       = document.getElementById('fullrpt-session');
+  const sessIdx   = sel ? parseInt(sel.value, 10) : -1;
+  const sessions  = c.auditSessions || [];
+  const session   = (sessIdx >= 0 && sessions[sessIdx]) ? sessions[sessIdx] : (sessions[sessions.length - 1] || null);
+  const auditor   = (document.getElementById('fullrpt-auditor')?.value || '').trim() || '[Auditor name]';
+  const company   = (document.getElementById('fullrpt-company')?.value || '').trim() || '[Your company name]';
+  if (company && company !== '[Your company name]') c.companyName = company;
+
+  showEl('fullrpt-empty', false);
+  showEl('fullrpt-preview-wrap', false);
+  showEl('fullrpt-loading', true);
+  document.getElementById('fullrpt-loading-msg').textContent = 'Crunching the numbers…';
+  const statusEl = document.getElementById('fullrpt-status');
+  if (statusEl) statusEl.textContent = '';
+
+  // Let the loading frame paint before the heavy work
+  await new Promise(r => setTimeout(r, 30));
+
+  const data = calculateReportData(c, session);
+  if (!data.products.length) {
+    showEl('fullrpt-loading', false);
+    showEl('fullrpt-empty', true);
+    document.getElementById('fullrpt-empty').innerHTML =
+      `<div style="font-size:48px;margin-bottom:12px;">📄</div>
+       <div style="font-size:16px;font-weight:600;color:var(--text2);margin-bottom:6px;">Not enough data to build a report</div>
+       <div style="font-size:13px;">Complete a stocktake (opening + closing counts) and import some invoices, then try again.</div>`;
+    return;
+  }
+
+  const from = session?.openDate || session?.label || '—';
+  const to   = session?.closeDate || '—';
+  const period = (to && to !== from) ? `${from} – ${to}` : (session?.label || from);
+  const meta = {
+    venue: c.name, address: c.city || '[Venue address]',
+    period, periodSafe: (session?.label || from || 'period').replace(/[^a-z0-9]+/gi, '-'),
+    auditor, company,
+    reportDate: new Date().toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' }),
+    sessionIdx: sessIdx >= 0 ? sessIdx : sessions.length - 1,
+  };
+  _fullReportData = data;
+  _fullReportMeta = meta;
+
+  // Render document (AI sections show a generating placeholder)
+  document.getElementById('report-preview').innerHTML = renderReportDocument(c, meta, data);
+  showEl('fullrpt-loading', false);
+  showEl('fullrpt-preview-wrap', true);
+  showEl('fullrpt-export-btn', true);
+  showEl('fullrpt-regen-btn', true);
+
+  // Generate AI commentary (non-blocking for the rest of the report)
+  genReportAIComments(data, meta);
+}
+
+// ─── SVG donut (renders reliably in html2canvas/PDF) ──
+function rptDonut(segments, centerTop, centerBot) {
+  const total = segments.reduce((s, x) => s + Math.max(0, x.value), 0) || 1;
+  const R = 58, C = 2 * Math.PI * R, cx = 70, cy = 70, sw = 20;
+  let offset = 0, arcs = '';
+  segments.forEach(s => {
+    const v = Math.max(0, s.value); if (v <= 0) return;
+    const len = (v / total) * C;
+    arcs += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${s.color}" stroke-width="${sw}" stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}" stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;
+    offset += len;
+  });
+  if (!arcs) arcs = `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="#eceef2" stroke-width="${sw}"/>`;
+  const svg = `<svg width="140" height="140" viewBox="0 0 140 140">${arcs}` +
+    `<text x="70" y="65" text-anchor="middle" font-size="9" fill="#8a8f97" font-weight="700">${rptEsc(centerTop || '')}</text>` +
+    `<text x="70" y="83" text-anchor="middle" font-size="15" fill="#15171c" font-weight="700">${rptEsc(centerBot || '')}</text></svg>`;
+  const legend = segments.filter(s => s.value > 0).map(s =>
+    `<div class="lg-row"><span class="lg-dot" style="background:${s.color}"></span><span class="lg-name">${rptEsc(s.label)}</span><span class="lg-val">${fmtMoney(s.value)}</span><span class="lg-pct">${(100 * Math.max(0, s.value) / total).toFixed(0)}%</span></div>`
+  ).join('') || '<div class="lg-row rpt-muted">No data</div>';
+  return `<div class="rpt-donut-wrap">${svg}<div class="rpt-legend">${legend}</div></div>`;
+}
+
+// ─── Reusable footer ─────────────────────────────
+function rptFooter(meta, pageNo, pageTotal) {
+  return `<div class="rpt-footer">
+    <span>${rptEsc(meta.company)} · <span class="rpt-conf" style="border:none;padding:0;color:#b42318;">Confidential</span></span>
+    <span>${rptEsc(meta.venue)} — ${rptEsc(meta.period)}</span>
+    <span>Generated ${rptEsc(meta.reportDate)} · Page ${pageNo} of ${pageTotal}</span>
+  </div>`;
+}
+
+// ─── Full document render ────────────────────────
+function renderReportDocument(client, meta, data) {
+  const PAGES = 9;
+  const catColorDot = cat => REPORT_CAT_COLORS[cat] || '#888780';
+
+  // ── PAGE 1 — Cover ──
+  const p1 = `<div class="rpt-page">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <div class="rpt-logo-box">[LOGO]</div>
+      <div style="text-align:right;"><div class="rpt-eyebrow">${rptEsc(meta.company)}</div><div class="rpt-muted" style="font-size:11px;">${rptEsc(meta.reportDate)}</div></div>
+    </div>
+    <div style="margin-top:150px;">
+      <div class="rpt-eyebrow" style="color:#378ADD;">Stock Audit Report</div>
+      <h1 style="font-size:42px;line-height:1.08;margin:10px 0 6px;">${rptEsc(meta.venue)}</h1>
+      <div style="font-size:15px;color:#6b7078;">${rptEsc(meta.address)}</div>
+    </div>
+    <div style="margin-top:60px;display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:460px;">
+      <div><div class="rpt-sec-label">Audit period</div><div style="font-size:14px;font-weight:600;">${rptEsc(meta.period)}</div></div>
+      <div><div class="rpt-sec-label">Report date</div><div style="font-size:14px;font-weight:600;">${rptEsc(meta.reportDate)}</div></div>
+      <div><div class="rpt-sec-label">Auditor</div><div style="font-size:14px;font-weight:600;">${rptEsc(meta.auditor)}</div></div>
+      <div><div class="rpt-sec-label">Prepared by</div><div style="font-size:14px;font-weight:600;">${rptEsc(meta.company)}</div></div>
+    </div>
+    <div style="margin-top:46px;"><span class="rpt-conf">Confidential — for client use only</span></div>
+    ${rptFooter(meta, 1, PAGES)}
+  </div>`;
+
+  // ── PAGE 2 — Executive summary ──
+  const t = data.totals;
+  const overallVarColor = t.varianceVal < 0 ? 'rag-red' : 'rag-green';
+  const gpGap = data.actualGPavg - data.idealGPavg;
+  const issuesHtml = data.priorityIssues.length
+    ? data.priorityIssues.map(i => `<div class="rpt-badge ${ragClass(i.color)}" style="display:block;margin-bottom:5px;text-align:left;">${rptEsc(i.text)}</div>`).join('')
+    : `<div class="rpt-badge rag-green" style="display:block;text-align:left;">No urgent issues flagged</div>`;
+
+  const stockSegs = data.categories.map(c => ({ label: c.cat, value: c.actualVal, color: catColorDot(c.cat) }));
+  const usageSegs = data.categories.map(c => ({ label: c.cat, value: c.usageVal, color: catColorDot(c.cat) }));
+
+  const p2 = `<div class="rpt-page">
+    <h2>Executive summary</h2>
+    <div class="rpt-cards">
+      <div class="rpt-card"><div class="lbl">Stock on hand</div><div class="val">${fmtMoney(t.actualVal)}</div><div class="sub">Ideal holding: ${fmtMoney(t.idealVal)}</div></div>
+      <div class="rpt-card"><div class="lbl">Purchases this period</div><div class="val">${fmtMoney(t.purchaseVal)}</div><div class="sub">at cost (ex-GST)</div></div>
+      <div class="rpt-card"><div class="lbl">Overall variance</div><div class="val" style="color:${t.varianceVal < 0 ? '#b42318' : '#0a6c44'};">${fmtMoney(t.varianceVal)}</div><div class="sub">${fmtPct(t.variancePct)} vs expected</div></div>
+      <div class="rpt-card"><div class="lbl">Actual GP %</div><div class="val">${data.actualGPavg.toFixed(1)}%</div><div class="sub">Ideal: ${data.idealGPavg.toFixed(1)}% · gap ${fmtPct(gpGap)}</div></div>
+      <div class="rpt-card"><div class="lbl">Items flagged</div><div class="val">${data.deadStock.length + data.slowMovers.length + data.products.filter(p => p.gpIssue).length}</div><div class="sub">${data.deadStock.length} dead · ${data.slowMovers.length} slow · ${data.products.filter(p => p.gpIssue).length} GP</div></div>
+      <div class="rpt-card" style="background:#fafbfc;"><div class="lbl">Priority issues</div>${issuesHtml}</div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:8px;">
+      <div class="rpt-card">
+        <h3>Stock value on hand</h3>
+        ${rptDonut(stockSegs, 'On hand', fmtMoney(t.actualVal))}
+      </div>
+      <div class="rpt-card">
+        <h3>Usage / consumption</h3>
+        ${rptDonut(usageSegs, 'Used', fmtMoney(t.usageVal))}
+      </div>
+    </div>
+    ${rptFooter(meta, 2, PAGES)}
+  </div>`;
+
+  // ── PAGE 3 — GP analysis ──
+  const gpRows = data.categories.map(c => {
+    const rows = data.products.filter(p => p.cat === c.cat && p.idealGP > 0 && p.actualGP > 0);
+    if (!rows.length) return '';
+    const actGP   = rows.reduce((s, p) => s + p.actualGP, 0) / rows.length;
+    const idealGP = rows.reduce((s, p) => s + p.idealGP, 0) / rows.length;
+    const gap     = actGP - idealGP;
+    const rag     = gap >= -1 ? 'green' : gap >= -4 ? 'amber' : 'red';
+    const maxScale = 100;
+    return `<div class="rpt-gpbar-row">
+      <div class="rpt-gpbar-head">
+        <span><strong>${rptEsc(c.cat)}</strong> <span class="rpt-muted">(${rows.length} lines)</span></span>
+        <span>Actual <strong>${actGP.toFixed(1)}%</strong> · Ideal ${idealGP.toFixed(1)}% <span class="rpt-badge ${ragClass(rag)}">${fmtPct(gap)}</span></span>
+      </div>
+      <div class="rpt-gpbar-track">
+        <div class="rpt-gpbar-fill" style="width:${Math.max(0, Math.min(100, actGP / maxScale * 100))}%;background:${catColorDot(c.cat)};"></div>
+        <div class="rpt-gpbar-ideal" style="left:${Math.max(0, Math.min(100, idealGP / maxScale * 100))}%;" title="Ideal GP target"></div>
+      </div>
+    </div>`;
+  }).join('');
+  const p3 = `<div class="rpt-page">
+    <h2>Gross profit analysis</h2>
+    <p class="rpt-muted">Coloured bar = actual achieved GP %. Vertical marker = ideal GP target. Scale 0–100%.</p>
+    ${gpRows || '<p class="rpt-muted">No GP data available — set ideal GP and sell prices on products.</p>'}
+    <div style="margin-top:20px;" class="rpt-card">
+      <h3>How to read this</h3>
+      <p class="rpt-muted" style="margin:0;">A bar falling short of its marker means the category is achieving a lower margin than target — investigate pricing, supplier cost increases, over-pouring or incorrect recipes. A green badge is on/above target, amber is within 4 points, red is more than 4 points below.</p>
+    </div>
+    ${rptFooter(meta, 3, PAGES)}
+  </div>`;
+
+  // ── PAGE 4 — Auditor comments (AI, editable) ──
+  const p4 = `<div class="rpt-page">
+    <h2>Auditor comments &amp; recommendations</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <span class="rpt-sec-label">AI-assisted commentary</span>
+      <span class="rpt-editable-hint" data-noexport>✎ Click any text below to edit before exporting</span>
+    </div>
+
+    <h3 style="margin-top:6px;">Key findings</h3>
+    <div class="rpt-edit" id="rpt-ai-findings" contenteditable="true"><span class="rpt-muted">Generating AI commentary…</span></div>
+
+    <h3 style="margin-top:14px;">Recommendations</h3>
+    <div class="rpt-edit" id="rpt-ai-recommendations" contenteditable="true"><span class="rpt-muted">Generating…</span></div>
+
+    <h3 style="margin-top:14px;">Action items</h3>
+    <div class="rpt-edit" id="rpt-ai-actions" contenteditable="true"><span class="rpt-muted">Generating…</span></div>
+
+    <h3 style="margin-top:14px;">Category notes</h3>
+    <div class="rpt-edit" id="rpt-ai-catnotes" contenteditable="true"><span class="rpt-muted">Generating…</span></div>
+
+    <h3 style="margin-top:14px;">Additional notes</h3>
+    <div class="rpt-edit" id="rpt-ai-additional" contenteditable="true" data-placeholder="Add any additional notes here…"><span class="rpt-muted">Add any additional notes here…</span></div>
+    ${rptFooter(meta, 4, PAGES)}
+  </div>`;
+
+  // ── PAGE 5 — Loss & gain leaders ──
+  const leaderRows = (list, sign) => list.length
+    ? list.map((p, i) => `<tr>
+        <td>${i + 1}</td><td><strong>${rptEsc(p.name)}</strong></td>
+        <td><span class="rpt-badge rag-grey">${rptEsc(p.cat)}</span></td>
+        <td class="num">${fmtPct(p.variancePct)}</td>
+        <td class="num" style="color:${sign < 0 ? '#b42318' : '#0a6c44'};font-weight:700;">${fmtMoney(p.varianceValue)}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="5" class="rpt-muted" style="text-align:center;padding:14px;">None in this period</td></tr>`;
+  const p5 = `<div class="rpt-page">
+    <h2>Loss &amp; gain leaders</h2>
+    <h3 style="color:#b42318;">Top loss leaders</h3>
+    <table class="rpt-table"><thead><tr><th style="width:26px;">#</th><th>Product</th><th>Category</th><th class="num">Var %</th><th class="num">Variance $</th></tr></thead>
+      <tbody>${leaderRows(data.lossLeaders, -1)}</tbody></table>
+    <h3 style="color:#0a6c44;margin-top:18px;">Top gain leaders</h3>
+    <p class="rpt-muted" style="font-size:10.5px;margin-bottom:4px;">Positive variances — surplus stock vs expected. Often a recording or count timing issue worth confirming.</p>
+    <table class="rpt-table"><thead><tr><th style="width:26px;">#</th><th>Product</th><th>Category</th><th class="num">Var %</th><th class="num">Variance $</th></tr></thead>
+      <tbody>${leaderRows(data.gainLeaders, 1)}</tbody></table>
+    ${rptFooter(meta, 5, PAGES)}
+  </div>`;
+
+  // ── PAGE 6 — Variance summary by category ──
+  const catRows = data.categories.map(c => `<tr>
+    <td><span class="rpt-badge" style="background:${catColorDot(c.cat)}22;color:${catColorDot(c.cat)};">${rptEsc(c.cat)}</span></td>
+    <td class="num">${fmtMoney(c.openingVal)}</td>
+    <td class="num">${fmtMoney(c.purchaseVal)}</td>
+    <td class="num">${fmtMoney(c.expectedVal)}</td>
+    <td class="num">${fmtMoney(c.actualVal)}</td>
+    <td class="num" style="color:${c.varianceVal < 0 ? '#b42318' : '#0a6c44'};font-weight:700;">${fmtMoney(c.varianceVal)}</td>
+    <td class="num">${fmtPct(c.variancePct)}</td>
+    <td><span class="rpt-badge ${ragClass(c.rag)}">${ragLabel(c.rag)}</span></td>
+  </tr>`).join('');
+  const tt = data.totals;
+  const p6 = `<div class="rpt-page">
+    <h2>Variance summary by category</h2>
+    <table class="rpt-table">
+      <thead><tr><th>Category</th><th class="num">Opening $</th><th class="num">Purchases $</th><th class="num">Expected $</th><th class="num">Actual $</th><th class="num">Variance $</th><th class="num">Var %</th><th>Status</th></tr></thead>
+      <tbody>${catRows}</tbody>
+      <tfoot><tr class="rpt-total">
+        <td>TOTAL</td>
+        <td class="num">${fmtMoney(tt.openingVal)}</td>
+        <td class="num">${fmtMoney(tt.purchaseVal)}</td>
+        <td class="num">${fmtMoney(tt.expectedVal)}</td>
+        <td class="num">${fmtMoney(tt.actualVal)}</td>
+        <td class="num" style="color:${tt.varianceVal < 0 ? '#b42318' : '#0a6c44'};">${fmtMoney(tt.varianceVal)}</td>
+        <td class="num">${fmtPct(tt.variancePct)}</td>
+        <td></td>
+      </tr></tfoot>
+    </table>
+    <p class="rpt-muted" style="font-size:10.5px;">Thresholds — Spirits 0%, Wine/Sparkling −2%, Draught −3%, Beer &amp; Cider/RTD/Misc −0.5%. Status flags a category that falls below its threshold.</p>
+    ${rptFooter(meta, 6, PAGES)}
+  </div>`;
+
+  // ── PAGE 7 — Full product detail ──
+  let detailBody = '';
+  REPORT_CAT_ORDER.forEach(cat => {
+    const rows = data.products.filter(p => p.cat === cat).sort((a, b) => b.variancePct - a.variancePct);
+    if (!rows.length) return;
+    detailBody += `<tr class="rpt-catrow"><td colspan="11">${rptEsc(cat)} — ${rows.length} product${rows.length !== 1 ? 's' : ''}</td></tr>`;
+    rows.forEach(p => {
+      const flags = [];
+      if (p.deadStock) flags.push('<span class="rpt-badge rag-red">Dead</span>');
+      if (p.slowMover) flags.push('<span class="rpt-badge rag-amber">Slow</span>');
+      if (p.gain)      flags.push('<span class="rpt-badge rag-green">Gain</span>');
+      if (p.gpIssue)   flags.push('<span class="rpt-badge rag-red">GP</span>');
+      flags.push(`<span class="rpt-badge ${ragClass(p.rag)}">${ragLabel(p.rag)}</span>`);
+      detailBody += `<tr>
+        <td><strong>${rptEsc(p.name)}</strong></td>
+        <td class="rpt-muted">${rptEsc(p.cat)}</td>
+        <td class="num">${p.opening.toFixed(1)}</td>
+        <td class="num">${p.purchased.toFixed(1)}</td>
+        <td class="num">${p.expected.toFixed(1)}</td>
+        <td class="num">${p.actual.toFixed(1)}</td>
+        <td class="num" style="color:${p.variancePct < 0 ? '#b42318' : '#0a6c44'};font-weight:700;">${fmtPct(p.variancePct)}</td>
+        <td class="num">${p.actualGP.toFixed(0)}%</td>
+        <td class="num">${p.idealGP.toFixed(0)}%</td>
+        <td class="num" style="color:${p.gpGap < 0 ? '#b42318' : '#0a6c44'};">${fmtPct(p.gpGap)}</td>
+        <td style="white-space:nowrap;">${flags.join(' ')}</td>
+      </tr>`;
+    });
+  });
+  const p7 = `<div class="rpt-page">
+    <h2>Full product detail</h2>
+    <p class="rpt-muted" style="font-size:10.5px;">Sorted by category, then variance % (worst surplus to worst loss). Units shown for quantities.</p>
+    <table class="rpt-table">
+      <thead><tr><th>Product</th><th>Cat</th><th class="num">Open</th><th class="num">Purch</th><th class="num">Exp</th><th class="num">Actual</th><th class="num">Var %</th><th class="num">Act GP</th><th class="num">Ideal GP</th><th class="num">GP gap</th><th>Flags</th></tr></thead>
+      <tbody>${detailBody}</tbody>
+    </table>
+    ${rptFooter(meta, 7, PAGES)}
+  </div>`;
+
+  // ── PAGE 8 — Purchase history ──
+  const phRows = data.purchaseHistory.length
+    ? data.purchaseHistory.map(d => `<tr>
+        <td><strong>${rptEsc(d.ref)}</strong></td>
+        <td>${rptEsc(d.supplier)}</td>
+        <td class="rpt-muted">${rptEsc(d.date)}</td>
+        <td class="num">${d.items}</td>
+        <td class="num">${fmtMoney(d.total, 2)}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="5" class="rpt-muted" style="text-align:center;padding:14px;">No invoices recorded this period</td></tr>`;
+  const p8 = `<div class="rpt-page">
+    <h2>Purchase history</h2>
+    <table class="rpt-table">
+      <thead><tr><th>Invoice ref</th><th>Supplier</th><th>Date</th><th class="num">Items</th><th class="num">Total incl. GST</th></tr></thead>
+      <tbody>${phRows}</tbody>
+      <tfoot><tr class="rpt-total"><td colspan="3">TOTAL — ${data.purchaseHistory.length} invoice${data.purchaseHistory.length !== 1 ? 's' : ''}</td><td class="num">${data.purchaseHistory.reduce((s, d) => s + d.items, 0)}</td><td class="num">${fmtMoney(data.purchaseTotal, 2)}</td></tr></tfoot>
+    </table>
+    ${rptFooter(meta, 8, PAGES)}
+  </div>`;
+
+  // ── PAGE 9 — Signature block ──
+  const p9 = `<div class="rpt-page">
+    <h2>Sign-off</h2>
+    <p class="rpt-muted">This report has been reviewed and accepted by the parties below.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:50px;">
+      <div>
+        <div class="rpt-sec-label">Auditor</div>
+        <div style="font-size:15px;font-weight:600;margin-bottom:40px;">${rptEsc(meta.auditor)}</div>
+        <div class="rpt-sig-line"></div><div class="rpt-muted">Signature</div>
+        <div style="margin-top:24px;"><div class="rpt-sig-line" style="max-width:160px;"></div><div class="rpt-muted">Date</div></div>
+      </div>
+      <div>
+        <div class="rpt-sec-label">Venue manager</div>
+        <div style="font-size:15px;font-weight:600;margin-bottom:40px;">________________________</div>
+        <div class="rpt-sig-line"></div><div class="rpt-muted">Signature</div>
+        <div style="margin-top:24px;"><div class="rpt-sig-line" style="max-width:160px;"></div><div class="rpt-muted">Date</div></div>
+      </div>
+    </div>
+    <div style="margin-top:60px;text-align:center;"><span class="rpt-conf">Confidential</span></div>
+    <div style="text-align:center;margin-top:14px;" class="rpt-muted">${rptEsc(meta.company)} · Generated ${rptEsc(meta.reportDate)} · Powered by AuditPro</div>
+    ${rptFooter(meta, 9, PAGES)}
+  </div>`;
+
+  return p1 + p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9;
+}
+
+// ─── AI commentary ───────────────────────────────
+async function genReportAIComments(data, meta) {
+  const setField = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+  const statusEl = document.getElementById('fullrpt-status');
+  if (statusEl) statusEl.textContent = '🤖 Generating AI commentary…';
+
+  // Build a compact context for the model
+  const catCtx = data.categories.map(c =>
+    `${c.cat}: variance ${fmtMoney(c.varianceVal)} (${fmtPct(c.variancePct)}), threshold ${REPORT_CAT_THRESHOLDS[c.cat]}%, status ${ragLabel(c.rag)}`
+  ).join('\n');
+  const lossCtx = data.lossLeaders.map(p => `${p.name} (${p.cat}) ${fmtMoney(p.varianceValue)} ${fmtPct(p.variancePct)}`).join('; ') || 'none';
+  const deadCtx = data.deadStock.map(p => p.name).slice(0, 12).join(', ') || 'none';
+  const slowCtx = data.slowMovers.map(p => p.name).slice(0, 12).join(', ') || 'none';
+
+  const prompt = `You are an experienced hospitality stock auditor writing the commentary section of a formal stock audit report for "${meta.venue}" covering ${meta.period}.
+
+DATA:
+- Overall variance: ${fmtMoney(data.totals.varianceVal)} (${fmtPct(data.totals.variancePct)} vs expected)
+- Stock on hand at cost: ${fmtMoney(data.totals.actualVal)}; purchases this period: ${fmtMoney(data.totals.purchaseVal)}
+- Actual GP ${data.actualGPavg.toFixed(1)}% vs ideal ${data.idealGPavg.toFixed(1)}%
+- Category breakdown:
+${catCtx}
+- Top loss leaders: ${lossCtx}
+- Dead stock (no sales 2+ periods): ${deadCtx}
+- Slow movers: ${slowCtx}
+
+Write professional, specific, non-accusatory auditor commentary. Return ONLY a JSON object (no markdown) with this exact shape:
+{
+  "keyFindings": "2-3 sentence paragraph summarising the period's headline findings, with the most material numbers.",
+  "recommendations": ["recommendation 1", "recommendation 2", "recommendation 3", "recommendation 4"],
+  "actionItems": [{"action": "specific action", "due": "suggested timeframe e.g. 'Within 7 days'"}],
+  "categoryNotes": {"Spirits": "one paragraph", "Wine": "one paragraph"}
+}
+Only include categoryNotes for categories present in the data above. Keep each field concise and board-ready.`;
+
+  try {
+    const response = await fetch('https://auditpro-proxi.jeremyaibuid.workers.dev', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1600,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    if (!response.ok) throw new Error('API error ' + response.status);
+    const json = await response.json();
+    const raw  = (json.content || []).map(b => b.text || '').join('').trim();
+    const clean = raw.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '').trim();
+    const ai = JSON.parse(clean);
+
+    setField('rpt-ai-findings', `<p>${rptEsc(ai.keyFindings || '')}</p>`);
+    setField('rpt-ai-recommendations',
+      '<ol style="margin:0;padding-left:18px;">' + (ai.recommendations || []).map(r => `<li style="margin-bottom:5px;">${rptEsc(r)}</li>`).join('') + '</ol>');
+    setField('rpt-ai-actions',
+      '<ul style="margin:0;padding-left:18px;list-style:square;">' + (ai.actionItems || []).map(a =>
+        `<li style="margin-bottom:5px;">${rptEsc(a.action || a)}${a.due ? ` <span class="rpt-badge rag-blue">${rptEsc(a.due)}</span>` : ''}</li>`).join('') + '</ul>');
+    const notes = ai.categoryNotes || {};
+    setField('rpt-ai-catnotes',
+      REPORT_CAT_ORDER.filter(c => notes[c]).map(c =>
+        `<p style="margin-bottom:8px;"><strong style="color:${REPORT_CAT_COLORS[c]};">${rptEsc(c)}:</strong> ${rptEsc(notes[c])}</p>`).join('') ||
+      '<p class="rpt-muted">No category-specific notes.</p>');
+
+    if (statusEl) statusEl.textContent = '✓ AI commentary ready — edit any text inline before exporting';
+  } catch (e) {
+    setField('rpt-ai-findings', `<p class="rpt-muted">AI commentary unavailable (${rptEsc(e.message)}). Click here to type findings manually.</p>`);
+    setField('rpt-ai-recommendations', '<p class="rpt-muted">Type recommendations here…</p>');
+    setField('rpt-ai-actions', '<p class="rpt-muted">Type action items here…</p>');
+    setField('rpt-ai-catnotes', '<p class="rpt-muted">Type category notes here…</p>');
+    if (statusEl) statusEl.textContent = '⚠ AI commentary unavailable — you can type comments manually';
+    console.error('Report AI error:', e);
+  }
+}
+
+function regenerateReportAIComments() {
+  if (!_fullReportData) return;
+  ['rpt-ai-findings', 'rpt-ai-recommendations', 'rpt-ai-actions', 'rpt-ai-catnotes'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.innerHTML = '<span class="rpt-muted">Generating…</span>';
+  });
+  genReportAIComments(_fullReportData, _fullReportMeta);
+}
+
+// ─── PDF export ──────────────────────────────────
+async function exportReportPDF() {
+  const el = document.getElementById('report-preview');
+  if (!el || !_fullReportMeta) { alert('Generate a report first.'); return; }
+  if (typeof html2pdf === 'undefined') { alert('PDF library still loading — try again in a moment.'); return; }
+
+  const meta = _fullReportMeta;
+  const safeVenue = (meta.venue || 'Venue').replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+  const filename  = `${safeVenue}_Audit_${meta.periodSafe || 'report'}.pdf`;
+
+  // Hide on-screen-only chrome during capture (edit hints + page separators)
+  el.querySelectorAll('[data-noexport]').forEach(n => n.style.visibility = 'hidden');
+  el.querySelectorAll('.rpt-page').forEach(p => p.style.borderBottom = 'none');
+  showPersistToast('⏳ Building PDF…');
+  const statusEl = document.getElementById('fullrpt-status');
+  if (statusEl) statusEl.textContent = '⏳ Rendering PDF…';
+
+  const opt = {
+    margin: [0, 0, 0, 0],
+    filename,
+    image: { type: 'jpeg', quality: 0.96 },
+    html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: 794 },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    pagebreak: { mode: ['css', 'legacy'] },
+  };
+
+  try {
+    await html2pdf().set(opt).from(el).save();
+    saveReportRecord(meta, filename);
+    if (statusEl) statusEl.textContent = '✓ PDF exported & report record saved';
+    showPersistToast('✓ PDF exported');
+  } catch (e) {
+    console.error('PDF export error:', e);
+    alert('PDF export failed: ' + e.message);
+    if (statusEl) statusEl.textContent = '⚠ PDF export failed';
+  } finally {
+    el.querySelectorAll('[data-noexport]').forEach(n => n.style.visibility = '');
+    el.querySelectorAll('.rpt-page').forEach(p => p.style.borderBottom = '');
+  }
+}
+
+// ─── Save report record ──────────────────────────
+function saveReportRecord(meta, filename) {
+  const c = activeClient; if (!c) return;
+  const record = {
+    date: meta.reportDate, period: meta.period,
+    generatedBy: meta.auditor, pdfFilename: filename,
+  };
+  // Per spec: store on the audit session…
+  const sessions = c.auditSessions || [];
+  const sess = sessions[meta.sessionIdx] || sessions[sessions.length - 1];
+  if (sess) { if (!sess.reports) sess.reports = []; sess.reports.push(record); }
+  // …and keep the flat list the "Saved reports" table reads.
+  if (!c.reports) c.reports = [];
+  c.reports.unshift({ type: 'Full audit report', period: meta.period, date: meta.reportDate, pdfFilename: filename });
+
+  // Refresh the Saved-reports table if it's on screen
+  const rb = document.getElementById('reports-body');
+  if (rb) rb.innerHTML = (c.reports || []).map(r =>
+    `<tr><td class="td-main">${rptEsc(r.type)}</td><td>${rptEsc(r.period)}</td><td>${rptEsc(r.type || '—')}</td><td class="td-mono">${rptEsc(r.date)}</td><td><span style="font-size:11px;color:var(--text3);">${rptEsc(r.pdfFilename || '')}</span></td></tr>`
+  ).join('') || '<tr><td colspan="5" style="color:var(--text3);text-align:center;padding:16px;">No saved reports yet</td></tr>';
+
+  dbSaveClient(c);
 }
 
 // ─── CLIENT INFO ─────────────────────────────────
@@ -4644,6 +5485,18 @@ function computeVariances(client) {
       actualGP,
       idealGP,
       lastSold:    saleData ? 0 : 45,
+      // Numeric fields for the full PDF report builder (additive — existing
+      // consumers keep reading the string o/e/a/v above).
+      openNum:     openUnits,
+      purUnits,
+      salesUnits,
+      salesRev,
+      expectedNum: expected,
+      actualNum:   actual,
+      varPctNum:   varPct,
+      sellPrice,
+      soldAs:      prod.soldAs  || '',
+      subcat:      prod.subcat  || '',
       _live:       true,
     });
   });
