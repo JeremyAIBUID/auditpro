@@ -226,7 +226,9 @@
   /* Start every section after the first on a fresh PDF page, but let content flow
      naturally inside a section (no forced full-A4 height) so tall tables can span
      pages instead of overflowing and leaving blank trailing pages. */
-  .rpt-page + .rpt-page{page-break-before:always;break-before:page;}
+  /* Trim the top padding on sections after the first: combined with the PDF's
+     own top margin, the full 38px left too large a gap above each new page. */
+  .rpt-page + .rpt-page{page-break-before:always;break-before:page;padding-top:14px;}
   .rpt-page:last-child{border-bottom:none;}
   .rpt-doc h1,.rpt-doc h2,.rpt-doc h3,.rpt-doc h4{margin:0;font-weight:700;color:#15171c;}
   .rpt-doc h2{font-size:19px;letter-spacing:-0.01em;border-bottom:2px solid #15171c;padding-bottom:8px;margin-bottom:16px;}
@@ -285,8 +287,8 @@
   /* Footer flows at the end of each section (content no longer has a fixed height
      to anchor an absolute footer to). Smaller font + a non-shrinking, no-wrap last
      span keeps the "Page X of Y" text from being clipped at the right margin. */
-  .rpt-footer{margin-top:34px;display:flex;justify-content:space-between;gap:18px;font-size:8.5px;color:#9aa0a8;border-top:1px solid #e2e5ea;padding-top:7px;}
-  .rpt-footer span:last-child{white-space:nowrap;flex-shrink:0;text-align:right;}
+  .rpt-footer{margin-top:34px;display:flex;justify-content:space-between;gap:18px;font-size:8.5px;color:#9aa0a8;border-top:1px solid #e2e5ea;padding-top:7px;padding-right:8px;}
+  .rpt-footer span:last-child{white-space:nowrap;flex-shrink:0;text-align:right;padding-right:2px;}
   .rpt-conf{display:inline-block;font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#b42318;border:1px solid #f3c0bb;border-radius:4px;padding:2px 8px;}
   /* trend chart placeholder info box */
   .rpt-infobox{background:#f5f8fc;border:1px solid #dbe6f3;border-left:3px solid #5b9cf0;border-radius:8px;padding:16px 18px;color:#46556a;font-size:12px;line-height:1.6;}
@@ -2568,8 +2570,8 @@ function renderPage(page) {
   }
   if(page==='purchases'){
     document.getElementById('pur-count').textContent = c.deliveries.length;
-    const total = c.deliveries.reduce((s,d)=>s+parseFloat(d.t.replace('$','').replace(',','')),0);
-    document.getElementById('pur-total').textContent = '$'+Math.round(total).toLocaleString();
+    const total = c.deliveries.reduce((s,d)=>s+(parseFloat((d.t||'0').replace(/[$,]/g,''))||0),0);
+    document.getElementById('pur-total').textContent = '$'+total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
     document.getElementById('pur-disc').textContent = c.deliveries.filter(d=>d.st==='Discrepancy').length;
     // Price changes
     const priceChanges = c.priceChanges || [];
@@ -3803,6 +3805,7 @@ async function generateFullReport() {
 
   // Render document (AI sections show a generating placeholder)
   document.getElementById('report-preview').innerHTML = renderReportDocument(c, meta, data);
+  drawReportDonuts();   // canvas donuts start blank in the innerHTML string — paint them now
   showEl('fullrpt-loading', false);
   showEl('fullrpt-preview-wrap', true);
   showEl('fullrpt-export-btn', true);
@@ -3812,42 +3815,60 @@ async function generateFullReport() {
   genReportAIComments(data, meta);
 }
 
-// ─── SVG donut (renders reliably in html2canvas/PDF) ──
-// Built from filled <path> wedges (a pie) with a white centre circle punched out
-// to form the donut hole. html2canvas renders solid path fills reliably, whereas
-// stroke-dasharray arcs / conic-gradients render as blank grey circles.
+// ─── Donut chart (Canvas 2D) ──
+// Canvas is the only approach that renders reliably inside html2canvas — SVG
+// stroke arcs, SVG <path> wedges and CSS conic-gradients all captured as blank
+// grey circles. rptDonut() emits a <canvas> + legend and queues the slice data;
+// drawReportDonuts() paints every queued canvas once the report HTML is in the
+// DOM (a canvas in an innerHTML string starts blank and must be drawn after).
+let _rptDonutQueue = [];
+let _rptDonutSeq = 0;
+
 function rptDonut(segments, centerTop, centerBot) {
-  const cx = 70, cy = 70, R = 64, rHole = 40;
   const total = segments.reduce((s, x) => s + Math.max(0, x.value), 0) || 1;
   const drawn = segments.filter(s => Math.max(0, s.value) > 0);
-  const polar = (r, a) => [cx + r * Math.cos(a), cy + r * Math.sin(a)];
-
-  let arcs = '';
-  if (!drawn.length) {
-    arcs = `<circle cx="${cx}" cy="${cy}" r="${R}" fill="#eceef2"/>`;
-  } else if (drawn.length === 1) {
-    // A single 360° wedge can't be drawn with one arc — use a full circle.
-    arcs = `<circle cx="${cx}" cy="${cy}" r="${R}" fill="${drawn[0].color}"/>`;
-  } else {
-    let a0 = -Math.PI / 2;   // start at 12 o'clock
-    drawn.forEach(s => {
-      const a1 = a0 + (Math.max(0, s.value) / total) * 2 * Math.PI;
-      const [x0, y0] = polar(R, a0);
-      const [x1, y1] = polar(R, a1);
-      const large = (a1 - a0) > Math.PI ? 1 : 0;
-      arcs += `<path d="M ${cx} ${cy} L ${x0.toFixed(2)} ${y0.toFixed(2)} A ${R} ${R} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z" fill="${s.color}"/>`;
-      a0 = a1;
-    });
-  }
-
-  const svg = `<svg width="140" height="140" viewBox="0 0 140 140">${arcs}` +
-    `<circle cx="${cx}" cy="${cy}" r="${rHole}" fill="#ffffff"/>` +
-    `<text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="9" fill="#8a8f97" font-weight="700">${rptEsc(centerTop || '')}</text>` +
-    `<text x="${cx}" y="${cy + 13}" text-anchor="middle" font-size="14" fill="#15171c" font-weight="700">${rptEsc(centerBot || '')}</text></svg>`;
+  const id = 'rptdonut-' + (_rptDonutSeq++);
+  _rptDonutQueue.push({
+    id, total,
+    slices: drawn.map(s => ({ value: Math.max(0, s.value), color: s.color })),
+    centerTop: centerTop || '', centerBot: centerBot || '',
+  });
+  // 300×300 backing store shown at 150×150 keeps the slices crisp through html2canvas' 2× scale.
+  const canvas = `<canvas id="${id}" width="300" height="300" style="width:150px;height:150px;flex-shrink:0;display:block;"></canvas>`;
   const legend = drawn.map(s =>
     `<div class="lg-row"><span class="lg-dot" style="background:${s.color}"></span><span class="lg-name">${rptEsc(s.label)}</span><span class="lg-val">${fmtMoney(s.value)}</span><span class="lg-pct">${(100 * Math.max(0, s.value) / total).toFixed(0)}%</span></div>`
   ).join('') || '<div class="lg-row rpt-muted">No data</div>';
-  return `<div class="rpt-donut-wrap">${svg}<div class="rpt-legend">${legend}</div></div>`;
+  return `<div class="rpt-donut-wrap">${canvas}<div class="rpt-legend">${legend}</div></div>`;
+}
+
+// Paint every queued donut canvas. Call after the report HTML is inserted.
+function drawReportDonuts() {
+  _rptDonutQueue.forEach(d => {
+    const cv = document.getElementById(d.id);
+    if (!cv || !cv.getContext) return;
+    const ctx = cv.getContext('2d');
+    const W = cv.width, cx = W / 2, cy = W / 2, R = W * 0.42, rHole = W * 0.26;
+    ctx.clearRect(0, 0, W, W);
+    if (!d.slices.length) {
+      ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2 * Math.PI); ctx.fillStyle = '#eceef2'; ctx.fill();
+    } else {
+      let a0 = -Math.PI / 2;   // start at 12 o'clock
+      d.slices.forEach(s => {
+        const a1 = a0 + (s.value / d.total) * 2 * Math.PI;
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, R, a0, a1); ctx.closePath();
+        ctx.fillStyle = s.color; ctx.fill();
+        a0 = a1;
+      });
+    }
+    // White donut hole
+    ctx.beginPath(); ctx.arc(cx, cy, rHole, 0, 2 * Math.PI); ctx.fillStyle = '#ffffff'; ctx.fill();
+    // Centre labels
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#8a8f97'; ctx.font = '700 ' + (W * 0.065).toFixed(0) + 'px Arial';
+    ctx.fillText(d.centerTop, cx, cy - W * 0.06);
+    ctx.fillStyle = '#15171c'; ctx.font = '700 ' + (W * 0.105).toFixed(0) + 'px Arial';
+    ctx.fillText(d.centerBot, cx, cy + W * 0.05);
+  });
 }
 
 // ─── Reusable footer ─────────────────────────────
@@ -3966,6 +3987,7 @@ function rptVarTrendChart(points, threshold) {
 // ─── Full document render ────────────────────────
 function renderReportDocument(client, meta, data) {
   const PAGES = 10;
+  _rptDonutQueue = [];   // reset; rptDonut() repopulates as the pages build below
   const catColorDot = cat => REPORT_CAT_COLORS[cat] || '#888780';
 
   // ── PAGE 1 — Cover ──
@@ -4246,7 +4268,7 @@ function renderReportDocument(client, meta, data) {
   const p8 = `<div class="rpt-page">
     <h2>Purchase history</h2>
     <table class="rpt-table">
-      <thead><tr><th>Invoice ref</th><th>Supplier</th><th>Date</th><th class="num" style="width:54px;">Items</th><th class="num" style="width:110px;">Total incl. GST</th></tr></thead>
+      <thead><tr><th>Invoice ref</th><th>Supplier</th><th>Date</th><th class="num" style="width:54px;">Items</th><th class="num" style="width:130px;min-width:130px;">Total incl. GST</th></tr></thead>
       <tbody>${phRows}</tbody>
       <tfoot><tr class="rpt-total"><td colspan="3">TOTAL — ${data.purchaseHistory.length} invoice${data.purchaseHistory.length !== 1 ? 's' : ''}</td><td class="num">${data.purchaseHistory.reduce((s, d) => s + d.items, 0)}</td><td class="num">${fmtMoney(data.purchaseTotal, 2)}</td></tr></tfoot>
     </table>
@@ -10938,7 +10960,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-09-r7';
+const APP_VERSION = '2026-06-09-r8';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
