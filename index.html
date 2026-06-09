@@ -7510,6 +7510,13 @@ function editInvoice(idx) {
   // Store for saveEditedInvoice
   d._editLines = editLines;
 
+  // Non-line extras (surcharges, deposits, fuel/freight fees) = stored invoice
+  // total − sum of line items. Set once at import (d.extras); for older invoices
+  // that predate the field, derive it from the current stored total so it sticks.
+  const _curLineSum  = editLines.reduce((s,l)=> s + (parseFloat(l._incGST)||0)*(parseFloat(l.qty)||0), 0);
+  const _storedTotal = parseFloat(String(d.t!=null?d.t:'').replace(/[^0-9.\-]/g,'')) || 0;
+  const _extras0     = d.extras != null ? (parseFloat(d.extras)||0) : +(_storedTotal - _curLineSum).toFixed(2);
+
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
   overlay.id = 'invoice-edit-overlay';
@@ -7535,9 +7542,9 @@ function editInvoice(idx) {
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);">
         <div style="flex:1;">
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);font-weight:600;">Invoice total (incl GST)</div>
-          <div style="font-size:10.5px;color:var(--text3);margin-top:2px;">The real invoice total — may exceed the line items (freight/levies). Lines sum: <span id="ei-linesum">$0.00</span></div>
+          <div style="font-size:10.5px;color:var(--text3);margin-top:2px;">Lines sum <span id="ei-linesum">$0.00</span> + extras <span id="ei-extras">$0.00</span> (surcharges/freight, kept through edits). Override the total to adjust.</div>
         </div>
-        <input id="ei-total" type="number" step="0.01" placeholder="0.00" value="${(parseFloat(String(d.t!=null?d.t:'').replace(/[^0-9.\-]/g,''))||0).toFixed(2)}" style="width:120px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:8px 10px;color:var(--text);font-size:13px;outline:none;text-align:right;">
+        <input id="ei-total" type="number" step="0.01" placeholder="0.00" data-extras="${_extras0}" oninput="onEditInvoiceTotalInput()" value="${(_curLineSum+_extras0).toFixed(2)}" style="width:120px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:8px 10px;color:var(--text);font-size:13px;outline:none;text-align:right;">
       </div>
       <div style="display:flex;gap:8px;margin-top:12px;">
         <button onclick="document.getElementById('invoice-edit-overlay').remove()" class="btn btn-secondary" style="flex:1;">Cancel</button>
@@ -7579,12 +7586,10 @@ function addEditInvoiceLine() {
   updateEditInvoiceLineSum();
 }
 
-// Live "Lines sum" indicator in the edit-invoice modal — lets the user see the
-// captured line total alongside the (possibly larger) real invoice total.
-function updateEditInvoiceLineSum() {
+// Sum of the editable line items (incl GST) currently shown in the edit modal.
+function editInvoiceLineSum() {
   const container = document.getElementById('ei-lines');
-  const out = document.getElementById('ei-linesum');
-  if(!container || !out) return;
+  if(!container) return 0;
   let sum = 0;
   Array.from(container.querySelectorAll('[id^="ei-row-"]')).forEach(row => {
     const id = row.id.replace('ei-row-','');
@@ -7592,7 +7597,28 @@ function updateEditInvoiceLineSum() {
     const price = parseFloat(document.getElementById('ei-price-'+id)?.value) || 0;
     sum += qty * price;
   });
-  out.textContent = '$' + sum.toFixed(2);
+  return sum;
+}
+
+// A line edit changed the line sum — keep the invoice total = line sum + the
+// preserved extras (surcharges/freight), so those never get lost through edits.
+function updateEditInvoiceLineSum() {
+  const totalEl = document.getElementById('ei-total');
+  const extras  = totalEl ? (parseFloat(totalEl.dataset.extras) || 0) : 0;
+  const sum     = editInvoiceLineSum();
+  const lsEl = document.getElementById('ei-linesum'); if(lsEl) lsEl.textContent = '$' + sum.toFixed(2);
+  const exEl = document.getElementById('ei-extras');  if(exEl) exEl.textContent = '$' + extras.toFixed(2);
+  if(totalEl) totalEl.value = (sum + extras).toFixed(2);
+}
+
+// User typed a new invoice total — re-derive the extras (total − line sum) so
+// the surcharge/freight component sticks through subsequent line edits.
+function onEditInvoiceTotalInput() {
+  const totalEl = document.getElementById('ei-total');
+  if(!totalEl) return;
+  const extras = (parseFloat(totalEl.value) || 0) - editInvoiceLineSum();
+  totalEl.dataset.extras = extras.toFixed(2);
+  const exEl = document.getElementById('ei-extras'); if(exEl) exEl.textContent = '$' + extras.toFixed(2);
 }
 
 function saveEditedInvoice(idx) {
@@ -7618,14 +7644,16 @@ function saveEditedInvoice(idx) {
 
   d.lines = newLines;
   d.i = newLines.length;
-  // Total: prefer the explicit "Invoice total" field so editing lines never
-  // silently overwrites the real invoice grand total (which can include
-  // freight/levies beyond the captured line items). Fall back to the line-item
-  // sum only when the field is blank or zero.
-  const lineSum  = newLines.reduce((s,l)=>s + (parseFloat(l._incGST)||0)*(parseFloat(l.qty)||0), 0);
-  const totalEl  = document.getElementById('ei-total');
-  const typedTot = totalEl ? (parseFloat(totalEl.value) || 0) : 0;
-  const total    = typedTot > 0 ? typedTot : lineSum;
+  // Total = edited line sum + preserved extras (surcharges/deposits/freight).
+  // Extras are tracked live on the total field (and re-derived when the user
+  // overrides the total); persist them on d.extras so they survive future edits.
+  const editedLineSum = newLines.reduce((s,l)=>s + (parseFloat(l._incGST)||0)*(parseFloat(l.qty)||0), 0);
+  const totalEl = document.getElementById('ei-total');
+  const extras  = (totalEl && totalEl.dataset.extras != null && totalEl.dataset.extras !== '')
+    ? (parseFloat(totalEl.dataset.extras) || 0)
+    : (parseFloat(d.extras) || 0);
+  const total = +(editedLineSum + extras).toFixed(2);
+  d.extras = +extras.toFixed(2);
   d.t   = '$' + total.toFixed(2);
   d.tEx = '$' + (total / 1.15).toFixed(2);
   d.gst = '$' + (total - total / 1.15).toFixed(2);
@@ -7923,6 +7951,13 @@ function addDumpInvoiceToClient(c, invoice, id) {
 
   // FIX 4 — stamp caseSize onto every line so it survives delete → re-import cycles
   const dumpLines = preserveCaseSizes(invoice.items, c);
+  // Non-line extras (surcharges, deposits, fuel/freight fees) = invoice total −
+  // sum of the captured line items (incl GST). Stored so edits can preserve them.
+  const dumpLineSum = dumpLines.reduce((s,l)=>{
+    const inc = parseFloat(l._incGST);
+    return s + (isNaN(inc) ? (parseFloat(l.lineTotal)||0) : inc*(parseFloat(l.qty)||0));
+  }, 0);
+  const extras = +(parseFloat(total) - dumpLineSum).toFixed(2);
 
   // Store in archive permanently (survives deletion from purchase history)
   if(!c.invoiceArchive) c.invoiceArchive = [];
@@ -7933,6 +7968,7 @@ function addDumpInvoiceToClient(c, invoice, id) {
       s: invoice.supplier || 'Unknown',
       d: invoice.invoiceDate || 'Unknown date',
       t: '$' + total,
+      extras,
       i: invoice.items.length,
       items: dumpLines,
       pdfUrl: invoice.pdfUrl || null,
@@ -7946,6 +7982,7 @@ function addDumpInvoiceToClient(c, invoice, id) {
       r:   archiveRef,
       i:   invoice.items.length,
       t:   '$' + total,
+      extras,
       tEx: '$' + (invoice.invoiceTotalExGST || (parseFloat(total)/1.15)).toFixed(2),
       gst: '$' + (invoice.invoiceGST || (parseFloat(total)/1.15*0.15)).toFixed(2),
       st: 'Verified', sc: 'chip-green',
