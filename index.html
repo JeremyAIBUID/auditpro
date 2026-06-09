@@ -3692,11 +3692,18 @@ function calculateReportData(client, session) {
   const priorityIssues = issues.sort((a, b) => b.sev - a.sev).slice(0, 3);
 
   // Purchase history (deliveries)
-  const purchaseHistory = (client.deliveries || []).map(d => ({
-    ref: d.r || '—', supplier: d.s || '—', date: d.d || '—',
-    items: d.i || (d.lines ? d.lines.length : 0),
-    total: parseFloat(String(d.t || '0').replace(/[^0-9.\-]/g, '')) || 0,
-  })).sort((a, b) => new Date(a.date) - new Date(b.date));
+  const purchaseHistory = (client.deliveries || []).map(d => {
+    // Prefer the stored invoice total (d.t, incl. GST) — it's the real invoice
+    // grand total (freight/levies included) and can exceed the sum of captured
+    // line items. Only fall back to summing lines when no stored total exists.
+    const storedTotal = parseFloat(String(d.t != null ? d.t : '').replace(/[^0-9.\-]/g, '')) || 0;
+    const lineTotal   = (d.lines || []).reduce((s, l) => s + (parseFloat(l._incGST) || 0) * (parseFloat(l.qty) || 0), 0);
+    return {
+      ref: d.r || '—', supplier: d.s || '—', date: d.d || '—',
+      items: d.i || (d.lines ? d.lines.length : 0),
+      total: storedTotal > 0 ? storedTotal : lineTotal,
+    };
+  }).sort((a, b) => new Date(a.date) - new Date(b.date));
   const purchaseTotal = purchaseHistory.reduce((s, d) => s + d.total, 0);
 
   return {
@@ -4327,24 +4334,38 @@ async function exportReportPDF() {
   const safeVenue = (meta.venue || 'Venue').replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
   const filename  = `${safeVenue}_Audit_${meta.periodSafe || 'report'}.pdf`;
 
-  // Hide on-screen-only chrome during capture (edit hints + page separators)
-  el.querySelectorAll('[data-noexport]').forEach(n => n.style.visibility = 'hidden');
-  el.querySelectorAll('.rpt-page').forEach(p => p.style.borderBottom = 'none');
   showPersistToast('⏳ Building PDF…');
   const statusEl = document.getElementById('fullrpt-status');
   if (statusEl) statusEl.textContent = '⏳ Rendering PDF…';
 
+  // Isolate the report in an off-screen, light-themed container at exactly A4
+  // width (794px @ 96dpi). Capturing the live #report-preview let html2canvas
+  // pick up the full-width dark live DOM, which clipped content and spawned
+  // blank pages. A detached clone removes that interference entirely.
+  const temp = document.createElement('div');
+  temp.style.cssText =
+    'position:fixed;left:-9999px;top:0;width:794px;overflow:hidden;background:#ffffff;' +
+    // Override dark-theme vars to light, in case any cloned node references them
+    '--bg:#ffffff;--bg2:#ffffff;--bg3:#ffffff;--bg4:#ffffff;' +
+    '--text:#1a1a1a;--text2:#3a3f47;--text3:#6b7078;' +
+    '--border:#e2e5ea;--border2:#d6dae0;--accent:#378ADD;';
+  const clone = el.cloneNode(true);
+  // Strip on-screen-only chrome (edit hints) and page separators from the clone
+  clone.querySelectorAll('[data-noexport]').forEach(n => n.remove());
+  clone.querySelectorAll('.rpt-page').forEach(p => p.style.borderBottom = 'none');
+  temp.appendChild(clone);
+  document.body.appendChild(temp);
+
   const opt = {
-    margin: 10,
+    margin: [10, 10, 10, 10],
     filename,
     image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true, width: 794, windowWidth: 794, backgroundColor: '#ffffff' },
+    html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false },
     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
   };
 
   try {
-    await html2pdf().set(opt).from(el).save();
+    await html2pdf().set(opt).from(temp).save();
     saveReportRecord(meta, filename);
     if (statusEl) statusEl.textContent = '✓ PDF exported & report record saved';
     showPersistToast('✓ PDF exported');
@@ -4353,8 +4374,7 @@ async function exportReportPDF() {
     alert('PDF export failed: ' + e.message);
     if (statusEl) statusEl.textContent = '⚠ PDF export failed';
   } finally {
-    el.querySelectorAll('[data-noexport]').forEach(n => n.style.visibility = '');
-    el.querySelectorAll('.rpt-page').forEach(p => p.style.borderBottom = '');
+    temp.remove();
   }
 }
 
