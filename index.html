@@ -7522,22 +7522,30 @@ function editInvoice(idx) {
       <div style="font-size:11px;color:var(--text3);margin-bottom:10px;display:grid;grid-template-columns:2fr 1fr 1fr 24px;gap:8px;padding:0 0 4px;">
         <span>Catalogue name</span><span style="text-align:right;">Qty</span><span style="text-align:right;">Price inc GST</span><span></span>
       </div>
-      <div id="ei-lines" style="overflow-y:auto;flex:1;">
+      <div id="ei-lines" oninput="updateEditInvoiceLineSum()" style="overflow-y:auto;flex:1;">
         ${editLines.map((l,i)=>`
           <div id="ei-row-${i}" style="display:grid;grid-template-columns:2fr 1fr 1fr 24px;gap:8px;margin-bottom:8px;align-items:center;">
             <input id="ei-name-${i}" value="${(l._cleanName||l.name||'').replace(/"/g,'&quot;')}" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;">
             <input id="ei-qty-${i}" type="number" value="${l.qty||1}" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;text-align:right;">
             <input id="ei-price-${i}" type="number" step="0.01" value="${parseFloat(l._incGST||l.price||0).toFixed(2)}" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;text-align:right;">
-            <button onclick="document.getElementById('ei-row-${i}').remove()" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0;line-height:1;">×</button>
+            <button onclick="document.getElementById('ei-row-${i}').remove();updateEditInvoiceLineSum()" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0;line-height:1;">×</button>
           </div>`).join('')}
       </div>
       <button onclick="addEditInvoiceLine()" style="width:100%;padding:7px;margin-top:8px;border-radius:8px;background:var(--bg3);border:1px dashed var(--border2);color:var(--text3);font-family:var(--font-ui);font-size:12px;cursor:pointer;">+ Add line item</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);">
+        <div style="flex:1;">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);font-weight:600;">Invoice total (incl GST)</div>
+          <div style="font-size:10.5px;color:var(--text3);margin-top:2px;">The real invoice total — may exceed the line items (freight/levies). Lines sum: <span id="ei-linesum">$0.00</span></div>
+        </div>
+        <input id="ei-total" type="number" step="0.01" placeholder="0.00" value="${(parseFloat(String(d.t!=null?d.t:'').replace(/[^0-9.\-]/g,''))||0).toFixed(2)}" style="width:120px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:8px 10px;color:var(--text);font-size:13px;outline:none;text-align:right;">
+      </div>
       <div style="display:flex;gap:8px;margin-top:12px;">
         <button onclick="document.getElementById('invoice-edit-overlay').remove()" class="btn btn-secondary" style="flex:1;">Cancel</button>
         <button onclick="saveEditedInvoice(${idx})" class="btn btn-primary" style="flex:1;">Save changes</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
+  updateEditInvoiceLineSum();
 }
 
 function addEditInvoiceLine() {
@@ -7556,7 +7564,7 @@ function addEditInvoiceLine() {
     </div>
     <input id="ei-qty-${i}" type="number" value="1" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;text-align:right;">
     <input id="ei-price-${i}" type="number" step="0.01" value="0.00" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;text-align:right;">
-    <button onclick="this.closest('[id^=ei-row]').remove()" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0;line-height:1;">×</button>`;
+    <button onclick="this.closest('[id^=ei-row]').remove();updateEditInvoiceLineSum()" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0;line-height:1;">×</button>`;
   container.appendChild(row);
   // Auto-fill price from catalogue when product selected
   const nameInput = document.getElementById(`ei-name-${i}`);
@@ -7568,6 +7576,23 @@ function addEditInvoiceLine() {
     }
   });
   nameInput.focus();
+  updateEditInvoiceLineSum();
+}
+
+// Live "Lines sum" indicator in the edit-invoice modal — lets the user see the
+// captured line total alongside the (possibly larger) real invoice total.
+function updateEditInvoiceLineSum() {
+  const container = document.getElementById('ei-lines');
+  const out = document.getElementById('ei-linesum');
+  if(!container || !out) return;
+  let sum = 0;
+  Array.from(container.querySelectorAll('[id^="ei-row-"]')).forEach(row => {
+    const id = row.id.replace('ei-row-','');
+    const qty   = parseFloat(document.getElementById('ei-qty-'+id)?.value) || 0;
+    const price = parseFloat(document.getElementById('ei-price-'+id)?.value) || 0;
+    sum += qty * price;
+  });
+  out.textContent = '$' + sum.toFixed(2);
 }
 
 function saveEditedInvoice(idx) {
@@ -7592,10 +7617,18 @@ function saveEditedInvoice(idx) {
   }).filter(Boolean);
 
   d.lines = newLines;
-  // Keep the purchase-history total + item count in sync with the edited lines
-  // (incl GST), so editing via this modal doesn't leave a stale total.
   d.i = newLines.length;
-  d.t = '$' + newLines.reduce((s,l)=>s + (parseFloat(l._incGST)||0)*(parseFloat(l.qty)||0), 0).toFixed(2);
+  // Total: prefer the explicit "Invoice total" field so editing lines never
+  // silently overwrites the real invoice grand total (which can include
+  // freight/levies beyond the captured line items). Fall back to the line-item
+  // sum only when the field is blank or zero.
+  const lineSum  = newLines.reduce((s,l)=>s + (parseFloat(l._incGST)||0)*(parseFloat(l.qty)||0), 0);
+  const totalEl  = document.getElementById('ei-total');
+  const typedTot = totalEl ? (parseFloat(totalEl.value) || 0) : 0;
+  const total    = typedTot > 0 ? typedTot : lineSum;
+  d.t   = '$' + total.toFixed(2);
+  d.tEx = '$' + (total / 1.15).toFixed(2);
+  d.gst = '$' + (total - total / 1.15).toFixed(2);
 
   // Also update session.purchases so variance reflects the edited quantities
   ;(c.auditSessions||[]).forEach(sess => {
