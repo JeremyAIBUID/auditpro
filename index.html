@@ -282,6 +282,19 @@
   /* trend chart placeholder info box */
   .rpt-infobox{background:#f5f8fc;border:1px solid #dbe6f3;border-left:3px solid #5b9cf0;border-radius:8px;padding:16px 18px;color:#46556a;font-size:12px;line-height:1.6;}
   @media print{ .rpt-doc{box-shadow:none;width:auto;} #fullrpt-preview-wrap{background:#fff !important;padding:0 !important;} }
+  /* PDF export — force the LIVE report into a light, print-safe theme so html2canvas
+     captures it directly. (A detached clone lost its CSS custom properties and
+     produced a blank PDF.) */
+  body.pdf-export-mode #report-preview,
+  body.pdf-export-mode #report-preview *{
+    --bg:#ffffff;--bg2:#ffffff;--bg3:#ffffff;--bg4:#ffffff;
+    --text:#1a1a1a;--text2:#3a3f47;--text3:#6b7078;
+    --border:#e2e5ea;--border2:#d6dae0;--accent:#378ADD;
+  }
+  body.pdf-export-mode #report-preview{ background:#ffffff !important;color:#000 !important;box-shadow:none !important; }
+  body.pdf-export-mode #fullrpt-preview-wrap{ background:#ffffff !important;padding:0 !important;overflow:visible !important; }
+  body.pdf-export-mode .rpt-page{ border-bottom:none !important; }
+  body.pdf-export-mode [data-noexport]{ display:none !important; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
@@ -2662,8 +2675,7 @@ function renderPage(page) {
   if(page==='suppliers') { renderSupplierList(''); document.getElementById('supplier-detail').style.display='none'; }
   if(page==='finalise')  { renderFinalisePage(); }
   if(page==='reports') {
-    const rb=document.getElementById('reports-body');
-    if(rb) rb.innerHTML=(c.reports||[]).map(r=>`<tr><td class="td-main">${r.type}</td><td>${r.period}</td><td>${r.type||'—'}</td><td class="td-mono">${r.date}</td><td><button class="btn btn-secondary" style="padding:4px 12px;font-size:11px;" onclick="alert('PDF reporting live in Phase 4!')">Download</button></td></tr>`).join('') || '<tr><td colspan="5" style="color:var(--text3);text-align:center;padding:16px;">No saved reports yet</td></tr>';
+    renderSavedReportsTable();
     // Default date range — last 3 months
     const to   = new Date();
     const from = new Date(); from.setMonth(from.getMonth()-3);
@@ -4338,34 +4350,33 @@ async function exportReportPDF() {
   const statusEl = document.getElementById('fullrpt-status');
   if (statusEl) statusEl.textContent = '⏳ Rendering PDF…';
 
-  // Isolate the report in an off-screen, light-themed container at exactly A4
-  // width (794px @ 96dpi). Capturing the live #report-preview let html2canvas
-  // pick up the full-width dark live DOM, which clipped content and spawned
-  // blank pages. A detached clone removes that interference entirely.
-  const temp = document.createElement('div');
-  temp.style.cssText =
-    'position:fixed;left:-9999px;top:0;width:794px;overflow:hidden;background:#ffffff;' +
-    // Override dark-theme vars to light, in case any cloned node references them
-    '--bg:#ffffff;--bg2:#ffffff;--bg3:#ffffff;--bg4:#ffffff;' +
-    '--text:#1a1a1a;--text2:#3a3f47;--text3:#6b7078;' +
-    '--border:#e2e5ea;--border2:#d6dae0;--accent:#378ADD;';
-  const clone = el.cloneNode(true);
-  // Strip on-screen-only chrome (edit hints) and page separators from the clone
-  clone.querySelectorAll('[data-noexport]').forEach(n => n.remove());
-  clone.querySelectorAll('.rpt-page').forEach(p => p.style.borderBottom = 'none');
-  temp.appendChild(clone);
-  document.body.appendChild(temp);
+  // Capture the LIVE report node directly. Capturing a detached clone produced a
+  // blank PDF because CSS custom properties don't resolve in an isolated
+  // container. Instead we flip the whole document into `pdf-export-mode`, which
+  // forces #report-preview to a light, print-safe theme (see CSS), then run
+  // html2canvas straight on the on-screen element.
+  const wrap = document.getElementById('fullrpt-preview-wrap');
+  if (wrap) wrap.style.display = 'block';
+  el.scrollIntoView({ block: 'start' });
+  document.body.classList.add('pdf-export-mode');
 
   const opt = {
     margin: [10, 10, 10, 10],
     filename,
     image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false },
+    html2canvas: {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      logging: false,
+      scrollX: 0,
+      scrollY: -window.scrollY,
+    },
     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
   };
 
   try {
-    await html2pdf().set(opt).from(temp).save();
+    await html2pdf().set(opt).from(el).save();
     saveReportRecord(meta, filename);
     if (statusEl) statusEl.textContent = '✓ PDF exported & report record saved';
     showPersistToast('✓ PDF exported');
@@ -4374,7 +4385,7 @@ async function exportReportPDF() {
     alert('PDF export failed: ' + e.message);
     if (statusEl) statusEl.textContent = '⚠ PDF export failed';
   } finally {
-    temp.remove();
+    document.body.classList.remove('pdf-export-mode');
   }
 }
 
@@ -4394,11 +4405,49 @@ function saveReportRecord(meta, filename) {
   c.reports.unshift({ type: 'Full audit report', period: meta.period, date: meta.reportDate, pdfFilename: filename });
 
   // Refresh the Saved-reports table if it's on screen
-  const rb = document.getElementById('reports-body');
-  if (rb) rb.innerHTML = (c.reports || []).map(r =>
-    `<tr><td class="td-main">${rptEsc(r.type)}</td><td>${rptEsc(r.period)}</td><td>${rptEsc(r.type || '—')}</td><td class="td-mono">${rptEsc(r.date)}</td><td><span style="font-size:11px;color:var(--text3);">${rptEsc(r.pdfFilename || '')}</span></td></tr>`
-  ).join('') || '<tr><td colspan="5" style="color:var(--text3);text-align:center;padding:16px;">No saved reports yet</td></tr>';
+  renderSavedReportsTable();
 
+  dbSaveClient(c);
+}
+
+// ─── Saved-reports history table (Reports page) ──────────────────────────
+// Single source of truth for the "Saved reports" table — rendered on page load
+// and after a new report is saved. Each row carries a × to delete the record.
+function renderSavedReportsTable() {
+  const c = activeClient;
+  const rb = document.getElementById('reports-body');
+  if (!rb) return;
+  const reps = (c && c.reports) || [];
+  rb.innerHTML = reps.map((r, i) =>
+    `<tr>
+       <td class="td-main">${rptEsc(r.type || 'Audit report')}</td>
+       <td>${rptEsc(r.period || '—')}</td>
+       <td>${rptEsc(r.type || '—')}</td>
+       <td class="td-mono">${rptEsc(r.date || '')}</td>
+       <td style="white-space:nowrap;text-align:right;">
+         ${r.pdfFilename ? `<span style="font-size:11px;color:var(--text3);margin-right:8px;">${rptEsc(r.pdfFilename)}</span>` : ''}
+         <button title="Delete this report record" onclick="deleteSavedReport(${i})" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;line-height:1;padding:0 4px;">×</button>
+       </td>
+     </tr>`
+  ).join('') || '<tr><td colspan="5" style="color:var(--text3);text-align:center;padding:16px;">No saved reports yet</td></tr>';
+}
+
+// Remove a saved report record from the flat list and the matching audit
+// session, then persist. The PDF file itself is untouched — only the record.
+function deleteSavedReport(idx) {
+  const c = activeClient; if (!c || !Array.isArray(c.reports)) return;
+  const rec = c.reports[idx];
+  if (!rec) return;
+  if (!confirm('Remove this saved report record? The PDF file itself is not affected.')) return;
+  c.reports.splice(idx, 1);
+  // Keep each audit session's mirrored reports list in sync.
+  (c.auditSessions || []).forEach(s => {
+    if (Array.isArray(s.reports)) {
+      s.reports = s.reports.filter(r =>
+        !(r.pdfFilename === rec.pdfFilename && r.period === rec.period && r.date === rec.date));
+    }
+  });
+  renderSavedReportsTable();
   dbSaveClient(c);
 }
 
