@@ -222,7 +222,7 @@
 
   /* ───────── FULL AUDIT REPORT (print-friendly light document) ───────── */
   .rpt-doc{width:794px;margin:0 auto;background:#fff;color:#1a1a1a;font-family:'Helvetica Neue',Arial,sans-serif;font-size:12px;line-height:1.5;box-shadow:0 4px 24px rgba(0,0,0,0.4);}
-  .rpt-page{padding:38px 44px;min-height:1123px;position:relative;page-break-after:always;box-sizing:border-box;border-bottom:1px dashed #c9ccd1;}
+  .rpt-page{padding:38px 44px;min-height:1123px;position:relative;page-break-after:always;page-break-inside:avoid;box-sizing:border-box;border-bottom:1px dashed #c9ccd1;}
   .rpt-page:last-child{page-break-after:auto;border-bottom:none;}
   .rpt-doc h1,.rpt-doc h2,.rpt-doc h3,.rpt-doc h4{margin:0;font-weight:700;color:#15171c;}
   .rpt-doc h2{font-size:19px;letter-spacing:-0.01em;border-bottom:2px solid #15171c;padding-bottom:8px;margin-bottom:16px;}
@@ -3510,7 +3510,7 @@ const REPORT_CAT_COLORS = {
 };
 // Variance thresholds — flag a category if its variance % falls below this.
 const REPORT_CAT_THRESHOLDS = {
-  'Spirits':0, 'Wine':-2, 'Sparkling':-2, 'Draught':-3,
+  'Spirits':4, 'Wine':-2, 'Sparkling':-2, 'Draught':-3,
   'Beer & Cider':-0.5, 'RTD':-0.5, 'Misc':-0.5
 };
 // Acceptable overall (whole-venue) variance — drives the trend chart RAG band.
@@ -3676,7 +3676,7 @@ function calculateReportData(client, session) {
   const issues = [];
   categories.forEach(c => {
     const T = REPORT_CAT_THRESHOLDS[c.cat];
-    if (c.variancePct < T - 0.001 && c.varianceVal < 0) {
+    if (c.variancePct < T - 0.001) {
       issues.push({ sev: Math.abs(c.variancePct - T) + Math.abs(c.varianceVal) / 1000, color: c.rag, text: `${c.cat} variance ${fmtPct(c.variancePct)}` });
     }
   });
@@ -4146,7 +4146,7 @@ function renderReportDocument(client, meta, data) {
         <td></td>
       </tr></tfoot>
     </table>
-    <p class="rpt-muted" style="font-size:10.5px;">Thresholds — Spirits 0%, Wine/Sparkling −2%, Draught −3%, Beer &amp; Cider/RTD/Misc −0.5%. Status flags a category that falls below its threshold.</p>
+    <p class="rpt-muted" style="font-size:10.5px;">Thresholds — Spirits +4%, Wine/Sparkling −2%, Draught −3%, Beer &amp; Cider/RTD/Misc −0.5%. Spirits are weighed and expected to show a gain, so a Spirits result below +4% is flagged. Status flags a category that falls below its threshold.</p>
     ${rptFooter(meta, 7, PAGES)}
   </div>`;
 
@@ -4256,6 +4256,7 @@ DATA:
 - Actual GP ${data.actualGPavg.toFixed(1)}% vs ideal ${data.idealGPavg.toFixed(1)}%
 - Category breakdown:
 ${catCtx}
+- Threshold note: Spirits are audited by weight and are EXPECTED to show a positive variance (a gain) of about +4%. A Spirits variance below +4% signals over-pouring or unrecorded usage and should be treated as an issue, even if the dollar figure is still positive. The negative thresholds on other categories are normal tolerance bands.
 - Top loss leaders: ${lossCtx}
 - Dead stock (no sales 2+ periods): ${deadCtx}
 - Slow movers: ${slowCtx}
@@ -4334,12 +4335,12 @@ async function exportReportPDF() {
   if (statusEl) statusEl.textContent = '⏳ Rendering PDF…';
 
   const opt = {
-    margin: [0, 0, 0, 0],
+    margin: 10,
     filename,
-    image: { type: 'jpeg', quality: 0.96 },
-    html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: 794 },
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2, useCORS: true, width: 794, windowWidth: 794, backgroundColor: '#ffffff' },
     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak: { mode: ['css', 'legacy'] },
+    pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
   };
 
   try {
