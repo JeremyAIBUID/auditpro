@@ -4426,6 +4426,10 @@ async function exportReportPDF() {
 
   const clone = el.cloneNode(true);
   clone.style.cssText = 'position:fixed;top:-99999px;left:0;width:720px;max-width:720px;overflow:visible;z-index:-9999;background:white;';
+  // The clone otherwise inherits display:none from its hidden context — force it
+  // visible so it actually lays out and html2canvas has real content to capture.
+  clone.style.display = 'block';
+  clone.style.visibility = 'visible';
 
   const opt = {
     margin: [10, 10, 10, 10],
@@ -4439,11 +4443,19 @@ async function exportReportPDF() {
   try {
     document.body.appendChild(clone);
 
+    // Give the browser time to lay out and paint the cloned content before we
+    // hand it to html2canvas — otherwise capture can happen on a 0-height clone.
+    await new Promise(resolve => setTimeout(resolve, 300));
+
     // cloneNode(true) does NOT copy canvas pixels — cloned donut canvases come
     // out blank. Re-ID each one ('…-pdf', so it can't collide with the live
     // canvas) and repaint via the existing draw function before capture.
     clone.querySelectorAll('canvas').forEach(cv => { if (cv.id) cv.id = cv.id + '-pdf'; });
     drawReportDonuts('-pdf');
+
+    // Diagnostic (kept in for now): confirm the clone has real height + content
+    // before capture. Blank PDF ⇒ expect offsetHeight 0 or innerHTML.length tiny.
+    console.log('[AuditPro] PDF clone offsetHeight=' + clone.offsetHeight + ' innerHTML.length=' + clone.innerHTML.length);
 
     await html2pdf().set(opt).from(clone).save();
     saveReportRecord(meta, filename);
@@ -10979,7 +10991,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r10';
+const APP_VERSION = '2026-06-10-r11';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
