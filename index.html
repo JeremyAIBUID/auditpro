@@ -4425,7 +4425,7 @@ async function exportReportPDF() {
   document.body.classList.add('pdf-export-mode');
 
   const clone = el.cloneNode(true);
-  clone.style.cssText = 'position:fixed;top:-99999px;left:0;width:720px;max-width:720px;overflow:visible;z-index:-9999;background:white;';
+  clone.style.cssText = 'position:absolute;left:-9999px;top:0;width:720px;max-width:720px;overflow:visible;z-index:-9999;background:white;';
   // The clone otherwise inherits display:none from its hidden context — force it
   // visible so it actually lays out and html2canvas has real content to capture.
   clone.style.display = 'block';
@@ -10991,7 +10991,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r11';
+const APP_VERSION = '2026-06-10-r12';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
