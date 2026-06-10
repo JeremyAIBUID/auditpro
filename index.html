@@ -3579,10 +3579,16 @@ function ragLabel(rag)  { return rag === 'green' ? 'OK' : rag === 'amber' ? 'Wat
 // ─── Formatting helpers ──────────────────────────
 // Report currency formatter — defaults to 2 dp so cents always display
 // ($421.26, not $421). Every report dollar value routes through here.
-function fmtMoney(n, dp = 2) {
-  const v = Number(n) || 0;
+function fmtMoney(n) {
+  // Always 2 dp so cents show in both the in-app preview and the PDF (they share
+  // this one formatter). Parse as float, guard NaN, and add comma thousands
+  // separators manually — toLocaleString could collapse to whole dollars.
+  const v = parseFloat(n);
+  if (isNaN(v)) return '$0.00';
   const sign = v < 0 ? '-' : '';
-  return sign + '$' + Math.abs(v).toLocaleString('en-NZ', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+  const [intPart, decPart] = Math.abs(v).toFixed(2).split('.');
+  const withCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return sign + '$' + withCommas + '.' + decPart;
 }
 function fmtPct(n, dp = 1) {
   const v = Number(n) || 0;
@@ -3850,9 +3856,11 @@ function rptDonut(segments, centerTop, centerBot) {
 }
 
 // Paint every queued donut canvas. Call after the report HTML is inserted.
-function drawReportDonuts() {
+// `idSuffix` lets the PDF export repaint the cloned (blank) canvases, whose IDs
+// are re-suffixed with '-pdf' to avoid colliding with the live ones.
+function drawReportDonuts(idSuffix = '') {
   _rptDonutQueue.forEach(d => {
-    const cv = document.getElementById(d.id);
+    const cv = document.getElementById(d.id + idSuffix);
     if (!cv || !cv.getContext) return;
     const ctx = cv.getContext('2d');
     const W = cv.width, cx = W / 2, cy = W / 2, R = W * 0.42, rHole = W * 0.26;
@@ -4406,38 +4414,38 @@ async function exportReportPDF() {
   const statusEl = document.getElementById('fullrpt-status');
   if (statusEl) statusEl.textContent = '⏳ Rendering PDF…';
 
-  // Capture the LIVE report node directly. Capturing a detached clone produced a
-  // blank PDF because CSS custom properties don't resolve in an isolated
-  // container. Instead we flip the whole document into `pdf-export-mode`, which
-  // forces #report-preview to a light, print-safe theme (see CSS), then run
-  // html2canvas straight on the on-screen element.
+  // The on-screen #report-preview inherits its parent's narrow layout width, so
+  // html2canvas captured it at ~150px instead of 720px. Capture a CLONE forced
+  // to the full width instead: clone the node, pin it to 720px off-screen, and
+  // append it straight to <body> (so pdf-export-mode theme CSS still resolves),
+  // then run html2canvas on the clone. Everything is wrapped in try/finally so
+  // the clone is always removed from the DOM.
   const wrap = document.getElementById('fullrpt-preview-wrap');
   if (wrap) wrap.style.display = 'block';
-  el.scrollIntoView({ block: 'start' });
   document.body.classList.add('pdf-export-mode');
 
+  const clone = el.cloneNode(true);
+  clone.style.cssText = 'position:fixed;top:-99999px;left:0;width:720px;max-width:720px;overflow:visible;z-index:-9999;background:white;';
+
   const opt = {
-    margin: [8, 8, 8, 8],
+    margin: [10, 10, 10, 10],
     filename,
     image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: {
-      scale: 2,
-      width: 720,            // match .rpt-doc width so nothing is cropped at the right edge
-      windowWidth: 720,
-      useCORS: true,
-      backgroundColor: '#ffffff',
-      logging: false,
-      scrollX: 0,
-      scrollY: -window.scrollY,
-    },
+    html2canvas: { scale: 2, useCORS: true, logging: false },
     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    // Honour the CSS page-break-before on each section so sections start on a
-    // fresh page; let the renderer slice naturally inside a long section.
-    pagebreak: { mode: ['css', 'legacy'] },
+    pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
   };
 
   try {
-    await html2pdf().set(opt).from(el).save();
+    document.body.appendChild(clone);
+
+    // cloneNode(true) does NOT copy canvas pixels — cloned donut canvases come
+    // out blank. Re-ID each one ('…-pdf', so it can't collide with the live
+    // canvas) and repaint via the existing draw function before capture.
+    clone.querySelectorAll('canvas').forEach(cv => { if (cv.id) cv.id = cv.id + '-pdf'; });
+    drawReportDonuts('-pdf');
+
+    await html2pdf().set(opt).from(clone).save();
     saveReportRecord(meta, filename);
     if (statusEl) statusEl.textContent = '✓ PDF exported & report record saved';
     showPersistToast('✓ PDF exported');
@@ -4446,6 +4454,7 @@ async function exportReportPDF() {
     alert('PDF export failed: ' + e.message);
     if (statusEl) statusEl.textContent = '⚠ PDF export failed';
   } finally {
+    if (clone.parentNode) document.body.removeChild(clone);
     document.body.classList.remove('pdf-export-mode');
   }
 }
@@ -10970,7 +10979,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r9';
+const APP_VERSION = '2026-06-10-r10';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
