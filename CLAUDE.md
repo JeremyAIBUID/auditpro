@@ -18,6 +18,8 @@ AuditPro is a hospitality audit platform for any hospitality venue. Built as sin
 
 **Deploy process:** Edit local files → commit via GitHub Desktop → GitHub Pages auto-deploys in ~1 min.
 
+**Current build stamp:** `2026-06-10-r9` — the `APP_VERSION` const in index.html, logged to the console on load. Check it matches after a deploy to confirm you're not seeing a cached build.
+
 **mobile2.html must always be kept identical to mobile.html — update both files in every commit.**
 
 ---
@@ -225,6 +227,8 @@ Normalisation strips: `'`, pack sizes (24S), BTL/BTLS, CAN/CANS, KEG/KEGS, CASE/
 
 Unmatched items → blank red-bordered field, Confirm button disabled until all matched.
 
+**Invoice totals & extras:** The invoice total uses `d.t` — the total **printed on the invoice, incl. GST** — which can exceed the sum of line items. The gap (fuel surcharges, freight, levies) is stored as `d.extras = d.t − lineSum`. `saveEditedInvoice()` preserves `d.extras` through line edits so the printed total stays intact.
+
 ---
 
 ## Variance Calculation
@@ -239,6 +243,66 @@ Unmatched items → blank red-bordered field, Confirm button disabled until all 
 **Unit display:** Bottles/Cans/RTD show units (e.g. "36 units"), Spirits/Wine/Kegs show volume (L/ml).
 
 **Sales depletion:** For Bottles/Cans/Kegs, each sale = 1 full unitVol. For spirits, uses serveVol.
+
+---
+
+## PDF Audit Report (Week 2 — In Progress)
+Full audit-report generator on the **Reports** page — a cover page plus 9 content sections, exported to PDF via **html2pdf.js**.
+
+**Section order (pages 1 → 10):**
+1. Cover
+2. Executive Summary — metric cards + 2 donut charts + variance-by-category table
+3. Variance Trend
+4. GP Analysis
+5. Auditor Comments — AI-generated, inline-editable before export
+6. Loss & Gain Leaders
+7. Variance Summary by Category
+8. Full Product Detail
+9. Purchase History
+10. Sign-off
+
+**Category order (everywhere in the report):** Spirits, Wine, Sparkling, Draught, Beer & Cider, RTD, Misc
+
+**Variance thresholds (per category):**
+| Category | Threshold |
+|----------|-----------|
+| Spirits | +4% |
+| Wine | −2% |
+| Sparkling | −2% |
+| Draught | −3% |
+| Beer & Cider | −0.5% |
+| RTD | −0.5% |
+| Misc | −0.5% |
+
+Spirits are weighed and expected to show a gain, so a Spirits result below +4% is flagged.
+
+**Stock flags:**
+- **Dead stock:** 60+ days with no sales
+- **Slow mover:** 30 days / <2% usage
+
+**Donut charts** render with the **Canvas 2D API** — conic-gradient and SVG `<path>` wedges both came out as blank grey circles inside html2canvas. Canvases are painted *after* the report HTML is in the DOM (`drawReportDonuts()`).
+
+**Key functions:**
+```javascript
+exportReportPDF()        // Flip body.pdf-export-mode, run html2pdf on #report-preview, save record
+renderReportDocument()   // Build all 10 pages of report HTML
+calculateReportData()    // Reuse computeVariances() → totals, categories, leaders, flags
+drawReportDonuts()       // Paint queued donut canvases after HTML insertion
+rptDonut()               // Emit a donut <canvas> + legend, queue slice data
+fmtMoney()               // Report currency formatter (defaults to 2 dp — cents always show)
+```
+
+---
+
+## KNOWN ISSUE — PDF Export Layout (UNRESOLVED)
+The PDF export still has layout problems after multiple fix attempts:
+
+- **Currency rounding, right-edge clipping, and section top-gaps** were all attempted in build `2026-06-10-r9` but are **not yet confirmed working** on a real export.
+- The earlier **detached-clone** approach in `exportReportPDF()` was abandoned (the clone lost its CSS custom properties → blank PDF). It now flips a `body.pdf-export-mode` class and runs html2pdf **directly on `#report-preview`**.
+- Current layout settings: `.rpt-doc` container width **720px**, html2pdf margin **[8,8,8,8]**, html2canvas **width 720** (+ windowWidth 720), `.rpt-table` `table-layout:fixed`.
+- Invoice extras stored as **`d.extras = d.t − lineSum`** to preserve fuel surcharges / freight through edits.
+
+**Next step:** confirm on a real export whether cents, right-edge fit, and top gaps actually render correctly. Treat any reported regression as possibly stale GitHub Pages cache — verify `APP_VERSION` in the console first.
 
 ---
 
