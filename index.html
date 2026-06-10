@@ -4402,6 +4402,7 @@ function regenerateReportAIComments() {
 
 // ─── PDF export ──────────────────────────────────
 async function exportReportPDF() {
+  console.log('[AuditPro] PDF path A — exportReportPDF() fired (build ' + APP_VERSION + ')');
   const el = document.getElementById('report-preview');
   if (!el || !_fullReportMeta) { alert('Generate a report first.'); return; }
   if (typeof html2pdf === 'undefined') { alert('PDF library still loading — try again in a moment.'); return; }
@@ -4425,7 +4426,9 @@ async function exportReportPDF() {
   document.body.classList.add('pdf-export-mode');
 
   const clone = el.cloneNode(true);
-  clone.style.cssText = 'position:absolute;left:-9999px;top:0;width:720px;max-width:720px;overflow:visible;z-index:-9999;background:white;';
+  // On-screen clone: pin it visibly at top-left so html2canvas captures real
+  // painted content (off-screen / negative-z clones came out blank in the PDF).
+  clone.style.cssText = 'position:fixed;top:0;left:0;width:720px;max-width:720px;overflow:visible;z-index:9999;background:white;';
   // The clone otherwise inherits display:none from its hidden context — force it
   // visible so it actually lays out and html2canvas has real content to capture.
   clone.style.display = 'block';
@@ -10991,7 +10994,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r12';
+const APP_VERSION = '2026-06-10-r13';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
