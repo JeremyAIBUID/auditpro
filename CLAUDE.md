@@ -7,6 +7,14 @@ AuditPro is a hospitality audit platform for any hospitality venue. Built as sin
 
 ---
 
+## Claude Code Session Setup
+
+**Planning chat (claude.ai):** Always use Claude Opus model for the AuditPro planning and prompt-drafting chat. This is the main chat where fixes are designed, Claude Code prompts are written, and results are analysed.
+
+**Claude Code CLI:** `claude --model claude-opus-4-8`, first message `/effort xhigh`.
+
+---
+
 ## Deployment
 | Asset | URL |
 |-------|-----|
@@ -18,7 +26,7 @@ AuditPro is a hospitality audit platform for any hospitality venue. Built as sin
 
 **Deploy process:** Edit local files → commit via GitHub Desktop → GitHub Pages auto-deploys in ~1 min.
 
-**Current build stamp:** `2026-06-10-r10` — the `APP_VERSION` const in index.html, logged to the console on load. Check it matches after a deploy to confirm you're not seeing a cached build.
+**Current build stamp:** `2026-06-10-r11` — the `APP_VERSION` const in index.html, logged to the console on load. Check it matches after a deploy to confirm you're not seeing a cached build.
 
 **mobile2.html must always be kept identical to mobile.html — update both files in every commit.**
 
