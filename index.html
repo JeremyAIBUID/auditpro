@@ -4443,8 +4443,14 @@ async function exportReportPDF() {
     pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
   };
 
+  // Append the clone to the SAME parent as the original report element so it
+  // inherits the exact same CSS custom-property context (appending to <body>
+  // can resolve a different variable cascade). Declared before the try so the
+  // finally block can remove it.
+  const reportParent = el.parentNode || document.body;
+
   try {
-    document.body.appendChild(clone);
+    reportParent.appendChild(clone);
 
     // Give the browser time to lay out and paint the cloned content before we
     // hand it to html2canvas — otherwise capture can happen on a 0-height clone.
@@ -4460,6 +4466,13 @@ async function exportReportPDF() {
     // before capture. Blank PDF ⇒ expect offsetHeight 0 or innerHTML.length tiny.
     console.log('[AuditPro] PDF clone offsetHeight=' + clone.offsetHeight + ' innerHTML.length=' + clone.innerHTML.length);
 
+    // TEMP diagnostic: capture the clone with html2canvas directly and open the
+    // resulting PNG in a new tab so we can see exactly what html2canvas sees.
+    // Fires before the PDF generates; does NOT replace the html2pdf call below.
+    html2canvas(clone, { scale: 1, useCORS: true, logging: true }).then(canvas => {
+      window.open(canvas.toDataURL('image/png'), '_blank');
+    });
+
     await html2pdf().set(opt).from(clone).save();
     saveReportRecord(meta, filename);
     if (statusEl) statusEl.textContent = '✓ PDF exported & report record saved';
@@ -4469,7 +4482,7 @@ async function exportReportPDF() {
     alert('PDF export failed: ' + e.message);
     if (statusEl) statusEl.textContent = '⚠ PDF export failed';
   } finally {
-    if (clone.parentNode) document.body.removeChild(clone);
+    if (clone.parentNode) reportParent.removeChild(clone);
     document.body.classList.remove('pdf-export-mode');
   }
 }
@@ -10994,7 +11007,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r13';
+const APP_VERSION = '2026-06-10-r14';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
