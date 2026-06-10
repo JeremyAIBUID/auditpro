@@ -221,14 +221,18 @@
   ::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:3px;}
 
   /* ───────── FULL AUDIT REPORT (print-friendly light document) ───────── */
-  .rpt-doc{width:794px;margin:0 auto;background:#fff;color:#1a1a1a;font-family:'Helvetica Neue',Arial,sans-serif;font-size:12px;line-height:1.5;box-shadow:0 4px 24px rgba(0,0,0,0.4);}
+  /* 720px (was 794px): with the PDF's left+right margins the old width pushed
+     ~76px of content past the printable area, clipping the right edge of every
+     page ("$420.61" → "$42"). 720px keeps all content inside the print box. */
+  .rpt-doc{width:720px;max-width:720px;margin:0 auto;background:#fff;color:#1a1a1a;font-family:'Helvetica Neue',Arial,sans-serif;font-size:12px;line-height:1.5;box-shadow:0 4px 24px rgba(0,0,0,0.4);}
   .rpt-page{padding:38px 44px;position:relative;box-sizing:border-box;border-bottom:1px dashed #c9ccd1;}
   /* Start every section after the first on a fresh PDF page, but let content flow
      naturally inside a section (no forced full-A4 height) so tall tables can span
-     pages instead of overflowing and leaving blank trailing pages. */
-  /* Trim the top padding on sections after the first: combined with the PDF's
-     own top margin, the full 38px left too large a gap above each new page. */
-  .rpt-page + .rpt-page{page-break-before:always;break-before:page;padding-top:14px;}
+     pages instead of overflowing and leaving blank trailing pages. The export's
+     own top margin (8mm) supplies the breathing room above each new page, so the
+     section's own top padding drops to ~0 to remove the large empty gap above
+     each heading. */
+  .rpt-page + .rpt-page{page-break-before:always;break-before:page;padding-top:2px;}
   .rpt-page:last-child{border-bottom:none;}
   .rpt-doc h1,.rpt-doc h2,.rpt-doc h3,.rpt-doc h4{margin:0;font-weight:700;color:#15171c;}
   .rpt-doc h2{font-size:19px;letter-spacing:-0.01em;border-bottom:2px solid #15171c;padding-bottom:8px;margin-bottom:16px;}
@@ -239,7 +243,9 @@
   .rpt-eyebrow{font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#8a8f97;}
   .rpt-sec-label{font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#8a8f97;margin-bottom:3px;}
   /* tables */
-  .rpt-table{width:100%;border-collapse:collapse;font-size:11px;margin:4px 0 10px;}
+  /* table-layout:fixed + width:100% pins every table to the container width so a
+     wide table can't expand past the page and clip its rightmost column. */
+  .rpt-table{width:100%;max-width:100%;table-layout:fixed;border-collapse:collapse;font-size:11px;margin:4px 0 10px;}
   .rpt-table th{text-align:left;background:#f1f3f6;color:#3a3f47;font-weight:700;font-size:10px;letter-spacing:0.03em;text-transform:uppercase;padding:7px 8px;border-bottom:1.5px solid #d6dae0;}
   .rpt-table td{padding:6px 8px;border-bottom:1px solid #eceef2;vertical-align:middle;}
   .rpt-table tr:nth-child(even) td{background:#fafbfc;}
@@ -3571,7 +3577,9 @@ function ragClass(rag)  { return rag === 'green' ? 'rag-green' : rag === 'amber'
 function ragLabel(rag)  { return rag === 'green' ? 'OK' : rag === 'amber' ? 'Watch' : 'Action'; }
 
 // ─── Formatting helpers ──────────────────────────
-function fmtMoney(n, dp = 0) {
+// Report currency formatter — defaults to 2 dp so cents always display
+// ($421.26, not $421). Every report dollar value routes through here.
+function fmtMoney(n, dp = 2) {
   const v = Number(n) || 0;
   const sign = v < 0 ? '-' : '';
   return sign + '$' + Math.abs(v).toLocaleString('en-NZ', { minimumFractionDigits: dp, maximumFractionDigits: dp });
@@ -4200,7 +4208,7 @@ function renderReportDocument(client, meta, data) {
   const p6 = `<div class="rpt-page">
     <h2>Variance summary by category</h2>
     <table class="rpt-table">
-      <thead><tr><th>Category</th><th class="num">Opening $</th><th class="num">Purchases $</th><th class="num">Expected $</th><th class="num">Actual $</th><th class="num">Variance $</th><th class="num">Var %</th><th>Status</th></tr></thead>
+      <thead><tr><th style="width:62px;">Category</th><th class="num">Opening $</th><th class="num">Purchases $</th><th class="num">Expected $</th><th class="num">Actual $</th><th class="num">Variance $</th><th class="num" style="width:46px;">Var %</th><th style="width:58px;">Status</th></tr></thead>
       <tbody>${catRows}</tbody>
       <tfoot><tr class="rpt-total">
         <td>TOTAL</td>
@@ -4249,7 +4257,7 @@ function renderReportDocument(client, meta, data) {
     <h2>Full product detail</h2>
     <p class="rpt-muted" style="font-size:10.5px;">Sorted by category, then variance % (worst surplus to worst loss). Units shown for quantities.</p>
     <table class="rpt-table">
-      <thead><tr><th>Product</th><th>Cat</th><th class="num">Open</th><th class="num">Purch</th><th class="num">Exp</th><th class="num">Actual</th><th class="num">Var %</th><th class="num">Act GP</th><th class="num">Ideal GP</th><th class="num">GP gap</th><th>Flags</th></tr></thead>
+      <thead><tr><th>Product</th><th style="width:46px;">Cat</th><th class="num" style="width:42px;">Open</th><th class="num" style="width:44px;">Purch</th><th class="num" style="width:42px;">Exp</th><th class="num" style="width:48px;">Actual</th><th class="num" style="width:50px;">Var %</th><th class="num" style="width:46px;">Act GP</th><th class="num" style="width:52px;">Ideal GP</th><th class="num" style="width:48px;">GP gap</th><th style="width:96px;">Flags</th></tr></thead>
       <tbody>${detailBody}</tbody>
     </table>
     ${rptFooter(meta, 8, PAGES)}
@@ -4409,11 +4417,13 @@ async function exportReportPDF() {
   document.body.classList.add('pdf-export-mode');
 
   const opt = {
-    margin: [10, 10, 10, 10],
+    margin: [8, 8, 8, 8],
     filename,
     image: { type: 'jpeg', quality: 0.98 },
     html2canvas: {
       scale: 2,
+      width: 720,            // match .rpt-doc width so nothing is cropped at the right edge
+      windowWidth: 720,
       useCORS: true,
       backgroundColor: '#ffffff',
       logging: false,
