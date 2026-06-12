@@ -26,7 +26,7 @@ AuditPro is a hospitality audit platform for any hospitality venue. Built as sin
 
 **Deploy process:** Edit local files → commit via GitHub Desktop → GitHub Pages auto-deploys in ~1 min.
 
-**Current build stamp:** `2026-06-10-r11` — the `APP_VERSION` const in index.html, logged to the console on load. Check it matches after a deploy to confirm you're not seeing a cached build.
+**Current build stamp:** `2026-06-10-r17` — the `APP_VERSION` const in index.html, logged to the console on load. Check it matches after a deploy to confirm you're not seeing a cached build.
 
 **mobile2.html must always be kept identical to mobile.html — update both files in every commit.**
 
@@ -254,8 +254,8 @@ Unmatched items → blank red-bordered field, Confirm button disabled until all 
 
 ---
 
-## PDF Audit Report (Week 2 — In Progress)
-Full audit-report generator on the **Reports** page — a cover page plus 9 content sections, exported to PDF via **html2pdf.js**.
+## PDF Audit Report (Week 2 — Complete — PDF report generating and exporting correctly)
+Full audit-report generator on the **Reports** page — a cover page plus 9 content sections, exported to PDF via **html2canvas 1.4.1 + jsPDF 2.5.1** (see PDF Export — RESOLVED below).
 
 **Section order (pages 1 → 10):**
 1. Cover
@@ -292,7 +292,7 @@ Spirits are weighed and expected to show a gain, so a Spirits result below +4% i
 
 **Key functions:**
 ```javascript
-exportReportPDF()        // Flip body.pdf-export-mode, run html2pdf on #report-preview, save record
+exportReportPDF()        // Clone #report-preview → html2canvas → jsPDF, section-aware page slicing, save record
 renderReportDocument()   // Build all 10 pages of report HTML
 calculateReportData()    // Reuse computeVariances() → totals, categories, leaders, flags
 drawReportDonuts()       // Paint queued donut canvases after HTML insertion
@@ -302,15 +302,26 @@ fmtMoney()               // Report currency formatter (defaults to 2 dp — cent
 
 ---
 
-## KNOWN ISSUE — PDF Export Layout (UNRESOLVED)
-The PDF export still has layout problems after multiple fix attempts:
+## PDF Export — RESOLVED (r17)
+PDF export of the full audit report works correctly as of build `2026-06-10-r17`.
 
-- **Currency rounding, right-edge clipping, and section top-gaps** were all attempted in build `2026-06-10-r9` but are **not yet confirmed working** on a real export.
-- The earlier **detached-clone** approach in `exportReportPDF()` was abandoned (the clone lost its CSS custom properties → blank PDF). It now flips a `body.pdf-export-mode` class and runs html2pdf **directly on `#report-preview`**.
-- Current layout settings: `.rpt-doc` container width **720px**, html2pdf margin **[8,8,8,8]**, html2canvas **width 720** (+ windowWidth 720), `.rpt-table` `table-layout:fixed`.
+**Architecture:**
+- **html2pdf.js was abandoned** — it produced blank PDFs from valid canvases. The report now renders via **html2canvas 1.4.1 + jsPDF 2.5.1 directly**, both loaded standalone from cdnjs.
+- `exportReportPDF()` flow:
+  1. Clones `#report-preview` and appends the clone to the report's parent node with `cssText` `position:fixed;top:0;left:0;width:720px;z-index:9999;background:white`.
+  2. Waits **300ms** for the clone to lay out.
+  3. Waits **up to 10s** for the AI commentary fields to finish generating (polls every 500ms; proceeds with a console warning if still not ready).
+  4. Redraws the donut canvases into the clone with **`-pdf` ID suffixes** (`drawReportDonuts('-pdf')`).
+  5. Captures the clone with **html2canvas at scale 2**.
+  6. Slices the canvas into pages using the **`.rpt-page` section `offsetTop` positions as forced page-break points**, so every section starts at the top of a new page (a section taller than one page spills onto continuation pages, sliced normally).
+  7. `try/finally` **guarantees clone removal** from the DOM.
 - Invoice extras stored as **`d.extras = d.t − lineSum`** to preserve fuel surcharges / freight through edits.
 
-**Next step:** confirm on a real export whether cents, right-edge fit, and top gaps actually render correctly. Treat any reported regression as possibly stale GitHub Pages cache — verify `APP_VERSION` in the console first.
+**Key learnings:**
+- **html2canvas cannot capture off-screen elements** (fixed or absolute at negative coordinates) — the clone must be **on-screen** during capture.
+- **`cloneNode(true)` does not copy canvas pixel data** — charts must be **redrawn into the clone** before capture.
+
+Treat any reported regression as possibly stale GitHub Pages cache — verify `APP_VERSION` in the console first.
 
 ---
 
