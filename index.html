@@ -4416,6 +4416,26 @@ async function exportReportPDF() {
   const statusEl = document.getElementById('fullrpt-status');
   if (statusEl) statusEl.textContent = '⏳ Rendering PDF…';
 
+  // FIX 2 (r17) — don't capture while the AI commentary fields are still showing
+  // their "Generating…" placeholders, or the PDF ships with empty comments. Poll
+  // up to 10s (every 500ms) for real content to land; proceed with a warning if
+  // it never does so the export still completes.
+  const _aiStillGenerating = () =>
+    ['rpt-ai-findings', 'rpt-ai-recommendations', 'rpt-ai-actions', 'rpt-ai-catnotes']
+      .some(id => { const e = document.getElementById(id); return e && /Generating/i.test(e.textContent || ''); });
+  if (_aiStillGenerating()) {
+    if (statusEl) statusEl.textContent = '⏳ Waiting for AI commentary…';
+    const _aiDeadline = Date.now() + 10000;
+    while (_aiStillGenerating() && Date.now() < _aiDeadline) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    if (_aiStillGenerating()) {
+      console.warn('[AuditPro] PDF warning — AI commentary not ready, exporting with placeholders.');
+    } else if (statusEl) {
+      statusEl.textContent = '⏳ Rendering PDF…';
+    }
+  }
+
   // The on-screen #report-preview inherits its parent's narrow layout width, so
   // html2canvas captured it at ~150px instead of 720px. Capture a CLONE forced
   // to the full width instead: clone the node, pin it to 720px off-screen, and
@@ -4469,7 +4489,10 @@ async function exportReportPDF() {
 
     // Direct html2canvas → jsPDF. html2pdf.js produced blank PDFs from a valid
     // canvas, so bypass it: capture the clone, then slice the tall canvas into
-    // A4-height strips and place each on its own PDF page.
+    // PDF pages. FIX 1 (r17) — slice on SECTION boundaries, not blind A4 strips,
+    // so every .rpt-page section starts at the top of a fresh page and headings
+    // are never cut mid-content. A section taller than one page spills onto
+    // continuation pages, sliced normally.
     const canvas = await html2canvas(clone, { scale: 2, useCORS: true, logging: false });
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF('p', 'mm', 'a4');
@@ -4477,22 +4500,35 @@ async function exportReportPDF() {
     const usableW = pageW - margin * 2;
     const usableH = pageH - margin * 2;
     const imgW = usableW;
-    const imgH = canvas.height / canvas.width * imgW;
-    const pxPerMm = canvas.width / imgW;
-    let yMm = 0;
+    const pxPerMm = canvas.width / imgW;          // canvas px per mm of placed image
+    const pageHpx = usableH * pxPerMm;            // one usable page height, in canvas px
+
+    // Map each section's on-screen offsetTop → a canvas-pixel break point.
+    // scaleFactor converts CSS px (offsetTop) to canvas px (the html2canvas scale).
+    const scaleFactor = canvas.width / (clone.offsetWidth || 720);
+    let breakPts = Array.from(clone.querySelectorAll('.rpt-page'))
+      .map(s => Math.round(s.offsetTop * scaleFactor))
+      .filter(p => p >= 0 && p < canvas.height);
+    breakPts = Array.from(new Set(breakPts)).sort((a, b) => a - b);
+    if (!breakPts.length || breakPts[0] !== 0) breakPts.unshift(0);
+    breakPts.push(canvas.height);                 // terminal boundary
+    console.log('[AuditPro] PDF section breaks (canvas px): ' + breakPts.join(', '));
+
     let firstPage = true;
-    while (yMm < imgH) {
-      if (!firstPage) pdf.addPage();
-      firstPage = false;
-      const sliceH = Math.min(usableH, imgH - yMm);
-      const srcY = Math.round(yMm * pxPerMm);
-      const srcH = Math.round(sliceH * pxPerMm);
-      const slice = document.createElement('canvas');
-      slice.width = canvas.width;
-      slice.height = srcH;
-      slice.getContext('2d').drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH);
-      pdf.addImage(slice.toDataURL('image/jpeg', 0.98), 'JPEG', margin, margin, imgW, sliceH);
-      yMm += usableH;
+    for (let i = 0; i < breakPts.length - 1; i++) {
+      const segEnd = breakPts[i + 1];             // next section start (or canvas end)
+      let y = breakPts[i];                         // each section opens a fresh page
+      while (y < segEnd) {
+        const srcH = Math.max(1, Math.round(Math.min(pageHpx, segEnd - y)));
+        if (!firstPage) pdf.addPage();
+        firstPage = false;
+        const slice = document.createElement('canvas');
+        slice.width = canvas.width;
+        slice.height = srcH;
+        slice.getContext('2d').drawImage(canvas, 0, y, canvas.width, srcH, 0, 0, canvas.width, srcH);
+        pdf.addImage(slice.toDataURL('image/jpeg', 0.98), 'JPEG', margin, margin, imgW, srcH / pxPerMm);
+        y += srcH;
+      }
     }
     pdf.save(filename);
     saveReportRecord(meta, filename);
@@ -11028,7 +11064,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r16';
+const APP_VERSION = '2026-06-10-r17';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
