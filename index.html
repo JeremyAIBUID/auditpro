@@ -315,7 +315,7 @@
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
 <div class="shell">
@@ -3530,7 +3530,7 @@ function printIntelipar() {
    - calculateReportData()  builds all numbers from computeVariances()
    - renderReportDocument() renders the light-theme HTML document
    - genReportAIComments()  fills the contenteditable AI commentary
-   - exportReportPDF()      html2pdf → A4 portrait, saves a report record
+   - exportReportPDF()      html2canvas → jsPDF A4 portrait, saves a report record
    ════════════════════════════════════════════════════════════════════ */
 
 const REPORT_CAT_ORDER  = ['Spirits','Wine','Sparkling','Draught','Beer & Cider','RTD','Misc'];
@@ -4406,7 +4406,7 @@ async function exportReportPDF() {
   console.log('[AuditPro] PDF path A — exportReportPDF() fired (build ' + APP_VERSION + ')');
   const el = document.getElementById('report-preview');
   if (!el || !_fullReportMeta) { alert('Generate a report first.'); return; }
-  if (typeof html2pdf === 'undefined') { alert('PDF library still loading — try again in a moment.'); return; }
+  if (!window.jspdf || typeof html2canvas === 'undefined') { alert('PDF library still loading — try again in a moment.'); return; }
 
   const meta = _fullReportMeta;
   const safeVenue = (meta.venue || 'Venue').replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
@@ -4467,14 +4467,34 @@ async function exportReportPDF() {
     // before capture. Blank PDF ⇒ expect offsetHeight 0 or innerHTML.length tiny.
     console.log('[AuditPro] PDF clone offsetHeight=' + clone.offsetHeight + ' innerHTML.length=' + clone.innerHTML.length);
 
-    // TEMP diagnostic: capture the clone with html2canvas directly and open the
-    // resulting PNG in a new tab so we can see exactly what html2canvas sees.
-    // Fires before the PDF generates; does NOT replace the html2pdf call below.
-    html2canvas(clone, { scale: 1, useCORS: true, logging: true }).then(canvas => {
-      window.open(canvas.toDataURL('image/png'), '_blank');
-    });
-
-    await html2pdf().set(opt).from(clone).save();
+    // Direct html2canvas → jsPDF. html2pdf.js produced blank PDFs from a valid
+    // canvas, so bypass it: capture the clone, then slice the tall canvas into
+    // A4-height strips and place each on its own PDF page.
+    const canvas = await html2canvas(clone, { scale: 2, useCORS: true, logging: false });
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pageW = 210, pageH = 297, margin = 10;
+    const usableW = pageW - margin * 2;
+    const usableH = pageH - margin * 2;
+    const imgW = usableW;
+    const imgH = canvas.height / canvas.width * imgW;
+    const pxPerMm = canvas.width / imgW;
+    let yMm = 0;
+    let firstPage = true;
+    while (yMm < imgH) {
+      if (!firstPage) pdf.addPage();
+      firstPage = false;
+      const sliceH = Math.min(usableH, imgH - yMm);
+      const srcY = Math.round(yMm * pxPerMm);
+      const srcH = Math.round(sliceH * pxPerMm);
+      const slice = document.createElement('canvas');
+      slice.width = canvas.width;
+      slice.height = srcH;
+      slice.getContext('2d').drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH);
+      pdf.addImage(slice.toDataURL('image/jpeg', 0.98), 'JPEG', margin, margin, imgW, sliceH);
+      yMm += usableH;
+    }
+    pdf.save(filename);
     saveReportRecord(meta, filename);
     if (statusEl) statusEl.textContent = '✓ PDF exported & report record saved';
     showPersistToast('✓ PDF exported');
@@ -11008,7 +11028,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r15';
+const APP_VERSION = '2026-06-10-r16';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
