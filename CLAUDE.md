@@ -26,7 +26,7 @@ AuditPro is a hospitality audit platform for any hospitality venue. Built as sin
 
 **Deploy process:** Edit local files → commit via GitHub Desktop → GitHub Pages auto-deploys in ~1 min.
 
-**Current build stamp:** `2026-06-10-r17` — the `APP_VERSION` const in index.html, logged to the console on load. Check it matches after a deploy to confirm you're not seeing a cached build.
+**Current build stamp:** `2026-06-10-r18` — the `APP_VERSION` const in index.html, logged to the console on load. Check it matches after a deploy to confirm you're not seeing a cached build.
 
 **mobile2.html must always be kept identical to mobile.html — update both files in every commit.**
 
@@ -218,6 +218,29 @@ editCountItem(idx)              // Prompt to edit qty of counted item
 - Wine: 0.9805
 - Beer/Cider: 1.014
 - Liqueur: 1.06
+
+---
+
+## Density Architecture
+**`ap_master_products` is the single source of truth for product density.** Venue rows
+(`ap_clients.data.products`) hold per-venue product copies for counts/stock/prices, but their
+**density is merged from master at load time** — the venue's own density value is overwritten.
+
+- **Load merge** — `dbLoadAll()` builds a `slug → density` map from `masterProducts` and
+  overrides every venue product's `density` whose slug matches a master row. Venue-specific
+  fields (counts, stock, prices, par) are left untouched. Logs
+  `[AuditPro] Density merge — X products updated from master.` Mobile mirrors this in
+  `loadProductsFromSupabase()` (mobile.html + mobile2.html).
+- **Density edits write to master** — `saveProduct()` and the invoice "existing product"
+  update branch in `applyInvoiceToProducts()` both call `addToMasterCatalogue()`, so any
+  density/vessel correction reaches master and can't drift back.
+- **Invoice imports inherit density from master** before defaulting to 1.00 — both the
+  review-modal row builder (`renderInvoiceResults`) and the master-write loop in
+  `applyInvoiceToProducts()` look up `getMasterProduct()` first.
+- **Slug consistency** — `getMasterProduct()` matches on the same `masterSlug()` derivation
+  (`name → lowercase → non-alphanumerics → '_'`) used as the DB upsert key, so a rename
+  cannot create a duplicate master row.
+- **Beer & Cider standard density is 1.014** (was historically defaulted to 1.00).
 
 ---
 

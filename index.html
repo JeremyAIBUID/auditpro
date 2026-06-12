@@ -2352,8 +2352,17 @@
 // Client-specific products (with client-specific pricing/par) live on c.products.
 let masterProducts = [];
 
+// Master rows are keyed in Supabase on `slug` (name → lowercased, non-alphanumerics → '_').
+// The in-memory lookup MUST derive the slug the same way as the DB upsert key, otherwise a
+// rename can create a duplicate master row (in-memory match misses, DB upsert keys differ).
+function masterSlug(name) {
+  return (name||'').toLowerCase().replace(/[^a-z0-9]/g,'_');
+}
+
 function getMasterProduct(name) {
-  return masterProducts.find(p => (p.n||p.name||'').toLowerCase() === (name||'').toLowerCase());
+  const slug = masterSlug(name);
+  if(!slug) return undefined;
+  return masterProducts.find(p => masterSlug(p.n||p.name||'') === slug);
 }
 
 function addToMasterCatalogue(prod) {
@@ -2364,7 +2373,7 @@ function addToMasterCatalogue(prod) {
     masterProducts.push({ ...prod });
   }
   if(!DB._ready) return;
-  const slug = (prod.n||prod.name||'').toLowerCase().replace(/[^a-z0-9]/g,'_');
+  const slug = masterSlug(prod.n||prod.name||'');
   const headers = {
     'Content-Type': 'application/json',
     'apikey': SUPABASE_CONFIG.key,
@@ -8746,6 +8755,9 @@ function renderInvoiceResults(id, invoice, filename) {
 
   const rows = invoice.items.map(item => {
     const existing = findMatch(item.name, item.barcode);
+    // FIX (r18) — if this line matches no venue product, inherit density/vessel data from
+    // the master catalogue (the single source of truth) before falling back to defaults.
+    const master   = existing ? null : getMasterProduct(item.name);
     const vol      = parseVolFromName(item.name);
     const exGST    = item.unitPriceExGST || (item.unitPriceIncGST ? item.unitPriceIncGST/1.15 : (item.unitPrice||0)/1.15);
     const incGST   = item.unitPriceIncGST || item.unitPrice || 0;
@@ -8755,12 +8767,12 @@ function renderInvoiceResults(id, invoice, filename) {
       existing,
       action:     existing ? 'update' : 'add',
       _cleanName: existing ? (existing.n||existing.name) : '',
-      _cat:       existing?.cat     || item.cat || 'Other',
-      _unitVol:   existing?.unitVol || vol || '',
-      _serveVol:  existing?.serveVol|| (item.cat==='Spirits'?30:item.cat==='Wine'?150:''),
-      _tareG:     existing?.tareG   || '',
+      _cat:       existing?.cat     || master?.cat     || item.cat || 'Other',
+      _unitVol:   existing?.unitVol || master?.unitVol || vol || '',
+      _serveVol:  existing?.serveVol|| master?.serveVol|| (item.cat==='Spirits'?30:item.cat==='Wine'?150:''),
+      _tareG:     existing?.tareG   || master?.tareG   || '',
       _fullG:     existing?.fullG   || '',
-      _density:   existing?.density || '1.00',
+      _density:   existing?.density || master?.density || '1.00',
       _exGST:     exGST,
       _gst:       gst,
       _incGST:    incGST,
@@ -9325,6 +9337,9 @@ function applyInvoiceToProducts(id) {
         existing.costPriceExGST = costExGSTAdj;
         existing.cost         = '$' + costPriceAdj.toFixed(2);
       }
+      // FIX (r18) — master is the single source of truth for density. Any density/vessel
+      // correction made during invoice review must reach the master so it can't drift back.
+      addToMasterCatalogue(existing);
       updated++;
     } else {
       const cps = costPriceAdj > 0 && unitVol > 0 && serveVol > 0 ? costPriceAdj/(unitVol/serveVol) : 0;
@@ -9427,12 +9442,16 @@ function applyInvoiceToProducts(id) {
     const densityInput = document.getElementById(id+'-density-'+i);
     const cleanName = nameInput ? nameInput.value.trim() : item.name;
     const cleanCat  = catInput  ? catInput.value : (item._cat||item.cat||'Other');
+    // FIX (r18) — on quick-import the review inputs don't exist, so fall back to the
+    // existing master row's density/vessel data rather than blindly defaulting to 1.00,
+    // which would otherwise overwrite a good master density on every re-import.
+    const masterRow = getMasterProduct(cleanName);
     if(cleanName) addToMasterCatalogue({
       n: cleanName, name: cleanName, cat: cleanCat, subcat: '', barcode: '',
-      unitVol:  parseFloat(unitvolInput?.value)  || parseVolFromName(cleanName),
-      serveVol: parseFloat(servevolInput?.value) || (cleanCat==='Spirits'?30:cleanCat==='Wine'?150:0),
-      tareG:    parseFloat(taregInput?.value)    || 0,
-      density:  densityInput?.value || '1.00',
+      unitVol:  parseFloat(unitvolInput?.value)  || masterRow?.unitVol || parseVolFromName(cleanName),
+      serveVol: parseFloat(servevolInput?.value) || masterRow?.serveVol || (cleanCat==='Spirits'?30:cleanCat==='Wine'?150:0),
+      tareG:    parseFloat(taregInput?.value)    || masterRow?.tareG || 0,
+      density:  densityInput?.value || masterRow?.density || '1.00',
     });
   });
 
@@ -10936,6 +10955,28 @@ async function dbLoadAll() {
 
     // Master catalogue is used for search/typeahead only — don't auto-populate venues
 
+    // FIX (r18) — DENSITY MERGE. ap_master_products is the single source of truth for
+    // density. Override each venue product's density from its matching master row (matched
+    // by slug, the same key the DB upserts on). Venue-specific fields — counts, stock,
+    // prices, par — are left untouched; only `density` is reconciled from master.
+    const masterDensityBySlug = {};
+    masterProducts.forEach(mp => {
+      const s = masterSlug(mp.n||mp.name||'');
+      if(s && mp.density != null && mp.density !== '') masterDensityBySlug[s] = mp.density;
+    });
+    let densityMerged = 0;
+    clients.forEach(c => {
+      (c.products||[]).forEach(p => {
+        const s = masterSlug(p.n||p.name||'');
+        const md = masterDensityBySlug[s];
+        if(md != null && String(p.density) !== String(md)) {
+          p.density = md;
+          densityMerged++;
+        }
+      });
+    });
+    console.log('[AuditPro] Density merge — ' + densityMerged + ' products updated from master.');
+
     // Load audit sessions per client
     const dbSessions = await DB.get('ap_audit_sessions', '?order=updated_at.desc');
     if (dbSessions && dbSessions.length) {
@@ -11064,7 +11105,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r17';
+const APP_VERSION = '2026-06-10-r18';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();

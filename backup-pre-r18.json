@@ -1,0 +1,5161 @@
+{
+  "backup_taken": "2026-06-13T11:22:29.655361",
+  "note": "Pre-r18 density-architecture migration backup",
+  "ap_clients": [
+    {
+      "id": 5,
+      "slug": "c_1775024388916",
+      "data": {
+        "id": 1775024388916,
+        "city": "—",
+        "info": {
+          "site": [
+            {
+              "label": "Address",
+              "value": "—",
+              "sensitive": false
+            },
+            {
+              "label": "WiFi network",
+              "value": "",
+              "sensitive": false
+            },
+            {
+              "label": "WiFi password",
+              "value": "",
+              "sensitive": true
+            },
+            {
+              "label": "Alarm code",
+              "value": "",
+              "sensitive": true
+            },
+            {
+              "label": "Safe code",
+              "value": "",
+              "sensitive": true
+            }
+          ],
+          "audit": [
+            {
+              "label": "Audit frequency",
+              "value": "Monthly"
+            },
+            {
+              "label": "Preferred audit day",
+              "value": ""
+            },
+            {
+              "label": "POS system",
+              "value": ""
+            },
+            {
+              "label": "Invoice folder",
+              "value": ""
+            }
+          ],
+          "notes": "",
+          "storage": [
+            {
+              "label": "Main bar spirits",
+              "value": ""
+            },
+            {
+              "label": "Wine & beer",
+              "value": ""
+            },
+            {
+              "label": "Walk-in fridge",
+              "value": ""
+            }
+          ],
+          "contacts": [
+            {
+              "name": "Paddy Kean",
+              "email": "",
+              "label": "Manager",
+              "phone": ""
+            }
+          ]
+        },
+        "name": "1 Up Sports Bar",
+        "prog": [],
+        "type": "Bar",
+        "alert": "No audits yet. Complete the first stocktake to begin.",
+        "color": "#34d399",
+        "stats": {
+          "rtn": "$0",
+          "staff": "0",
+          "waste": "$0",
+          "events": "0"
+        },
+        "audits": [],
+        "contact": "Paddy Kean",
+        "metrics": [
+          {
+            "l": "Variance rate",
+            "v": "N/A",
+            "ok": true
+          },
+          {
+            "l": "Waste",
+            "v": "$0",
+            "ok": true
+          },
+          {
+            "l": "Audits",
+            "v": "0",
+            "ok": true
+          },
+          {
+            "l": "Alerts",
+            "v": "0",
+            "ok": true
+          }
+        ],
+        "recipes": {
+          "Corona": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 1,
+                "unit": "unit",
+                "product": "CORONA - 330 ml"
+              }
+            ]
+          },
+          "Jameson": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 30,
+                "unit": "ml",
+                "product": "JAMESON IRISH WHISKY"
+              }
+            ]
+          },
+          "Drambuie": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 30,
+                "unit": "ml",
+                "product": "DRAMBUIE"
+              }
+            ]
+          },
+          "Guinness": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 400,
+                "unit": "ml",
+                "product": "GUINNESS"
+              }
+            ]
+          },
+          "Jim Beam": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 30,
+                "unit": "ml",
+                "product": "JIM BEAM WHITE"
+              }
+            ]
+          },
+          "Misc Bev": {
+            "displayName": "",
+            "ingredients": []
+          },
+          "Red Bull": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 1,
+                "unit": "unit",
+                "product": "RED BULL REGULAR CAN - 250 ml"
+              }
+            ]
+          },
+          "1800 Silver": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 30,
+                "unit": "ml",
+                "product": "1800 SILVER"
+              }
+            ]
+          },
+          "Ginger Beer": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": "",
+                "unit": "ml",
+                "product": ""
+              }
+            ]
+          },
+          "Jack Daniels": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 30,
+                "unit": "ml",
+                "product": "JACK DANIELS"
+              }
+            ]
+          },
+          "LYT Lion Red": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 1550,
+                "unit": "ml",
+                "product": "LION RED"
+              }
+            ]
+          },
+          "Lion Red-JUG": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 400,
+                "unit": "ml",
+                "product": "LION RED"
+              }
+            ]
+          },
+          "Lion Red-TAP": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 400,
+                "unit": "ml",
+                "product": "LION RED"
+              }
+            ]
+          },
+          "Canadian Club": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 30,
+                "unit": "ml",
+                "product": "CANADIAN CLUB"
+              }
+            ]
+          },
+          "HH Jug Summit": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 1550,
+                "unit": "ml",
+                "product": "SPEIGHTS SUMMIT ULTRA LOW CARB LAGER"
+              }
+            ]
+          },
+          "Stella Artois": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 1,
+                "unit": "unit",
+                "product": "STELLA ARTOIS - 330 ml"
+              }
+            ]
+          },
+          "LYT Steinlager": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 400,
+                "unit": "ml",
+                "product": "STEINLAGER CLASSIC"
+              }
+            ]
+          },
+          "Scapegrace Gin": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 30,
+                "unit": "ml",
+                "product": "SCAPEGRACE CLASSIC DRY GIN"
+              }
+            ]
+          },
+          "HH Jug Lion Red": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 1550,
+                "unit": "ml",
+                "product": "LION RED"
+              }
+            ]
+          },
+          "Kirin Lemon Can": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 1,
+                "unit": "unit",
+                "product": "KIRIN HYOKETSU LEMON CAN - 330 ml"
+              }
+            ]
+          },
+          "LYT Dashwood PG": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 150,
+                "unit": "ml",
+                "product": "DASHWOOD PINOT GRIS"
+              }
+            ]
+          },
+          "LYT Dashwood SB": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 150,
+                "unit": "ml",
+                "product": "DASHWOOD SAUVIGNON BLANC"
+              }
+            ]
+          },
+          "Panhead APA BTL": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 1,
+                "unit": "unit",
+                "product": "PANHEAD SUPER CHARGER APA - 330 ml"
+              }
+            ]
+          },
+          "LYT Church Rd CH": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 150,
+                "unit": "ml",
+                "product": "CHURCH ROAD CHARDONNAY"
+              }
+            ]
+          },
+          "LYT Summit Ultra": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 400,
+                "unit": "ml",
+                "product": "SPEIGHTS SUMMIT ULTRA LOW CARB LAGER"
+              }
+            ]
+          },
+          "Scapegrace Vodka": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 30,
+                "unit": "ml",
+                "product": "SCAPEGRACE VODKA"
+              }
+            ]
+          },
+          "Steinlager Light": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 1,
+                "unit": "unit",
+                "product": "STEINLAGER PREMIUM LIGHT - 330 ml"
+              }
+            ]
+          },
+          "Steiny Ultra Btl": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 1,
+                "unit": "unit",
+                "product": "STEINLAGER ULTRA LOW CARB - 330 ml"
+              }
+            ]
+          },
+          "Summit Ultra-TAP": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 400,
+                "unit": "ml",
+                "product": "SPEIGHTS SUMMIT ULTRA LOW CARB LAGER"
+              }
+            ]
+          },
+          "Dashwood Sauv-GLS": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 150,
+                "unit": "ml",
+                "product": "DASHWOOD SAUVIGNON BLANC"
+              }
+            ]
+          },
+          "LYT Scapgrace G&T": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 30,
+                "unit": "ml",
+                "product": "SCAPEGRACE CLASSIC DRY GIN"
+              }
+            ]
+          },
+          "Kirin Mandarin Can": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 1,
+                "unit": "unit",
+                "product": "KIRIN HYOKETSU MANDARIN CAN - 330ml"
+              }
+            ]
+          },
+          "Speights GMA 745ml": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 1,
+                "unit": "unit",
+                "product": "SPEIGHTS GOLD QUART - 745 ml"
+              }
+            ]
+          },
+          "Church Rd Chard-GLS": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 150,
+                "unit": "ml",
+                "product": "CHURCH ROAD CHARDONNAY"
+              }
+            ]
+          },
+          "LYT Saddleback Rose": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 150,
+                "unit": "ml",
+                "product": "PEREGRINE SADDLEBACK ROSE"
+              }
+            ]
+          },
+          "Panhead Sandman Can": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 1,
+                "unit": "unit",
+                "product": "PANHEAD SANDMAN CAN - 330 ml"
+              }
+            ]
+          },
+          "Saddleback Rose-GLS": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 150,
+                "unit": "ml",
+                "product": "PEREGRINE SADDLEBACK ROSE"
+              }
+            ]
+          },
+          "Steinlager Pure Btl": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 1,
+                "unit": "unit",
+                "product": "STEINLAGER PURE - 330 ml"
+              }
+            ]
+          },
+          "Steinlager Zero Btl": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 1,
+                "unit": "unit",
+                "product": "STEINLAGER ALCOHOL FREE - 330 ml"
+              }
+            ]
+          },
+          "LYT Scapegrace Vodka": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 30,
+                "unit": "ml",
+                "product": "SCAPEGRACE VODKA"
+              }
+            ]
+          },
+          "Little Creatures Btl": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 1,
+                "unit": "unit",
+                "product": "LITTLE CREATURES PALE ALE - 330 ml"
+              }
+            ]
+          },
+          "Steinlager Classic-TAP": {
+            "displayName": "",
+            "ingredients": [
+              {
+                "qty": 400,
+                "unit": "ml",
+                "product": "STEINLAGER CLASSIC"
+              }
+            ]
+          }
+        },
+        "reports": [
+          {
+            "date": "13 June 2026",
+            "type": "Full audit report",
+            "period": "30/05/2026 – —",
+            "pdfFilename": "1_Up_Sports_Bar_Audit_May-2026.pdf"
+          }
+        ],
+        "varRows": [],
+        "initials": "1U",
+        "insights": [
+          {
+            "bg": "rgba(200,240,100,0.05)",
+            "bdr": "rgba(200,240,100,0.2)",
+            "body": "Complete the first stocktake and import sales data to begin receiving AI insights.",
+            "icon": "📋",
+            "title": "Getting started",
+            "actions": [
+              "Complete first stocktake",
+              "Set up product catalogue",
+              "Import POS sales report"
+            ]
+          }
+        ],
+        "products": [
+          {
+            "n": "APPLETON ESTATE SIGNATURE BLEND",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "APPLETON ESTATE SIGNATURE BLEND",
+            "sell": "—",
+            "fullG": 1662,
+            "tareG": 715,
+            "soldAs": "Bottles",
+            "subcat": "Rum",
+            "barcode": "5024576001303",
+            "density": "0.94",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 1000,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "5/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "CAPTAIN MORGAN SPICED GOLD",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "CAPTAIN MORGAN SPICED GOLD",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 510,
+            "soldAs": "Bottles",
+            "subcat": "Rum",
+            "barcode": "5000281020464",
+            "density": "0.94",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 1000,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "5/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "SAILOR JERRY SPICED RUM",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "SAILOR JERRY SPICED RUM",
+            "sell": "—",
+            "fullG": 1350,
+            "tareG": 403,
+            "soldAs": "Bottles",
+            "subcat": "Rum",
+            "barcode": "5010327453019",
+            "density": "0.94",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 1000,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "5/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "ROGUE SOCIETY SIGNATURE GIN - 5L",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "ROGUE SOCIETY SIGNATURE GIN - 5L",
+            "sell": "—",
+            "fullG": 4790,
+            "tareG": 89.5,
+            "soldAs": "Bottles",
+            "subcat": "Gin",
+            "barcode": "9421908346068",
+            "density": 0.9467,
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 5000,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "5/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "SCAPEGRACE BLACK DRY GIN",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "SCAPEGRACE BLACK DRY GIN",
+            "sell": "—",
+            "fullG": 1500,
+            "tareG": 842,
+            "soldAs": "Bottles",
+            "subcat": "Gin",
+            "barcode": "9421903387660",
+            "density": 0.9467,
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 700,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "5/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "SCAPEGRACE CLASSIC DRY GIN",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "SCAPEGRACE CLASSIC DRY GIN",
+            "sell": "—",
+            "fullG": 1931,
+            "tareG": 991,
+            "soldAs": "Bottles",
+            "subcat": "Gin",
+            "barcode": "9421903387257",
+            "density": "0.94",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 1000,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "5/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "SCAPEGRACE VODKA",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "SCAPEGRACE VODKA",
+            "sell": "—",
+            "fullG": 1521,
+            "tareG": 863,
+            "soldAs": "Bottles",
+            "subcat": "Vodka",
+            "barcode": "9421903387783",
+            "density": "0.94",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 700,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "5/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "CANADIAN CLUB",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "CANADIAN CLUB",
+            "sell": "—",
+            "fullG": 1457,
+            "tareG": 517,
+            "soldAs": "Bottles",
+            "subcat": "Bourbon",
+            "barcode": "089540168425",
+            "density": "0.94",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 1000,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "5/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "JACK DANIELS",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "JACK DANIELS",
+            "sell": "—",
+            "fullG": 1555,
+            "tareG": 555,
+            "soldAs": "Bottles",
+            "subcat": "Bourbon",
+            "barcode": "082184045367",
+            "density": "0.94",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 1000,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "5/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "1800 SILVER",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "1800 SILVER",
+            "sell": "—",
+            "fullG": 1385,
+            "tareG": 727,
+            "soldAs": "Bottles",
+            "subcat": "Tequila",
+            "barcode": "7501035013117",
+            "density": "0.94",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 700,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "5/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "JIM BEAM WHITE",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "JIM BEAM WHITE",
+            "sell": "—",
+            "fullG": 1423,
+            "tareG": 483,
+            "soldAs": "Bottles",
+            "subcat": "Bourbon",
+            "barcode": "080686001201",
+            "density": "0.94",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 1000,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "GLENMORANGIE ORIGINAL 10 YRS",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "GLENMORANGIE ORIGINAL 10 YRS",
+            "sell": "—",
+            "fullG": 1296,
+            "tareG": 635,
+            "soldAs": "Bottles",
+            "subcat": "Scotch",
+            "barcode": "5010494560282",
+            "density": 0.9467,
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 698,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "JOHNNIE WALKER RED",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "JOHNNIE WALKER RED",
+            "sell": "—",
+            "fullG": 1438,
+            "tareG": 498,
+            "soldAs": "Bottles",
+            "subcat": "Scotch",
+            "barcode": "5000267099026",
+            "density": "0.94",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 1000,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "LAPHROAIG 10 YRS",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "LAPHROAIG 10 YRS",
+            "sell": "—",
+            "fullG": 1170,
+            "tareG": 512,
+            "soldAs": "Bottles",
+            "subcat": "Scotch",
+            "barcode": "5010019640260",
+            "density": "0.94",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 700,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "JAMESON IRISH WHISKY",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "JAMESON IRISH WHISKY",
+            "sell": "—",
+            "fullG": 1468,
+            "tareG": 528,
+            "soldAs": "Bottles",
+            "subcat": "Irish",
+            "barcode": "5011007003227",
+            "density": "0.94",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 1000,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "SCAPEGRACE VANGUARD SINGLE MALT",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "SCAPEGRACE VANGUARD SINGLE MALT",
+            "sell": "—",
+            "fullG": 1602,
+            "tareG": 939,
+            "soldAs": "Bottles",
+            "subcat": "Whiskey",
+            "barcode": "9421908346082",
+            "density": 0.9467,
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 700,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "DRAMBUIE",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "DRAMBUIE",
+            "sell": "—",
+            "fullG": 1334,
+            "tareG": 592,
+            "soldAs": "Bottles",
+            "subcat": "Liqueur",
+            "barcode": "5010391100703",
+            "density": 1.06,
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 700,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "JUMPING GOAT COFFEE & VODKA LIQUEUR",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "JUMPING GOAT COFFEE & VODKA LIQUEUR",
+            "sell": "—",
+            "fullG": 1362,
+            "tareG": 676,
+            "soldAs": "Bottles",
+            "subcat": "Liqueur",
+            "barcode": "9421904201064",
+            "density": 0.9805,
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 700,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "KAHLUA",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "KAHLUA",
+            "sell": "—",
+            "fullG": 1541,
+            "tareG": 491,
+            "soldAs": "Bottles",
+            "subcat": "Liqueur",
+            "barcode": "089540122700",
+            "density": "1.05",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 1000,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "THUNDERDONK SPICED MAPLE WHISKEY",
+            "pc": "—",
+            "cat": "Spirits",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "THUNDERDONK SPICED MAPLE WHISKEY",
+            "sell": "—",
+            "fullG": 1283,
+            "tareG": 541,
+            "soldAs": "Bottles",
+            "subcat": "Liqueur",
+            "barcode": "9421908346020",
+            "density": 1.06,
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 700,
+            "caseSize": null,
+            "serveVol": 30,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "CHURCH ROAD CHARDONNAY",
+            "pc": "—",
+            "cat": "Wine",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "CHURCH ROAD CHARDONNAY",
+            "sell": "—",
+            "fullG": 1211,
+            "tareG": 461,
+            "soldAs": "Bottles",
+            "subcat": "White",
+            "barcode": "9414024392552",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 750,
+            "caseSize": null,
+            "serveVol": 150,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "DASHWOOD PINOT GRIS",
+            "pc": "—",
+            "cat": "Wine",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "DASHWOOD PINOT GRIS",
+            "sell": "—",
+            "fullG": 1316,
+            "tareG": 566,
+            "soldAs": "Bottles",
+            "subcat": "White",
+            "barcode": "9416264003410",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 750,
+            "caseSize": null,
+            "serveVol": 150,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "DASHWOOD SAUVIGNON BLANC",
+            "pc": "—",
+            "cat": "Wine",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "DASHWOOD SAUVIGNON BLANC",
+            "sell": "—",
+            "fullG": 1179,
+            "tareG": 429,
+            "soldAs": "Bottles",
+            "subcat": "White",
+            "barcode": "9416264003113",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 750,
+            "caseSize": null,
+            "serveVol": 150,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "LE PETIT BONBON ROSE",
+            "pc": "—",
+            "cat": "Wine",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "LE PETIT BONBON ROSE",
+            "sell": "—",
+            "fullG": 1192,
+            "tareG": 442,
+            "soldAs": "Bottles",
+            "subcat": "Rosé",
+            "barcode": "3430560014013",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 750,
+            "caseSize": null,
+            "serveVol": 150,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "PEREGRINE SADDLEBACK PINOT NOIR",
+            "pc": "—",
+            "cat": "Wine",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "PEREGRINE SADDLEBACK PINOT NOIR",
+            "sell": "—",
+            "fullG": 1188,
+            "tareG": 438,
+            "soldAs": "Bottles",
+            "subcat": "Red",
+            "barcode": "9419680080096",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 750,
+            "caseSize": null,
+            "serveVol": 150,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "PEREGRINE SADDLEBACK ROSE",
+            "pc": "—",
+            "cat": "Wine",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "PEREGRINE SADDLEBACK ROSE",
+            "sell": "—",
+            "fullG": 1178,
+            "tareG": 428,
+            "soldAs": "Bottles",
+            "subcat": "Rosé",
+            "barcode": "9419680070752",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 750,
+            "caseSize": null,
+            "serveVol": 150,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "LINDAUER BRUT CUVEE - 200 ml",
+            "pc": "—",
+            "cat": "Wine",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "LINDAUER BRUT CUVEE - 200 ml",
+            "sell": "—",
+            "fullG": 432,
+            "tareG": 232,
+            "soldAs": "Bottles",
+            "subcat": "Sparkling",
+            "barcode": "941402441006",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 200,
+            "caseSize": null,
+            "serveVol": 200,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "CORONA - 330 ml",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "CORONA - 330 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Bottles",
+            "subcat": "Bottles",
+            "barcode": "9421908168042",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 330,
+            "caseSize": null,
+            "serveVol": 330,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "EMERSON LITTLE BIRD CAN - 330 ml",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "EMERSON LITTLE BIRD CAN - 330 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Cans",
+            "subcat": "Cans",
+            "barcode": "9418464003573",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 330,
+            "caseSize": null,
+            "serveVol": 330,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "EMERSONS PILSNER - 330 ml",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "EMERSONS PILSNER - 330 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Bottles",
+            "subcat": "Bottles",
+            "barcode": "9418464000091",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 330,
+            "caseSize": null,
+            "serveVol": 330,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "LITTLE CREATURES PALE ALE - 330 ml",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "LITTLE CREATURES PALE ALE - 330 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Bottles",
+            "subcat": "Bottles",
+            "barcode": "9328731000016",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 330,
+            "caseSize": null,
+            "serveVol": 330,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "PANHEAD SANDMAN CAN - 330 ml",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "PANHEAD SANDMAN CAN - 330 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Bottles",
+            "subcat": "Cans",
+            "barcode": "",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 330,
+            "caseSize": null,
+            "serveVol": 330,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "PANHEAD SUPER CHARGER APA - 330 ml",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "PANHEAD SUPER CHARGER APA - 330 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Bottles",
+            "subcat": "Bottles",
+            "barcode": "9421903316059",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 330,
+            "caseSize": null,
+            "serveVol": 330,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "SPEIGHTS GOLD QUART - 745 ml",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "$60.43",
+            "name": "SPEIGHTS GOLD QUART - 745 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Bottles",
+            "subcat": "Bottles",
+            "barcode": "",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 745,
+            "caseSize": 12,
+            "serveVol": 745,
+            "supplier": "Lion NZ Limited",
+            "costPrice": 5.035833333333334,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              },
+              {
+                "date": "8/05/2026",
+                "price": 4.7491666666666665,
+                "source": "invoice",
+                "priceExGST": 4.13
+              },
+              {
+                "date": "8/05/2026",
+                "price": 5.035833333333334,
+                "source": "invoice",
+                "priceExGST": 4.379166666666666
+              },
+              {
+                "date": "11/05/2026",
+                "price": 5.035833333333334,
+                "source": "invoice",
+                "priceExGST": 4.379166666666666
+              },
+              {
+                "date": "11/05/2026",
+                "price": 5.035833333333334,
+                "source": "invoice",
+                "priceExGST": 4.379166666666666
+              },
+              {
+                "date": "16/05/2026",
+                "price": 5.035833333333334,
+                "source": "invoice",
+                "priceExGST": 4.379166666666666
+              },
+              {
+                "date": "30/05/2026",
+                "price": 5.035833333333334,
+                "source": "invoice",
+                "priceExGST": 4.379166666666666
+              },
+              {
+                "date": "30/05/2026",
+                "price": 5.035833333333334,
+                "source": "invoice",
+                "priceExGST": 4.379166666666666
+              },
+              {
+                "date": "30/05/2026",
+                "price": 4.7491666666666665,
+                "source": "invoice",
+                "priceExGST": 4.13
+              },
+              {
+                "date": "30/05/2026",
+                "price": 5.035833333333334,
+                "source": "invoice",
+                "priceExGST": 4.379166666666666
+              },
+              {
+                "date": "30/05/2026",
+                "price": 5.035833333333334,
+                "source": "invoice",
+                "priceExGST": 4.379166666666666
+              },
+              {
+                "date": "30/05/2026",
+                "price": 4.7491666666666665,
+                "source": "invoice",
+                "priceExGST": 4.13
+              },
+              {
+                "date": "1/06/2026",
+                "price": 5.035833333333334,
+                "source": "invoice",
+                "priceExGST": 4.379166666666666
+              },
+              {
+                "date": "1/06/2026",
+                "price": 5.035833333333334,
+                "source": "invoice",
+                "priceExGST": 4.379166666666666
+              },
+              {
+                "date": "1/06/2026",
+                "price": 5.035833333333334,
+                "source": "invoice",
+                "priceExGST": 4.379166666666666
+              },
+              {
+                "date": "1/06/2026",
+                "price": 5.035833333333334,
+                "source": "invoice",
+                "priceExGST": 4.379166666666666
+              },
+              {
+                "date": "2/06/2026",
+                "price": 5.035833333333334,
+                "source": "invoice",
+                "priceExGST": 4.3789855072463775
+              },
+              {
+                "date": "2/06/2026",
+                "price": 5.035833333333334,
+                "source": "invoice",
+                "priceExGST": 4.3789855072463775
+              },
+              {
+                "date": "2/06/2026",
+                "price": 4.75,
+                "source": "invoice",
+                "priceExGST": 4.130434782608696
+              },
+              {
+                "date": "2/06/2026",
+                "price": 5.035833333333334,
+                "source": "invoice",
+                "priceExGST": 4.3789855072463775
+              },
+              {
+                "date": "6/06/2026",
+                "price": 5.035833333333334,
+                "source": "invoice",
+                "priceExGST": 4.3789855072463775
+              },
+              {
+                "date": "7/06/2026",
+                "price": 5.035833333333334,
+                "source": "invoice",
+                "priceExGST": 4.3789855072463775
+              },
+              {
+                "date": "7/06/2026",
+                "price": 60.43,
+                "source": "invoice",
+                "priceExGST": 52.547826086956526
+              },
+              {
+                "date": "7/06/2026",
+                "price": 56.99,
+                "source": "invoice",
+                "priceExGST": 49.55652173913044
+              },
+              {
+                "date": "8/06/2026",
+                "price": 60.43,
+                "source": "invoice",
+                "priceExGST": 52.547826086956526
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 52.547826086956526
+          },
+          {
+            "n": "SPEIGHTS MID ALE - 330 ml",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "$5.04",
+            "name": "SPEIGHTS MID ALE - 330 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Bottles",
+            "subcat": "Bottles",
+            "barcode": "",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 330,
+            "caseSize": null,
+            "serveVol": 330,
+            "supplier": "",
+            "costPrice": 60.43,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              },
+              {
+                "date": "17/05/2026",
+                "price": 5.035833333333334,
+                "source": "invoice",
+                "priceExGST": 4.379166666666666
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 4.379166666666666
+          },
+          {
+            "n": "SPEIGHTS SUMMIT ALCOHOL FREE LAGER - 330 ml",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "SPEIGHTS SUMMIT ALCOHOL FREE LAGER - 330 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Bottles",
+            "subcat": "Bottles",
+            "barcode": "",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 330,
+            "caseSize": null,
+            "serveVol": 330,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "STEINLAGER ALCOHOL FREE - 330 ml",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "STEINLAGER ALCOHOL FREE - 330 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Bottles",
+            "subcat": "Bottles",
+            "barcode": "",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 330,
+            "caseSize": null,
+            "serveVol": 330,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "STEINLAGER PREMIUM LIGHT - 330 ml",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "STEINLAGER PREMIUM LIGHT - 330 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Bottles",
+            "subcat": "Bottles",
+            "barcode": "9414774303280",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 330,
+            "caseSize": null,
+            "serveVol": 330,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "STEINLAGER PURE - 330 ml",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "STEINLAGER PURE - 330 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Bottles",
+            "subcat": "Bottles",
+            "barcode": "",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 330,
+            "caseSize": null,
+            "serveVol": 330,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "STEINLAGER TOKYO DRY - 330 ml",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "STEINLAGER TOKYO DRY - 330 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Bottles",
+            "subcat": "Bottles",
+            "barcode": "",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 330,
+            "caseSize": null,
+            "serveVol": 330,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "STEINLAGER ULTRA LOW CARB - 330 ml",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "STEINLAGER ULTRA LOW CARB - 330 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Bottles",
+            "subcat": "Bottles",
+            "barcode": "",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 330,
+            "caseSize": null,
+            "serveVol": 330,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "STELLA ARTOIS - 330 ml",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "$54.46",
+            "name": "STELLA ARTOIS - 330 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Bottles",
+            "subcat": "Bottles",
+            "barcode": "",
+            "density": "1.014",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 330,
+            "caseSize": 24,
+            "serveVol": 330,
+            "supplier": "Lion NZ Limited",
+            "costPrice": 54.46,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              },
+              {
+                "date": "30/05/2026",
+                "price": 2.2691666666666666,
+                "source": "invoice",
+                "priceExGST": 1.9733333333333334
+              },
+              {
+                "date": "30/05/2026",
+                "price": 2.2691666666666666,
+                "source": "invoice",
+                "priceExGST": 1.9733333333333334
+              },
+              {
+                "date": "30/05/2026",
+                "price": 2.2912500000000002,
+                "source": "invoice",
+                "priceExGST": 1.9925
+              },
+              {
+                "date": "30/05/2026",
+                "price": 2.2691666666666666,
+                "source": "invoice",
+                "priceExGST": 1.9733333333333334
+              },
+              {
+                "date": "30/05/2026",
+                "price": 2.2691666666666666,
+                "source": "invoice",
+                "priceExGST": 1.9733333333333334
+              },
+              {
+                "date": "30/05/2026",
+                "price": 2.2912500000000002,
+                "source": "invoice",
+                "priceExGST": 1.9925
+              },
+              {
+                "date": "1/06/2026",
+                "price": 2.2691666666666666,
+                "source": "invoice",
+                "priceExGST": 1.9733333333333334
+              },
+              {
+                "date": "1/06/2026",
+                "price": 2.2691666666666666,
+                "source": "invoice",
+                "priceExGST": 1.9733333333333334
+              },
+              {
+                "date": "1/06/2026",
+                "price": 2.2691666666666666,
+                "source": "invoice",
+                "priceExGST": 1.9733333333333334
+              },
+              {
+                "date": "1/06/2026",
+                "price": 2.2691666666666666,
+                "source": "invoice",
+                "priceExGST": 1.9733333333333334
+              },
+              {
+                "date": "2/06/2026",
+                "price": 54.46,
+                "source": "invoice",
+                "priceExGST": 47.356521739130436
+              },
+              {
+                "date": "2/06/2026",
+                "price": 2.2691666666666666,
+                "source": "invoice",
+                "priceExGST": 1.9731884057971014
+              },
+              {
+                "date": "2/06/2026",
+                "price": 2.2691666666666666,
+                "source": "invoice",
+                "priceExGST": 1.9731884057971014
+              },
+              {
+                "date": "2/06/2026",
+                "price": 2.2916666666666665,
+                "source": "invoice",
+                "priceExGST": 1.992753623188406
+              },
+              {
+                "date": "2/06/2026",
+                "price": 2.2691666666666666,
+                "source": "invoice",
+                "priceExGST": 1.9731884057971014
+              },
+              {
+                "date": "6/06/2026",
+                "price": 2.2691666666666666,
+                "source": "invoice",
+                "priceExGST": 1.9731884057971014
+              },
+              {
+                "date": "7/06/2026",
+                "price": 2.2691666666666666,
+                "source": "invoice",
+                "priceExGST": 1.9731884057971014
+              },
+              {
+                "date": "7/06/2026",
+                "price": 54.46,
+                "source": "invoice",
+                "priceExGST": 47.356521739130436
+              },
+              {
+                "date": "7/06/2026",
+                "price": 55,
+                "source": "invoice",
+                "priceExGST": 47.82608695652174
+              },
+              {
+                "date": "7/06/2026",
+                "price": 54.99,
+                "source": "invoice",
+                "priceExGST": 47.81739130434783
+              },
+              {
+                "date": "8/06/2026",
+                "price": 54.46,
+                "source": "invoice",
+                "priceExGST": 47.356521739130436
+              },
+              {
+                "date": "8/06/2026",
+                "price": 54.46,
+                "source": "invoice",
+                "priceExGST": 47.356521739130436
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 47.356521739130436
+          },
+          {
+            "n": "MACS CLOUDY APPLE CIDER - 330 ml",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "MACS CLOUDY APPLE CIDER - 330 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Bottles",
+            "subcat": "Bottles",
+            "barcode": "",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 330,
+            "caseSize": null,
+            "serveVol": 330,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "GUINNESS",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "$242.74",
+            "name": "GUINNESS",
+            "sell": "—",
+            "fullG": 62500,
+            "tareG": 12500,
+            "soldAs": "Kegs",
+            "subcat": "Draught",
+            "barcode": "9414774248017",
+            "density": "1.014",
+            "idealGP": 72,
+            "parunit": "Kegs",
+            "unitVol": 25000,
+            "caseSize": null,
+            "serveVol": 0,
+            "supplier": "Lion NZ Limited",
+            "costPrice": 242.74,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              },
+              {
+                "date": "8/05/2026",
+                "price": 242.74,
+                "source": "invoice",
+                "priceExGST": 211.08
+              },
+              {
+                "date": "2/06/2026",
+                "price": 242.74,
+                "source": "invoice",
+                "priceExGST": 211.07826086956524
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 211.07826086956524
+          },
+          {
+            "n": "LION RED",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "$278.02",
+            "name": "LION RED",
+            "sell": "—",
+            "fullG": 63000,
+            "tareG": 13000,
+            "soldAs": "Kegs",
+            "subcat": "Draught",
+            "barcode": "9414774048013",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 50000,
+            "caseSize": null,
+            "serveVol": 0,
+            "supplier": "",
+            "costPrice": 278.02,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              },
+              {
+                "date": "8/05/2026",
+                "price": 278.02,
+                "source": "invoice",
+                "priceExGST": 241.76
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 241.76
+          },
+          {
+            "n": "SPEIGHTS SUMMIT ULTRA LOW CARB LAGER",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "$291.18",
+            "name": "SPEIGHTS SUMMIT ULTRA LOW CARB LAGER",
+            "sell": "—",
+            "fullG": 62700,
+            "tareG": 12700,
+            "soldAs": "Kegs",
+            "subcat": "Draught",
+            "barcode": "9420060504040",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Kegs",
+            "unitVol": 50000,
+            "caseSize": null,
+            "serveVol": 0,
+            "supplier": "Lion NZ Limited",
+            "costPrice": 291.18,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              },
+              {
+                "date": "8/05/2026",
+                "price": 291.18,
+                "source": "invoice",
+                "priceExGST": 253.2
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 253.2
+          },
+          {
+            "n": "STEINLAGER CLASSIC",
+            "pc": "—",
+            "cat": "Beer",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "$348.60",
+            "name": "STEINLAGER CLASSIC",
+            "sell": "—",
+            "fullG": 62700,
+            "tareG": 12700,
+            "soldAs": "Kegs",
+            "subcat": "Draught",
+            "barcode": "9414774098018",
+            "density": "1.014",
+            "idealGP": 72,
+            "parunit": "Bottles",
+            "unitVol": 50000,
+            "caseSize": null,
+            "serveVol": 0,
+            "supplier": "Lion NZ Limited",
+            "costPrice": 348.6,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              },
+              {
+                "date": "8/05/2026",
+                "price": 348.6,
+                "source": "invoice",
+                "priceExGST": 303.13
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 303.13
+          },
+          {
+            "n": "RED BULL REGULAR CAN - 250 ml",
+            "pc": "—",
+            "cat": "Soft drinks",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "RED BULL REGULAR CAN - 250 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Cans",
+            "subcat": "Energy",
+            "barcode": "90162602",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Cans",
+            "unitVol": 250,
+            "caseSize": null,
+            "serveVol": 250,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "RED BULL SUGAR FREE CAN - 250 ml",
+            "pc": "—",
+            "cat": "Soft drinks",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "RED BULL SUGAR FREE CAN - 250 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Cans",
+            "subcat": "Energy",
+            "barcode": "90162800",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Cans",
+            "unitVol": 250,
+            "caseSize": null,
+            "serveVol": 250,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "KIRIN HYOKETSU LEMON CAN - 330 ml",
+            "pc": "—",
+            "cat": "RTD",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "KIRIN HYOKETSU LEMON CAN - 330 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Cans",
+            "subcat": "Cans",
+            "barcode": "9420060506464",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Cans",
+            "unitVol": 330,
+            "caseSize": null,
+            "serveVol": 330,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "KIRIN HYOKETSU MANDARIN CAN - 330ml",
+            "pc": "—",
+            "cat": "RTD",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "$31.99",
+            "name": "KIRIN HYOKETSU MANDARIN CAN - 330ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Cans",
+            "subcat": "Cans",
+            "barcode": "9420060507782",
+            "density": "1.014",
+            "idealGP": 72,
+            "parunit": "Cans",
+            "unitVol": 330,
+            "caseSize": 10,
+            "serveVol": 330,
+            "supplier": "Lion NZ Limited",
+            "costPrice": 31.99,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              },
+              {
+                "date": "30/05/2026",
+                "price": 3.199,
+                "source": "invoice",
+                "priceExGST": 2.782
+              },
+              {
+                "date": "30/05/2026",
+                "price": 3.199,
+                "source": "invoice",
+                "priceExGST": 2.782
+              },
+              {
+                "date": "30/05/2026",
+                "price": 3.199,
+                "source": "invoice",
+                "priceExGST": 2.782
+              },
+              {
+                "date": "30/05/2026",
+                "price": 3.199,
+                "source": "invoice",
+                "priceExGST": 2.782
+              },
+              {
+                "date": "30/05/2026",
+                "price": 3.199,
+                "source": "invoice",
+                "priceExGST": 2.782
+              },
+              {
+                "date": "1/06/2026",
+                "price": 3.199,
+                "source": "invoice",
+                "priceExGST": 2.782
+              },
+              {
+                "date": "1/06/2026",
+                "price": 3.199,
+                "source": "invoice",
+                "priceExGST": 2.782
+              },
+              {
+                "date": "1/06/2026",
+                "price": 3.199,
+                "source": "invoice",
+                "priceExGST": 2.782
+              },
+              {
+                "date": "2/06/2026",
+                "price": 31.99,
+                "source": "invoice",
+                "priceExGST": 27.817391304347826
+              },
+              {
+                "date": "2/06/2026",
+                "price": 3.199,
+                "source": "invoice",
+                "priceExGST": 2.7817391304347825
+              },
+              {
+                "date": "2/06/2026",
+                "price": 3.199,
+                "source": "invoice",
+                "priceExGST": 2.7817391304347825
+              },
+              {
+                "date": "2/06/2026",
+                "price": 3.2,
+                "source": "invoice",
+                "priceExGST": 2.7826086956521743
+              },
+              {
+                "date": "2/06/2026",
+                "price": 3.199,
+                "source": "invoice",
+                "priceExGST": 2.7817391304347825
+              },
+              {
+                "date": "6/06/2026",
+                "price": 3.199,
+                "source": "invoice",
+                "priceExGST": 2.7817391304347825
+              },
+              {
+                "date": "7/06/2026",
+                "price": 3.199,
+                "source": "invoice",
+                "priceExGST": 2.7817391304347825
+              },
+              {
+                "date": "7/06/2026",
+                "price": 31.99,
+                "source": "invoice",
+                "priceExGST": 27.817391304347826
+              },
+              {
+                "date": "8/06/2026",
+                "price": 31.99,
+                "source": "invoice",
+                "priceExGST": 27.817391304347826
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 27.817391304347826
+          },
+          {
+            "n": "KIRIN HYOKETSU PEACH CAN - 330 ml",
+            "pc": "—",
+            "cat": "RTD",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "KIRIN HYOKETSU PEACH CAN - 330 ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Cans",
+            "subcat": "Cans",
+            "barcode": "9420060507065",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Cans",
+            "unitVol": 330,
+            "caseSize": null,
+            "serveVol": 330,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "KIRIN HYOKETSU RASPBERRY CAN - 330ml",
+            "pc": "—",
+            "cat": "RTD",
+            "par": "",
+            "pcv": "var-ok",
+            "cost": "—",
+            "name": "KIRIN HYOKETSU RASPBERRY CAN - 330ml",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "soldAs": "Cans",
+            "subcat": "Cans",
+            "barcode": "9420060507928",
+            "density": "1.00",
+            "idealGP": 72,
+            "parunit": "Cans",
+            "unitVol": 330,
+            "caseSize": null,
+            "serveVol": 330,
+            "supplier": "",
+            "costPrice": 0,
+            "sellPrice": 0,
+            "caseBarcode": "",
+            "costHistory": [
+              {
+                "date": "6/05/2026",
+                "price": 0,
+                "source": "manual",
+                "priceExGST": 0
+              }
+            ],
+            "supplierCode": "",
+            "costPriceExGST": 0
+          },
+          {
+            "n": "Test 2",
+            "pc": "—",
+            "cat": "Beer",
+            "pcv": "var-ok",
+            "vol": 250,
+            "cost": "—",
+            "name": "Test 2",
+            "sell": "—",
+            "fullG": 0,
+            "tareG": 0,
+            "fullMl": 250,
+            "soldAs": "Bottles",
+            "subcat": "Bottles",
+            "barcode": "",
+            "density": 1.014,
+            "idealGP": 72,
+            "unitVol": 250,
+            "serveVol": 250,
+            "costPrice": 0,
+            "lastCount": null,
+            "sellPrice": 0,
+            "_userAdded": true
+          }
+        ],
+        "variance": "N/A",
+        "alertType": "green",
+        "lastAudit": "19 May 2026",
+        "suppliers": [
+          {
+            "name": "Lion NZ Limited",
+            "email": "",
+            "notes": "",
+            "phone": "",
+            "contact": ""
+          }
+        ],
+        "varStatus": "ok",
+        "wasteRows": [],
+        "deliveries": [
+          {
+            "d": "22/05/2026",
+            "i": 3,
+            "r": "94681023",
+            "s": "Lion NZ Limited",
+            "t": "$420.61",
+            "sc": "chip-green",
+            "st": "Verified",
+            "gst": "$54.86",
+            "tEx": "$365.75",
+            "lines": [
+              {
+                "qty": 5,
+                "name": "Speight's Mid Beer GMA 12x745ml Bottles",
+                "unit": "Bottles",
+                "_exGST": 52.5478,
+                "_incGST": 60.43,
+                "_cleanName": "Speight's Mid Beer GMA 12x745ml Bottles"
+              },
+              {
+                "qty": 1,
+                "name": "STELLA ARTOIS - 330 ml",
+                "unit": "Bottles",
+                "_exGST": 47.3565,
+                "_incGST": 54.46,
+                "_cleanName": "STELLA ARTOIS - 330 ml"
+              },
+              {
+                "qty": 2,
+                "name": "KIRIN HYOKETSU MANDARIN CAN - 330ml",
+                "unit": "Bottles",
+                "_exGST": 27.8174,
+                "_incGST": 31.99,
+                "_cleanName": "KIRIN HYOKETSU MANDARIN CAN - 330ml"
+              }
+            ],
+            "extras": 0.02,
+            "pdfUrl": "https://hjtguzieguogfjbwikwt.supabase.co/storage/v1/object/sign/Invoices/c_1775024388916/94681023.pdf?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV9jMWEzODcxOC0xNjNiLTQ2YzYtYWVmNS1mODVhNzg2ZTk2OGYiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJJbnZvaWNlcy9jXzE3NzUwMjQzODg5MTYvOTQ2ODEwMjMucGRmIiwiaWF0IjoxNzgwODg3MDkyLCJleHAiOjIwOTYyNDcwOTJ9.b0hBnyDfW9ou0vftwITvTAQaDDoXwQDRmI5Kqj-CH6I",
+            "_editLines": [
+              {
+                "qty": 5,
+                "name": "Speight's Mid Beer GMA 12x745ml Bottles",
+                "unit": "Bottles",
+                "_exGST": 52.5478,
+                "_incGST": 60.43,
+                "_cleanName": "Speight's Mid Beer GMA 12x745ml Bottles"
+              },
+              {
+                "qty": 1,
+                "name": "STELLA ARTOIS - 330 ml",
+                "unit": "Bottles",
+                "_exGST": 47.3565,
+                "_incGST": 54.46,
+                "_cleanName": "STELLA ARTOIS - 330 ml"
+              },
+              {
+                "qty": 3,
+                "name": "KIRIN HYOKETSU MANDARIN CAN - 330ml",
+                "unit": "Bottles",
+                "_exGST": 27.8174,
+                "_incGST": 31.99,
+                "_cleanName": "KIRIN HYOKETSU MANDARIN CAN - 330ml"
+              }
+            ]
+          }
+        ],
+        "auditsMonth": 0,
+        "insightPrev": {
+          "bg": "rgba(200,240,100,0.05)",
+          "bdr": "rgba(200,240,100,0.2)",
+          "body": "Run the first stocktake to start generating AI insights for this client.",
+          "icon": "📋",
+          "title": "No data yet"
+        },
+        "auditSessions": [
+          {
+            "id": "AUD-2026-05",
+            "label": "May 2026",
+            "sales": {},
+            "status": "open",
+            "closing": {},
+            "opening": {},
+            "reports": [
+              {
+                "date": "9 June 2026",
+                "period": "30/05/2026 – —",
+                "generatedBy": "[Auditor name]",
+                "pdfFilename": "1_Up_Sports_Bar_Audit_May-2026.pdf"
+              },
+              {
+                "date": "9 June 2026",
+                "period": "30/05/2026 – —",
+                "generatedBy": "[Auditor name]",
+                "pdfFilename": "1_Up_Sports_Bar_Audit_May-2026.pdf"
+              },
+              {
+                "date": "13 June 2026",
+                "period": "30/05/2026 – —",
+                "generatedBy": "[Auditor name]",
+                "pdfFilename": "1_Up_Sports_Bar_Audit_May-2026.pdf"
+              }
+            ],
+            "openDate": "30/05/2026",
+            "purchases": {
+              "STELLA ARTOIS - 330 ml": {
+                "qty": 1,
+                "unit": "Bottles",
+                "caseSize": 24,
+                "supplier": "Lion NZ Limited",
+                "costPrice": 54.46,
+                "invoiceRef": "94681023",
+                "originalName": "Stella Artois 24x330ml Bottles"
+              },
+              "SPEIGHTS GOLD QUART - 745 ml": {
+                "qty": 60,
+                "unit": "Bottles",
+                "caseSize": 12,
+                "supplier": "Lion NZ Limited",
+                "costPrice": 5.035833333333334,
+                "invoiceRef": "94681023",
+                "originalName": "Speight's Mid Beer GMA 12x745ml Bottles"
+              },
+              "KIRIN HYOKETSU MANDARIN CAN - 330ml": {
+                "qty": 2,
+                "unit": "Cans",
+                "caseSize": 10,
+                "supplier": "Lion NZ Limited",
+                "costPrice": 31.99,
+                "invoiceRef": "94681023",
+                "originalName": "Kirin Hyoketsu Mandarin 6% 10x330ml Cans"
+              }
+            }
+          }
+        ],
+        "invoiceArchive": []
+      },
+      "updated_at": "2026-05-08T02:03:58.375671+00:00"
+    }
+  ],
+  "ap_master_products": [
+    {
+      "id": 5367,
+      "slug": "test",
+      "data": {
+        "n": "Test",
+        "pc": "0%",
+        "cat": "Spirits",
+        "par": "0 bot",
+        "pcv": "var-ok",
+        "vol": 1000,
+        "cost": "$0.00",
+        "name": "Test",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "fullMl": 1000,
+        "soldAs": "Bottles",
+        "subcat": "Whiskey",
+        "barcode": "899197910205",
+        "density": 0.9467,
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 1000,
+        "serveVol": 0,
+        "costPrice": 0,
+        "lastCount": null,
+        "sellPrice": 0,
+        "_userAdded": true
+      },
+      "updated_at": "2026-05-11T02:43:21.881179+00:00"
+    },
+    {
+      "id": 13,
+      "slug": "appleton_estate_signature_blend",
+      "data": {
+        "n": "APPLETON ESTATE SIGNATURE BLEND",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "APPLETON ESTATE SIGNATURE BLEND",
+        "sell": "—",
+        "fullG": 1662,
+        "tareG": 715,
+        "soldAs": "Bottles",
+        "subcat": "Rum",
+        "barcode": "5024576001303",
+        "density": "0.94",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 1000,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "5/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-05T04:41:15.873847+00:00"
+    },
+    {
+      "id": 14,
+      "slug": "captain_morgan_spiced_gold",
+      "data": {
+        "n": "CAPTAIN MORGAN SPICED GOLD",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "CAPTAIN MORGAN SPICED GOLD",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 510,
+        "soldAs": "Bottles",
+        "subcat": "Rum",
+        "barcode": "5000281020464",
+        "density": "0.94",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 1000,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "5/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-05T04:51:39.209553+00:00"
+    },
+    {
+      "id": 20,
+      "slug": "scapegrace_black_dry_gin",
+      "data": {
+        "n": "SCAPEGRACE BLACK DRY GIN",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "SCAPEGRACE BLACK DRY GIN",
+        "sell": "—",
+        "fullG": 1500,
+        "tareG": 842,
+        "soldAs": "Bottles",
+        "subcat": "Gin",
+        "barcode": "9421903387660",
+        "density": 0.9467,
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 700,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "5/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-05T05:39:46.069811+00:00"
+    },
+    {
+      "id": 16,
+      "slug": "sailor_jerry_spiced_rum",
+      "data": {
+        "n": "SAILOR JERRY SPICED RUM",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "SAILOR JERRY SPICED RUM",
+        "sell": "—",
+        "fullG": 1350,
+        "tareG": 403,
+        "soldAs": "Bottles",
+        "subcat": "Rum",
+        "barcode": "5010327453019",
+        "density": "0.94",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 1000,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "5/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-05T04:55:06.28496+00:00"
+    },
+    {
+      "id": 21,
+      "slug": "scapegrace_classic_dry_gin",
+      "data": {
+        "n": "SCAPEGRACE CLASSIC DRY GIN",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "SCAPEGRACE CLASSIC DRY GIN",
+        "sell": "—",
+        "fullG": 1931,
+        "tareG": 991,
+        "soldAs": "Bottles",
+        "subcat": "Gin",
+        "barcode": "9421903387257",
+        "density": "0.94",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 1000,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "5/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-05T05:41:18.333593+00:00"
+    },
+    {
+      "id": 22,
+      "slug": "scapegrace_vodka",
+      "data": {
+        "n": "SCAPEGRACE VODKA",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "SCAPEGRACE VODKA",
+        "sell": "—",
+        "fullG": 1521,
+        "tareG": 863,
+        "soldAs": "Bottles",
+        "subcat": "Vodka",
+        "barcode": "9421903387783",
+        "density": "0.94",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 700,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "5/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-05T05:42:32.530442+00:00"
+    },
+    {
+      "id": 23,
+      "slug": "canadian_club",
+      "data": {
+        "n": "CANADIAN CLUB",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "CANADIAN CLUB",
+        "sell": "—",
+        "fullG": 1457,
+        "tareG": 517,
+        "soldAs": "Bottles",
+        "subcat": "Bourbon",
+        "barcode": "089540168425",
+        "density": "0.94",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 1000,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "5/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-05T05:43:38.646799+00:00"
+    },
+    {
+      "id": 24,
+      "slug": "jack_daniels",
+      "data": {
+        "n": "JACK DANIELS",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "JACK DANIELS",
+        "sell": "—",
+        "fullG": 1555,
+        "tareG": 555,
+        "soldAs": "Bottles",
+        "subcat": "Bourbon",
+        "barcode": "082184045367",
+        "density": "0.94",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 1000,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "5/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-05T05:45:00.360853+00:00"
+    },
+    {
+      "id": 5393,
+      "slug": "speight_s_summit_ultra_lager_50l_keg",
+      "data": {
+        "n": "Speight's Summit Ultra Lager 50L Keg",
+        "cat": "Beer",
+        "name": "Speight's Summit Ultra Lager 50L Keg",
+        "tareG": 0,
+        "subcat": "",
+        "barcode": "",
+        "density": "1.00",
+        "unitVol": 50000,
+        "serveVol": 0
+      },
+      "updated_at": "2026-05-11T03:00:47.463278+00:00"
+    },
+    {
+      "id": 19,
+      "slug": "rogue_society_signature_gin___5l",
+      "data": {
+        "n": "ROGUE SOCIETY SIGNATURE GIN - 5L",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "ROGUE SOCIETY SIGNATURE GIN - 5L",
+        "sell": "—",
+        "fullG": 4790,
+        "tareG": 89.5,
+        "soldAs": "Bottles",
+        "subcat": "Gin",
+        "barcode": "9421908346068",
+        "density": 0.9467,
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 5000,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "5/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-05T05:37:25.135354+00:00"
+    },
+    {
+      "id": 27,
+      "slug": "1800_silver",
+      "data": {
+        "n": "1800 SILVER",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "1800 SILVER",
+        "sell": "—",
+        "fullG": 1385,
+        "tareG": 727,
+        "soldAs": "Bottles",
+        "subcat": "Tequila",
+        "barcode": "7501035013117",
+        "density": "0.94",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 700,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "5/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-05T06:06:07.979842+00:00"
+    },
+    {
+      "id": 5431,
+      "slug": "speight_s_mid_beer_gold_medal_ale_12x745ml_bottles",
+      "data": {
+        "n": "Speight's Mid Beer Gold Medal Ale 12x745ml Bottles",
+        "cat": "Beer",
+        "name": "Speight's Mid Beer Gold Medal Ale 12x745ml Bottles",
+        "tareG": 0,
+        "subcat": "",
+        "barcode": "",
+        "density": "1.00",
+        "unitVol": 745,
+        "serveVol": 0
+      },
+      "updated_at": "2026-05-12T05:28:04.242114+00:00"
+    },
+    {
+      "id": 35,
+      "slug": "glenmorangie_original_10_yrs",
+      "data": {
+        "n": "GLENMORANGIE ORIGINAL 10 YRS",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "GLENMORANGIE ORIGINAL 10 YRS",
+        "sell": "—",
+        "fullG": 1296,
+        "tareG": 635,
+        "soldAs": "Bottles",
+        "subcat": "Scotch",
+        "barcode": "5010494560282",
+        "density": 0.9467,
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 698,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:25:07.299141+00:00"
+    },
+    {
+      "id": 34,
+      "slug": "jim_beam_white",
+      "data": {
+        "n": "JIM BEAM WHITE",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "JIM BEAM WHITE",
+        "sell": "—",
+        "fullG": 1423,
+        "tareG": 483,
+        "soldAs": "Bottles",
+        "subcat": "Bourbon",
+        "barcode": "080686001201",
+        "density": "0.94",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 1000,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:23:59.306079+00:00"
+    },
+    {
+      "id": 36,
+      "slug": "johnnie_walker_red",
+      "data": {
+        "n": "JOHNNIE WALKER RED",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "JOHNNIE WALKER RED",
+        "sell": "—",
+        "fullG": 1438,
+        "tareG": 498,
+        "soldAs": "Bottles",
+        "subcat": "Scotch",
+        "barcode": "5000267099026",
+        "density": "0.94",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 1000,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:26:53.802652+00:00"
+    },
+    {
+      "id": 37,
+      "slug": "laphroaig_10_yrs",
+      "data": {
+        "n": "LAPHROAIG 10 YRS",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "LAPHROAIG 10 YRS",
+        "sell": "—",
+        "fullG": 1170,
+        "tareG": 512,
+        "soldAs": "Bottles",
+        "subcat": "Scotch",
+        "barcode": "5010019640260",
+        "density": "0.94",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 700,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:28:03.138756+00:00"
+    },
+    {
+      "id": 38,
+      "slug": "jameson_irish_whisky",
+      "data": {
+        "n": "JAMESON IRISH WHISKY",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "JAMESON IRISH WHISKY",
+        "sell": "—",
+        "fullG": 1468,
+        "tareG": 528,
+        "soldAs": "Bottles",
+        "subcat": "Irish",
+        "barcode": "5011007003227",
+        "density": "0.94",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 1000,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:29:31.687489+00:00"
+    },
+    {
+      "id": 43,
+      "slug": "kahlua",
+      "data": {
+        "n": "KAHLUA",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "KAHLUA",
+        "sell": "—",
+        "fullG": 1541,
+        "tareG": 491,
+        "soldAs": "Bottles",
+        "subcat": "Liqueur",
+        "barcode": "089540122700",
+        "density": "1.05",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 1000,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:34:39.127355+00:00"
+    },
+    {
+      "id": 45,
+      "slug": "church_road_chardonnay",
+      "data": {
+        "n": "CHURCH ROAD CHARDONNAY",
+        "pc": "—",
+        "cat": "Wine",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "CHURCH ROAD CHARDONNAY",
+        "sell": "—",
+        "fullG": 1211,
+        "tareG": 461,
+        "soldAs": "Bottles",
+        "subcat": "White",
+        "barcode": "9414024392552",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 750,
+        "caseSize": null,
+        "serveVol": 150,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:40:22.183792+00:00"
+    },
+    {
+      "id": 46,
+      "slug": "dashwood_pinot_gris",
+      "data": {
+        "n": "DASHWOOD PINOT GRIS",
+        "pc": "—",
+        "cat": "Wine",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "DASHWOOD PINOT GRIS",
+        "sell": "—",
+        "fullG": 1316,
+        "tareG": 566,
+        "soldAs": "Bottles",
+        "subcat": "White",
+        "barcode": "9416264003410",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 750,
+        "caseSize": null,
+        "serveVol": 150,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:41:18.467515+00:00"
+    },
+    {
+      "id": 47,
+      "slug": "dashwood_sauvignon_blanc",
+      "data": {
+        "n": "DASHWOOD SAUVIGNON BLANC",
+        "pc": "—",
+        "cat": "Wine",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "DASHWOOD SAUVIGNON BLANC",
+        "sell": "—",
+        "fullG": 1179,
+        "tareG": 429,
+        "soldAs": "Bottles",
+        "subcat": "White",
+        "barcode": "9416264003113",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 750,
+        "caseSize": null,
+        "serveVol": 150,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:41:58.953786+00:00"
+    },
+    {
+      "id": 42,
+      "slug": "jumping_goat_coffee___vodka_liqueur",
+      "data": {
+        "n": "JUMPING GOAT COFFEE & VODKA LIQUEUR",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "JUMPING GOAT COFFEE & VODKA LIQUEUR",
+        "sell": "—",
+        "fullG": 1362,
+        "tareG": 676,
+        "soldAs": "Bottles",
+        "subcat": "Liqueur",
+        "barcode": "9421904201064",
+        "density": 0.9805,
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 700,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:33:19.932289+00:00"
+    },
+    {
+      "id": 44,
+      "slug": "thunderdonk_spiced_maple_whiskey",
+      "data": {
+        "n": "THUNDERDONK SPICED MAPLE WHISKEY",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "THUNDERDONK SPICED MAPLE WHISKEY",
+        "sell": "—",
+        "fullG": 1283,
+        "tareG": 541,
+        "soldAs": "Bottles",
+        "subcat": "Liqueur",
+        "barcode": "9421908346020",
+        "density": 1.06,
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 700,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:35:47.261232+00:00"
+    },
+    {
+      "id": 39,
+      "slug": "scapegrace_vanguard_single_malt",
+      "data": {
+        "n": "SCAPEGRACE VANGUARD SINGLE MALT",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "SCAPEGRACE VANGUARD SINGLE MALT",
+        "sell": "—",
+        "fullG": 1602,
+        "tareG": 939,
+        "soldAs": "Bottles",
+        "subcat": "Whiskey",
+        "barcode": "9421908346082",
+        "density": 0.9467,
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 700,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:30:53.777526+00:00"
+    },
+    {
+      "id": 48,
+      "slug": "le_petit_bonbon_rose",
+      "data": {
+        "n": "LE PETIT BONBON ROSE",
+        "pc": "—",
+        "cat": "Wine",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "LE PETIT BONBON ROSE",
+        "sell": "—",
+        "fullG": 1192,
+        "tareG": 442,
+        "soldAs": "Bottles",
+        "subcat": "Rosé",
+        "barcode": "3430560014013",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 750,
+        "caseSize": null,
+        "serveVol": 150,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:42:36.674139+00:00"
+    },
+    {
+      "id": 49,
+      "slug": "peregrine_saddleback_pinot_noir",
+      "data": {
+        "n": "PEREGRINE SADDLEBACK PINOT NOIR",
+        "pc": "—",
+        "cat": "Wine",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "PEREGRINE SADDLEBACK PINOT NOIR",
+        "sell": "—",
+        "fullG": 1188,
+        "tareG": 438,
+        "soldAs": "Bottles",
+        "subcat": "Red",
+        "barcode": "9419680080096",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 750,
+        "caseSize": null,
+        "serveVol": 150,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:43:22.862381+00:00"
+    },
+    {
+      "id": 50,
+      "slug": "peregrine_saddleback_rose",
+      "data": {
+        "n": "PEREGRINE SADDLEBACK ROSE",
+        "pc": "—",
+        "cat": "Wine",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "PEREGRINE SADDLEBACK ROSE",
+        "sell": "—",
+        "fullG": 1178,
+        "tareG": 428,
+        "soldAs": "Bottles",
+        "subcat": "Rosé",
+        "barcode": "9419680070752",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 750,
+        "caseSize": null,
+        "serveVol": 150,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:44:53.598865+00:00"
+    },
+    {
+      "id": 51,
+      "slug": "lindauer_brut_cuvee___200_ml",
+      "data": {
+        "n": "LINDAUER BRUT CUVEE - 200 ml",
+        "pc": "—",
+        "cat": "Wine",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "LINDAUER BRUT CUVEE - 200 ml",
+        "sell": "—",
+        "fullG": 432,
+        "tareG": 232,
+        "soldAs": "Bottles",
+        "subcat": "Sparkling",
+        "barcode": "941402441006",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 200,
+        "caseSize": null,
+        "serveVol": 200,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:45:51.562424+00:00"
+    },
+    {
+      "id": 52,
+      "slug": "corona___330_ml",
+      "data": {
+        "n": "CORONA - 330 ml",
+        "pc": "—",
+        "cat": "Beer",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "CORONA - 330 ml",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "soldAs": "Bottles",
+        "subcat": "Bottles",
+        "barcode": "9421908168042",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 330,
+        "caseSize": null,
+        "serveVol": 330,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:48:18.891087+00:00"
+    },
+    {
+      "id": 53,
+      "slug": "emerson_little_bird_can___330_ml",
+      "data": {
+        "n": "EMERSON LITTLE BIRD CAN - 330 ml",
+        "pc": "—",
+        "cat": "Beer",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "EMERSON LITTLE BIRD CAN - 330 ml",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "soldAs": "Cans",
+        "subcat": "Cans",
+        "barcode": "9418464003573",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 330,
+        "caseSize": null,
+        "serveVol": 330,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:49:10.884619+00:00"
+    },
+    {
+      "id": 5435,
+      "slug": "test_2",
+      "data": {
+        "n": "Test 2",
+        "pc": "0%",
+        "cat": "Cider",
+        "par": "0 bot",
+        "pcv": "var-ok",
+        "vol": 500,
+        "cost": "$0.00",
+        "name": "Test 2",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "fullMl": 500,
+        "soldAs": "Cans",
+        "subcat": "Bottles",
+        "barcode": "00134569",
+        "density": 1.014,
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 500,
+        "serveVol": 0,
+        "costPrice": 0,
+        "lastCount": null,
+        "sellPrice": 0,
+        "_userAdded": true
+      },
+      "updated_at": "2026-05-15T19:53:16.181519+00:00"
+    },
+    {
+      "id": 55,
+      "slug": "emersons_pilsner___330_ml",
+      "data": {
+        "n": "EMERSONS PILSNER - 330 ml",
+        "pc": "—",
+        "cat": "Beer",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "EMERSONS PILSNER - 330 ml",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "soldAs": "Bottles",
+        "subcat": "Bottles",
+        "barcode": "9418464000091",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 330,
+        "caseSize": null,
+        "serveVol": 330,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:50:31.34411+00:00"
+    },
+    {
+      "id": 56,
+      "slug": "little_creatures_pale_ale___330_ml",
+      "data": {
+        "n": "LITTLE CREATURES PALE ALE - 330 ml",
+        "pc": "—",
+        "cat": "Beer",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "LITTLE CREATURES PALE ALE - 330 ml",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "soldAs": "Bottles",
+        "subcat": "Bottles",
+        "barcode": "9328731000016",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 330,
+        "caseSize": null,
+        "serveVol": 330,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:52:02.401496+00:00"
+    },
+    {
+      "id": 57,
+      "slug": "panhead_sandman_can___330_ml",
+      "data": {
+        "n": "PANHEAD SANDMAN CAN - 330 ml",
+        "pc": "—",
+        "cat": "Beer",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "PANHEAD SANDMAN CAN - 330 ml",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "soldAs": "Bottles",
+        "subcat": "Cans",
+        "barcode": "",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 330,
+        "caseSize": null,
+        "serveVol": 330,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:52:35.806114+00:00"
+    },
+    {
+      "id": 58,
+      "slug": "panhead_super_charger_apa___330_ml",
+      "data": {
+        "n": "PANHEAD SUPER CHARGER APA - 330 ml",
+        "pc": "—",
+        "cat": "Beer",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "PANHEAD SUPER CHARGER APA - 330 ml",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "soldAs": "Bottles",
+        "subcat": "Bottles",
+        "barcode": "9421903316059",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 330,
+        "caseSize": null,
+        "serveVol": 330,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:53:37.524486+00:00"
+    },
+    {
+      "id": 61,
+      "slug": "speights_summit_alcohol_free_lager___330_ml",
+      "data": {
+        "n": "SPEIGHTS SUMMIT ALCOHOL FREE LAGER - 330 ml",
+        "pc": "—",
+        "cat": "Beer",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "SPEIGHTS SUMMIT ALCOHOL FREE LAGER - 330 ml",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "soldAs": "Bottles",
+        "subcat": "Bottles",
+        "barcode": "",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 330,
+        "caseSize": null,
+        "serveVol": 330,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:56:16.746528+00:00"
+    },
+    {
+      "id": 62,
+      "slug": "steinlager_alcohol_free___330_ml",
+      "data": {
+        "n": "STEINLAGER ALCOHOL FREE - 330 ml",
+        "pc": "—",
+        "cat": "Beer",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "STEINLAGER ALCOHOL FREE - 330 ml",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "soldAs": "Bottles",
+        "subcat": "Bottles",
+        "barcode": "",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 330,
+        "caseSize": null,
+        "serveVol": 330,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:57:15.698186+00:00"
+    },
+    {
+      "id": 63,
+      "slug": "steinlager_premium_light___330_ml",
+      "data": {
+        "n": "STEINLAGER PREMIUM LIGHT - 330 ml",
+        "pc": "—",
+        "cat": "Beer",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "STEINLAGER PREMIUM LIGHT - 330 ml",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "soldAs": "Bottles",
+        "subcat": "Bottles",
+        "barcode": "9414774303280",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 330,
+        "caseSize": null,
+        "serveVol": 330,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:57:57.610849+00:00"
+    },
+    {
+      "id": 64,
+      "slug": "steinlager_pure___330_ml",
+      "data": {
+        "n": "STEINLAGER PURE - 330 ml",
+        "pc": "—",
+        "cat": "Beer",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "STEINLAGER PURE - 330 ml",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "soldAs": "Bottles",
+        "subcat": "Bottles",
+        "barcode": "",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 330,
+        "caseSize": null,
+        "serveVol": 330,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:58:31.948757+00:00"
+    },
+    {
+      "id": 65,
+      "slug": "steinlager_tokyo_dry___330_ml",
+      "data": {
+        "n": "STEINLAGER TOKYO DRY - 330 ml",
+        "pc": "—",
+        "cat": "Beer",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "STEINLAGER TOKYO DRY - 330 ml",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "soldAs": "Bottles",
+        "subcat": "Bottles",
+        "barcode": "",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 330,
+        "caseSize": null,
+        "serveVol": 330,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:58:53.974129+00:00"
+    },
+    {
+      "id": 66,
+      "slug": "steinlager_ultra_low_carb___330_ml",
+      "data": {
+        "n": "STEINLAGER ULTRA LOW CARB - 330 ml",
+        "pc": "—",
+        "cat": "Beer",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "STEINLAGER ULTRA LOW CARB - 330 ml",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "soldAs": "Bottles",
+        "subcat": "Bottles",
+        "barcode": "",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 330,
+        "caseSize": null,
+        "serveVol": 330,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:59:15.122841+00:00"
+    },
+    {
+      "id": 68,
+      "slug": "macs_cloudy_apple_cider___330_ml",
+      "data": {
+        "n": "MACS CLOUDY APPLE CIDER - 330 ml",
+        "pc": "—",
+        "cat": "Beer",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "MACS CLOUDY APPLE CIDER - 330 ml",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "soldAs": "Bottles",
+        "subcat": "Bottles",
+        "barcode": "",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 330,
+        "caseSize": null,
+        "serveVol": 330,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T04:01:25.160989+00:00"
+    },
+    {
+      "id": 5440,
+      "slug": "speight_s_mid_beer_gold_medal_ale_12x745ml_bottles_case",
+      "data": {
+        "n": "Speight's Mid Beer Gold Medal Ale 12x745ml Bottles Case",
+        "cat": "Beer",
+        "name": "Speight's Mid Beer Gold Medal Ale 12x745ml Bottles Case",
+        "tareG": 0,
+        "subcat": "",
+        "barcode": "",
+        "density": "1.00",
+        "unitVol": 745,
+        "serveVol": 0
+      },
+      "updated_at": "2026-05-15T19:59:36.894615+00:00"
+    },
+    {
+      "id": 5441,
+      "slug": "lion_red_50l_keg",
+      "data": {
+        "n": "Lion Red 50L Keg",
+        "cat": "Beer",
+        "name": "Lion Red 50L Keg",
+        "tareG": 0,
+        "subcat": "",
+        "barcode": "",
+        "density": "1.00",
+        "unitVol": 50000,
+        "serveVol": 0
+      },
+      "updated_at": "2026-05-15T19:59:36.905678+00:00"
+    },
+    {
+      "id": 67,
+      "slug": "stella_artois___330_ml",
+      "data": {
+        "n": "STELLA ARTOIS - 330 ml",
+        "cat": "Beer",
+        "name": "STELLA ARTOIS - 330 ml",
+        "tareG": 0,
+        "subcat": "",
+        "barcode": "",
+        "density": "1.00",
+        "unitVol": 330,
+        "serveVol": 0
+      },
+      "updated_at": "2026-05-06T04:00:26.723846+00:00"
+    },
+    {
+      "id": 60,
+      "slug": "speights_mid_ale___330_ml",
+      "data": {
+        "n": "SPEIGHTS MID ALE - 330 ml",
+        "cat": "Beer",
+        "name": "SPEIGHTS MID ALE - 330 ml",
+        "tareG": 0,
+        "subcat": "",
+        "barcode": "",
+        "density": "1.00",
+        "unitVol": 745,
+        "serveVol": 0
+      },
+      "updated_at": "2026-05-06T03:54:40.732288+00:00"
+    },
+    {
+      "id": 59,
+      "slug": "speights_gold_quart___745_ml",
+      "data": {
+        "n": "SPEIGHTS GOLD QUART - 745 ml",
+        "cat": "Beer",
+        "name": "SPEIGHTS GOLD QUART - 745 ml",
+        "tareG": 0,
+        "subcat": "",
+        "barcode": "",
+        "density": "1.00",
+        "unitVol": 745,
+        "serveVol": 0
+      },
+      "updated_at": "2026-05-06T03:54:16.881335+00:00"
+    },
+    {
+      "id": 5458,
+      "slug": "test_1",
+      "data": {
+        "n": "Test 1",
+        "pc": "—",
+        "cat": "Cider",
+        "pcv": "var-ok",
+        "vol": 330,
+        "cost": "—",
+        "name": "Test 1",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "fullMl": 330,
+        "soldAs": "Bottles",
+        "subcat": "Bottles",
+        "barcode": "012345678905",
+        "density": 1.014,
+        "idealGP": 72,
+        "unitVol": 330,
+        "serveVol": 330,
+        "costPrice": 0,
+        "lastCount": null,
+        "sellPrice": 0,
+        "_userAdded": true
+      },
+      "updated_at": "2026-05-15T20:58:10.195062+00:00"
+    },
+    {
+      "id": 72,
+      "slug": "lion_red",
+      "data": {
+        "n": "LION RED",
+        "cat": "Beer",
+        "name": "LION RED",
+        "tareG": 0,
+        "subcat": "",
+        "barcode": "",
+        "density": "1.00",
+        "unitVol": 50000,
+        "serveVol": 0
+      },
+      "updated_at": "2026-05-06T04:03:57.221346+00:00"
+    },
+    {
+      "id": 78,
+      "slug": "red_bull_regular_can___250_ml",
+      "data": {
+        "n": "RED BULL REGULAR CAN - 250 ml",
+        "pc": "—",
+        "cat": "Soft drinks",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "RED BULL REGULAR CAN - 250 ml",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "soldAs": "Cans",
+        "subcat": "Energy",
+        "barcode": "90162602",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Cans",
+        "unitVol": 250,
+        "caseSize": null,
+        "serveVol": 250,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T04:08:20.205452+00:00"
+    },
+    {
+      "id": 79,
+      "slug": "red_bull_sugar_free_can___250_ml",
+      "data": {
+        "n": "RED BULL SUGAR FREE CAN - 250 ml",
+        "pc": "—",
+        "cat": "Soft drinks",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "RED BULL SUGAR FREE CAN - 250 ml",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "soldAs": "Cans",
+        "subcat": "Energy",
+        "barcode": "90162800",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Cans",
+        "unitVol": 250,
+        "caseSize": null,
+        "serveVol": 250,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T04:09:10.84639+00:00"
+    },
+    {
+      "id": 80,
+      "slug": "kirin_hyoketsu_lemon_can___330_ml",
+      "data": {
+        "n": "KIRIN HYOKETSU LEMON CAN - 330 ml",
+        "pc": "—",
+        "cat": "RTD",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "KIRIN HYOKETSU LEMON CAN - 330 ml",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "soldAs": "Cans",
+        "subcat": "Cans",
+        "barcode": "9420060506464",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Cans",
+        "unitVol": 330,
+        "caseSize": null,
+        "serveVol": 330,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T04:11:27.142486+00:00"
+    },
+    {
+      "id": 74,
+      "slug": "steinlager_classic",
+      "data": {
+        "n": "STEINLAGER CLASSIC",
+        "cat": "Beer",
+        "name": "STEINLAGER CLASSIC",
+        "tareG": 0,
+        "subcat": "",
+        "barcode": "",
+        "density": "1.00",
+        "unitVol": 50000,
+        "serveVol": 0
+      },
+      "updated_at": "2026-05-06T04:05:41.221001+00:00"
+    },
+    {
+      "id": 73,
+      "slug": "speights_summit_ultra_low_carb_lager",
+      "data": {
+        "n": "SPEIGHTS SUMMIT ULTRA LOW CARB LAGER",
+        "cat": "Beer",
+        "name": "SPEIGHTS SUMMIT ULTRA LOW CARB LAGER",
+        "tareG": 0,
+        "subcat": "",
+        "barcode": "",
+        "density": "1.00",
+        "unitVol": 50000,
+        "serveVol": 0
+      },
+      "updated_at": "2026-05-06T04:04:50.88565+00:00"
+    },
+    {
+      "id": 82,
+      "slug": "kirin_hyoketsu_peach_can___330_ml",
+      "data": {
+        "n": "KIRIN HYOKETSU PEACH CAN - 330 ml",
+        "pc": "—",
+        "cat": "RTD",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "KIRIN HYOKETSU PEACH CAN - 330 ml",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "soldAs": "Cans",
+        "subcat": "Cans",
+        "barcode": "9420060507065",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Cans",
+        "unitVol": 330,
+        "caseSize": null,
+        "serveVol": 330,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T04:13:42.456865+00:00"
+    },
+    {
+      "id": 83,
+      "slug": "kirin_hyoketsu_raspberry_can___330ml",
+      "data": {
+        "n": "KIRIN HYOKETSU RASPBERRY CAN - 330ml",
+        "pc": "—",
+        "cat": "RTD",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "KIRIN HYOKETSU RASPBERRY CAN - 330ml",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "soldAs": "Cans",
+        "subcat": "Cans",
+        "barcode": "9420060507928",
+        "density": "1.00",
+        "idealGP": 72,
+        "parunit": "Cans",
+        "unitVol": 330,
+        "caseSize": null,
+        "serveVol": 330,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T04:14:24.515416+00:00"
+    },
+    {
+      "id": 5460,
+      "slug": "scapegrace_block_dry_gin",
+      "data": {
+        "n": "SCAPEGRACE BLoCK DRY GIN",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "SCAPEGRACE BLoCK DRY GIN",
+        "sell": "—",
+        "fullG": 1500,
+        "tareG": 842,
+        "soldAs": "Bottles",
+        "subcat": "Gin",
+        "barcode": "9421903387660",
+        "density": 0.9467,
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 700,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "5/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-16T21:16:42.382963+00:00"
+    },
+    {
+      "id": 81,
+      "slug": "kirin_hyoketsu_mandarin_can___330ml",
+      "data": {
+        "n": "KIRIN HYOKETSU MANDARIN CAN - 330ml",
+        "cat": "RTD",
+        "name": "KIRIN HYOKETSU MANDARIN CAN - 330ml",
+        "tareG": 0,
+        "subcat": "",
+        "barcode": "",
+        "density": "1.00",
+        "unitVol": 330,
+        "serveVol": 0
+      },
+      "updated_at": "2026-05-06T04:12:12.307709+00:00"
+    },
+    {
+      "id": 40,
+      "slug": "drambuie",
+      "data": {
+        "n": "DRAMBUIE",
+        "pc": "—",
+        "cat": "Spirits",
+        "par": "",
+        "pcv": "var-ok",
+        "cost": "—",
+        "name": "DRAMBUIE",
+        "sell": "—",
+        "fullG": 1334,
+        "tareG": 592,
+        "soldAs": "Bottles",
+        "subcat": "Liqueur",
+        "barcode": "5010391100703",
+        "density": 1.06,
+        "idealGP": 72,
+        "parunit": "Bottles",
+        "unitVol": 700,
+        "caseSize": null,
+        "serveVol": 30,
+        "supplier": "",
+        "costPrice": 0,
+        "sellPrice": 0,
+        "caseBarcode": "",
+        "costHistory": [
+          {
+            "date": "6/05/2026",
+            "price": 0,
+            "source": "manual",
+            "priceExGST": 0
+          }
+        ],
+        "supplierCode": "",
+        "costPriceExGST": 0
+      },
+      "updated_at": "2026-05-06T03:31:57.232948+00:00"
+    },
+    {
+      "id": 69,
+      "slug": "guinness",
+      "data": {
+        "n": "GUINNESS",
+        "cat": "Beer",
+        "name": "GUINNESS",
+        "tareG": 0,
+        "subcat": "",
+        "barcode": "",
+        "density": "1.00",
+        "unitVol": 25000,
+        "serveVol": 0
+      },
+      "updated_at": "2026-05-06T04:02:33.79584+00:00"
+    },
+    {
+      "id": 5361,
+      "slug": "bootleg_beef_jerky_hot_shot",
+      "data": {
+        "n": "BOOTLEG BEEF JERKY HOT SHOT",
+        "pc": "0%",
+        "cat": "Food",
+        "par": "0 can",
+        "pcv": "var-ok",
+        "vol": 40,
+        "cost": "$0.00",
+        "name": "BOOTLEG BEEF JERKY HOT SHOT",
+        "sell": "—",
+        "fullG": 0,
+        "tareG": 0,
+        "fullMl": 40,
+        "soldAs": "PVC",
+        "subcat": "Bar snacks",
+        "barcode": "9421905672054",
+        "density": 1.014,
+        "idealGP": 72,
+        "parunit": "Cans",
+        "unitVol": 40,
+        "serveVol": 40,
+        "costPrice": 0,
+        "lastCount": null,
+        "sellPrice": 0,
+        "_userAdded": true
+      },
+      "updated_at": "2026-05-08T19:31:58.868598+00:00"
+    }
+  ]
+}

@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<!-- AuditPro Mobile v3.5 - 2026-05-05 -->
+<!-- AuditPro Mobile v3.6 - 2026-06-13 (r18 density master-merge) -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.5-20260505';
+const APP_VERSION = '3.6-20260613';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -1168,11 +1168,30 @@ async function loadProductsFromSupabase() {
     const clientRow = rows.find(r => r.slug === slug);
     if(!clientRow || !clientRow.data) return;
 
+    // FIX (r18) — ap_master_products is the single source of truth for density. Load it and
+    // override each venue product's density from its matching master row (matched by slug,
+    // the same key the DB upserts on). Mirrors the desktop density-merge at load time.
+    const mSlug = n => (n||'').toLowerCase().replace(/[^a-z0-9]/g,'_');
+    const masterDensity = {};
+    try {
+      const mres = await fetch(`${SUPABASE_URL}/rest/v1/ap_master_products?select=slug,data`, {
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+      });
+      if(mres.ok) {
+        (await mres.json()).forEach(r => {
+          const dn = r.data && r.data.density;
+          const s  = (r.slug) || mSlug(r.data && (r.data.n||r.data.name));
+          if(s && dn != null && dn !== '') masterDensity[s] = dn;
+        });
+      }
+    } catch(e) { console.warn('[AuditPro] master density load failed:', e); }
+
     const prods = clientRow.data.products || [];
     let added = 0;
     prods.forEach(p => {
       const name = p.n || p.name;
       if(!name) return;
+      const mDensity = masterDensity[mSlug(name)];
       if(!PRODUCTS.find(x => (x.name||x.n||'').toLowerCase() === name.toLowerCase())) {
         PRODUCTS.push({
           name, n: name,
@@ -1185,7 +1204,7 @@ async function loadProductsFromSupabase() {
           tareG:     p.tareG || 0,
           fullG:     p.fullG || 0,
           fullMl:    p.unitVol || p.vol || 750,
-          density:   p.density || 1.00,
+          density:   (mDensity != null ? mDensity : p.density) || 1.00,
           costPrice: p.costPrice || 0,
           sellPrice: p.sellPrice || 0,
           soldAs:    p.soldAs || 'Bottles',
