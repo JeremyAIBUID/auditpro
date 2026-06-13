@@ -26,7 +26,7 @@ AuditPro is a hospitality audit platform for any hospitality venue. Built as sin
 
 **Deploy process:** Edit local files → commit via GitHub Desktop → GitHub Pages auto-deploys in ~1 min.
 
-**Current build stamp:** `2026-06-10-r18` — the `APP_VERSION` const in index.html, logged to the console on load. Check it matches after a deploy to confirm you're not seeing a cached build.
+**Current build stamp:** `2026-06-10-r19` — the `APP_VERSION` const in index.html, logged to the console on load. Check it matches after a deploy to confirm you're not seeing a cached build.
 
 **mobile2.html must always be kept identical to mobile.html — update both files in every commit.**
 
@@ -241,6 +241,8 @@ editCountItem(idx)              // Prompt to edit qty of counted item
   (`name → lowercase → non-alphanumerics → '_'`) used as the DB upsert key, so a rename
   cannot create a duplicate master row.
 - **Beer & Cider standard density is 1.014** (was historically defaulted to 1.00).
+- **Wine standard density is 0.9805** (was historically defaulted to 1.00; repaired in r19).
+- **RTD products are always counted as full units, so RTD density is irrelevant and stays at 1.00.**
 
 ---
 

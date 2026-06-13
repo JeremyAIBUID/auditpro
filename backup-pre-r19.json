@@ -1,0 +1,102 @@
+{
+  "backup_taken": "2026-06-13T11:48:09.439572",
+  "note": "Pre-r19 Wine density repair backup — all Wine-category rows (master + 1 Up venue copy) before density 1.00 -> 0.9805",
+  "ap_master_products_wine": [
+    {
+      "id": 45,
+      "slug": "church_road_chardonnay",
+      "name": "CHURCH ROAD CHARDONNAY",
+      "cat": "Wine",
+      "density": "1.00"
+    },
+    {
+      "id": 46,
+      "slug": "dashwood_pinot_gris",
+      "name": "DASHWOOD PINOT GRIS",
+      "cat": "Wine",
+      "density": "1.00"
+    },
+    {
+      "id": 47,
+      "slug": "dashwood_sauvignon_blanc",
+      "name": "DASHWOOD SAUVIGNON BLANC",
+      "cat": "Wine",
+      "density": "1.00"
+    },
+    {
+      "id": 48,
+      "slug": "le_petit_bonbon_rose",
+      "name": "LE PETIT BONBON ROSE",
+      "cat": "Wine",
+      "density": "1.00"
+    },
+    {
+      "id": 49,
+      "slug": "peregrine_saddleback_pinot_noir",
+      "name": "PEREGRINE SADDLEBACK PINOT NOIR",
+      "cat": "Wine",
+      "density": "1.00"
+    },
+    {
+      "id": 50,
+      "slug": "peregrine_saddleback_rose",
+      "name": "PEREGRINE SADDLEBACK ROSE",
+      "cat": "Wine",
+      "density": "1.00"
+    },
+    {
+      "id": 51,
+      "slug": "lindauer_brut_cuvee___200_ml",
+      "name": "LINDAUER BRUT CUVEE - 200 ml",
+      "cat": "Wine",
+      "density": "1.00"
+    }
+  ],
+  "ap_clients_1up_wine": {
+    "slug": "c_1775024388916",
+    "wine_products": [
+      {
+        "index": 20,
+        "name": "CHURCH ROAD CHARDONNAY",
+        "cat": "Wine",
+        "density": "1.00"
+      },
+      {
+        "index": 21,
+        "name": "DASHWOOD PINOT GRIS",
+        "cat": "Wine",
+        "density": "1.00"
+      },
+      {
+        "index": 22,
+        "name": "DASHWOOD SAUVIGNON BLANC",
+        "cat": "Wine",
+        "density": "1.00"
+      },
+      {
+        "index": 23,
+        "name": "LE PETIT BONBON ROSE",
+        "cat": "Wine",
+        "density": "1.00"
+      },
+      {
+        "index": 24,
+        "name": "PEREGRINE SADDLEBACK PINOT NOIR",
+        "cat": "Wine",
+        "density": "1.00"
+      },
+      {
+        "index": 25,
+        "name": "PEREGRINE SADDLEBACK ROSE",
+        "cat": "Wine",
+        "density": "1.00"
+      },
+      {
+        "index": 26,
+        "name": "LINDAUER BRUT CUVEE - 200 ml",
+        "cat": "Wine",
+        "density": "1.00"
+      }
+    ]
+  }
+}
