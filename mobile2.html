@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<!-- AuditPro Mobile v3.7 - build 2026-06-10-r20 (manual weight confirm; auto-capture removed) -->
+<!-- AuditPro Mobile v3.7 - build 2026-06-10-r21 (scale debug: raw BLE packet capture log) -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.7-2026-06-10-r20';
+const APP_VERSION = '3.7-2026-06-10-r21';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -560,15 +560,23 @@ select.inp-m{cursor:pointer;}
         </div>
         <div class="scale-net" id="scale-net" style="display:none;text-align:center;margin-top:6px;"></div>
 
-        <!-- Debug panel -->
-        <div id="scale-debug-panel" style="display:none;margin-top:10px;background:rgba(200,240,100,0.05);border:1px solid rgba(200,240,100,0.2);border-radius:10px;padding:10px 12px;">
+      </div>
+
+      <!-- SCALE DEBUG — raw BLE protocol capture. The toggle is visible whenever the weigh
+           tab is open; default OFF. When ON, every raw packet is logged below as it arrives
+           (see logScaleDebug). Purely additive — parseScaleValue/commit logic are untouched. -->
+      <div id="scale-debug-block" style="margin-bottom:8px;">
+        <button id="scale-debug-toggle" onclick="toggleScaleDebug()" style="width:100%;padding:9px;background:var(--bg3);border:1px solid var(--border2);border-radius:10px;color:var(--text3);font-family:var(--font-ui);font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation;">🔬 Scale debug: OFF</button>
+        <div id="scale-debug-panel" style="display:none;margin-top:8px;background:rgba(200,240,100,0.05);border:1px solid rgba(200,240,100,0.2);border-radius:10px;padding:10px 12px;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-            <div style="font-size:11px;color:var(--accent);font-weight:700;">🔬 Raw bytes</div>
-            <button onclick="clearScaleDebug()" style="font-size:11px;color:var(--text3);background:none;border:none;cursor:pointer;padding:0;">Clear</button>
+            <div style="font-size:11px;color:var(--accent);font-weight:700;">🔬 Raw scale packets</div>
+            <div id="scale-debug-count" style="font-size:11px;color:var(--text3);">0 packets</div>
           </div>
-          <div id="scale-debug-bytes" style="font-family:var(--font-mono);font-size:12px;color:var(--text);word-break:break-all;min-height:18px;margin-bottom:4px;"></div>
-          <div id="scale-debug-parsed" style="font-size:11px;color:var(--text3);margin-bottom:8px;"></div>
-          <button onclick="copyScaleDebug()" style="width:100%;padding:8px;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-family:var(--font-ui);font-size:13px;font-weight:600;cursor:pointer;">📋 Copy raw data</button>
+          <div id="scale-debug-log" style="font-family:var(--font-mono);font-size:11px;line-height:1.5;color:var(--text);white-space:pre-wrap;word-break:break-word;overflow:auto;max-height:34vh;background:rgba(0,0,0,0.25);border:1px solid var(--border2);border-radius:8px;padding:8px;">Waiting for packets — connect scale and place an object on it…</div>
+          <div style="display:flex;gap:6px;margin-top:8px;">
+            <button onclick="copyScaleDebug()" style="flex:1;padding:8px;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-family:var(--font-ui);font-size:13px;font-weight:600;cursor:pointer;touch-action:manipulation;">📋 Copy log</button>
+            <button onclick="clearScaleDebug()" style="flex:1;padding:8px;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-family:var(--font-ui);font-size:13px;font-weight:600;cursor:pointer;touch-action:manipulation;">🗑 Clear log</button>
+          </div>
         </div>
       </div>
 
@@ -1912,7 +1920,7 @@ function openHWSettings() {
       </div>
 
       <button onclick="closeHWSettings()" style="width:100%;padding:14px;background:var(--bg4);border:1px solid var(--border2);border-radius:12px;color:var(--text2);font-family:Syne,sans-serif;font-size:15px;font-weight:600;cursor:pointer;touch-action:manipulation;">Close</button>
-      <button onclick="closeHWSettings();document.getElementById('scale-debug-panel').style.display=document.getElementById('scale-debug-panel').style.display==='none'?'block':'none';" style="width:100%;margin-top:8px;padding:12px;background:none;border:none;color:var(--text3);font-family:Syne,sans-serif;font-size:12px;cursor:pointer;">🔬 Toggle raw scale bytes (developer)</button>
+      <button onclick="closeHWSettings();setMethod('weight',document.getElementById('tab-weight'));if(!scaleDebugOn)toggleScaleDebug();" style="width:100%;margin-top:8px;padding:12px;background:none;border:none;color:var(--text3);font-family:Syne,sans-serif;font-size:12px;cursor:pointer;">🔬 Open scale debug (developer)</button>
     </div>`;
 
   sheet.onclick = closeHWSettings;
@@ -2400,7 +2408,15 @@ async function connectBluetoothScale() {
 }
 
 function onScaleReading(e) {
-  parseScaleValue(e.target.value);
+  // FIX 2 (additive logging only): record this packet's ms timestamp + source characteristic
+  // UUID BEFORE parsing, then run parseScaleValue() untouched. parseScaleValue() calls
+  // logScaleDebug() once per packet, which emits one raw-vs-parsed line using this context.
+  _scaleDbgCtx = {
+    ts:   Date.now(),
+    uuid: (e.target && e.target.uuid) ? e.target.uuid : null,
+  };
+  try { parseScaleValue(e.target.value); }
+  finally { _scaleDbgCtx = null; }
 }
 
 function parseScaleValue(dataView) {
@@ -2928,47 +2944,79 @@ function toggleSensitive(btn) {
 // Supabase connection for mobile
 const SUPABASE_URL = 'https://hjtguzieguogfjbwikwt.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqdGd1emllZ3VvZ2ZqYndpa3d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwMDg1NDUsImV4cCI6MjA5MDU4NDU0NX0.yH_TrwX6jdeSi6WNOWvvQ4yzkznoXvCWEmDKFg9-DEE';
-// ─── SCALE DEBUG PANEL ───────────────────────────
-let scaleDebugLog = [];
+// ─── SCALE DEBUG PANEL — raw BLE protocol capture ─────────────────────────
+// Purely additive instrumentation: parseScaleValue() and all commit logic are left
+// untouched (FIX 4). onScaleReading() records _scaleDbgCtx (ms timestamp + source
+// characteristic UUID) immediately before parsing; parseScaleValue() then calls
+// logScaleDebug() once per packet, so each raw notification is captured exactly as
+// received — never skipped, truncated, de-duplicated or filtered — alongside the value
+// parseScaleValue() derived from it ("parsed=").
+let scaleDebugLog = [];     // every raw packet line, oldest → newest
+let scaleDebugOn  = false;  // master toggle — default OFF
+let _scaleDbgCtx  = null;   // { ts, uuid } for the packet currently being parsed
 
 function toggleScaleDebug() {
+  scaleDebugOn = !scaleDebugOn;
   const panel = document.getElementById('scale-debug-panel');
-  const btn   = panel.previousElementSibling;
-  const open  = panel.style.display !== 'none';
-  panel.style.display = open ? 'none' : 'block';
-  btn.textContent = open ? '🔬 Show raw scale data' : '🔬 Hide raw scale data';
+  const btn   = document.getElementById('scale-debug-toggle');
+  if(panel) panel.style.display = scaleDebugOn ? 'block' : 'none';
+  if(btn)   btn.textContent     = scaleDebugOn ? '🔬 Scale debug: ON' : '🔬 Scale debug: OFF';
+  if(scaleDebugOn) renderScaleDebug();
 }
 
 function logScaleDebug(bytes, parsed) {
-  const hex   = Array.from(bytes).map(b => b.toString(16).padStart(2,'0')).join(' ');
-  const dec   = Array.from(bytes).join(', ');
-  const entry = `HEX: ${hex} | DEC: [${dec}] | len:${bytes.length} | parsed:${parsed}g`;
-  scaleDebugLog.unshift(entry);
-  if(scaleDebugLog.length > 10) scaleDebugLog.pop();
-  const bytesEl  = document.getElementById('scale-debug-bytes');
-  const parsedEl = document.getElementById('scale-debug-parsed');
-  if(bytesEl)  bytesEl.innerHTML  = `<strong>HEX:</strong> ${hex}<br><strong>DEC:</strong> [${dec}]<br><strong>Bytes:</strong> ${bytes.length}`;
-  if(parsedEl) parsedEl.textContent = `→ Parsed as: ${parsed}g (${parsed>=1000?(parsed/1000).toFixed(3)+'kg':parsed+'g'})`;
+  if(!scaleDebugOn) return;                         // capture only while toggled ON
+  const ts   = (_scaleDbgCtx && _scaleDbgCtx.ts)   ? _scaleDbgCtx.ts   : Date.now();
+  const uuid = (_scaleDbgCtx && _scaleDbgCtx.uuid) ? _scaleDbgCtx.uuid
+             : (btChar && btChar.uuid ? btChar.uuid : 'n/a');
+  const hex  = Array.from(bytes).map(b => b.toString(16).toUpperCase().padStart(2,'0')).join(' ');
+  const dec  = Array.from(bytes).join(',');
+  // One immutable line per packet.
+  const line = `${ts} uuid=${uuid} len=${bytes.length} HEX=${hex} DEC=[${dec}] parsed=${parsed}`;
+  scaleDebugLog.push(line);
+  // Append incrementally so a long capture stays responsive.
+  const logEl   = document.getElementById('scale-debug-log');
+  const countEl = document.getElementById('scale-debug-count');
+  if(countEl) countEl.textContent = scaleDebugLog.length + (scaleDebugLog.length === 1 ? ' packet' : ' packets');
+  if(logEl) {
+    if(scaleDebugLog.length === 1) logEl.textContent = '';
+    logEl.appendChild(document.createTextNode(line + '\n'));
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+}
+
+function renderScaleDebug() {
+  const logEl   = document.getElementById('scale-debug-log');
+  const countEl = document.getElementById('scale-debug-count');
+  if(countEl) countEl.textContent = scaleDebugLog.length + (scaleDebugLog.length === 1 ? ' packet' : ' packets');
+  if(!logEl) return;
+  logEl.textContent = scaleDebugLog.length
+    ? scaleDebugLog.join('\n') + '\n'
+    : 'Waiting for packets — connect scale and place an object on it…';
+  logEl.scrollTop = logEl.scrollHeight;
 }
 
 function copyScaleDebug() {
-  const text = scaleDebugLog.join('\n') || 'No data yet — connect scale and place object on it';
-  if(navigator.clipboard) {
-    navigator.clipboard.writeText(text).then(() => toast('Copied!'));
+  const text = scaleDebugLog.join('\n') || 'No packets captured yet';
+  if(navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text)
+      .then(() => toast('Log copied — ' + scaleDebugLog.length + ' packets', true))
+      .catch(() => _copyFallback(text));
   } else {
-    const ta = document.createElement('textarea');
-    ta.value = text; document.body.appendChild(ta); ta.select();
-    document.execCommand('copy'); document.body.removeChild(ta);
-    toast('Copied');
+    _copyFallback(text);
   }
+}
+
+function _copyFallback(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text; document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); toast('Log copied', true); } catch(_) { toast('Copy failed'); }
+  document.body.removeChild(ta);
 }
 
 function clearScaleDebug() {
   scaleDebugLog = [];
-  const b = document.getElementById('scale-debug-bytes');
-  const p = document.getElementById('scale-debug-parsed');
-  if(b) b.textContent = 'Cleared — place object on scale';
-  if(p) p.textContent = '';
+  renderScaleDebug();
 }
 
 // ─── AUDIO FEEDBACK ──────────────────────────────

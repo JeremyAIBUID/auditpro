@@ -1,5 +1,5 @@
-// AuditPro Service Worker v9 - force cache clear (r20 manual weight confirm)
-const CACHE_NAME = 'auditpro-v9';
+// AuditPro Service Worker v10 - force cache clear (r21 scale debug raw packet capture)
+const CACHE_NAME = 'auditpro-v10';
 
 self.addEventListener('install', e => {
   self.skipWaiting();
