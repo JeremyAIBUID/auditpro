@@ -1,5 +1,5 @@
-// AuditPro Service Worker v8 - force cache clear (r18 density master-merge)
-const CACHE_NAME = 'auditpro-v8';
+// AuditPro Service Worker v9 - force cache clear (r20 manual weight confirm)
+const CACHE_NAME = 'auditpro-v9';
 
 self.addEventListener('install', e => {
   self.skipWaiting();

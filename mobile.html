@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<!-- AuditPro Mobile v3.6 - 2026-06-13 (r18 density master-merge) -->
+<!-- AuditPro Mobile v3.7 - build 2026-06-10-r20 (manual weight confirm; auto-capture removed) -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.6-20260613';
+const APP_VERSION = '3.7-2026-06-10-r20';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -135,6 +135,10 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .tare-row{display:flex;gap:8px;margin-bottom:10px;}
 .tare-btn{flex:1;padding:10px;border-radius:10px;font-size:13px;font-weight:600;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);cursor:pointer;font-family:var(--font-ui);}
 .tare-btn:active{background:var(--bg4);}
+/* WEIGH CONFIRM BAR — pinned outside the scrollable weigh panel so it is always reachable */
+#weight-pinned-bar{padding-top:8px;border-top:1px solid var(--border);margin-top:4px;}
+#weight-net-pinned{text-align:center;font-family:var(--font-mono);font-size:14px;color:var(--green);min-height:22px;margin-bottom:8px;line-height:1.45;}
+#weight-add-btn.weigh-stable{box-shadow:0 0 0 2px var(--green),0 0 14px rgba(91,227,180,0.55);}
 
 /* QUANTITY ROW — larger touch targets */
 .qty-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
@@ -503,7 +507,7 @@ select.inp-m{cursor:pointer;}
     </div>
 
     <!-- WEIGHT METHOD -->
-    <div id="method-weight" style="display:none;overflow-y:auto;max-height:52vh;">
+    <div id="method-weight" style="display:none;overflow-y:auto;max-height:42vh;">
       <!-- Scale connection bar -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
         <div class="scale-status">
@@ -568,8 +572,14 @@ select.inp-m{cursor:pointer;}
         </div>
       </div>
 
-      <!-- 3. CAPTURE BUTTON — always visible, sticky at bottom -->
-      <button id="weight-add-btn" style="width:100%;padding:18px;background:var(--bg3);border:2px solid var(--border2);border-radius:14px;color:var(--text3);font-family:var(--font-ui);font-size:17px;font-weight:700;cursor:pointer;touch-action:manipulation;position:sticky;bottom:8px;z-index:5;transition:all 0.2s;" onclick="addWeightItem()">✓ Capture weight</button>
+      <!-- (confirm button moved outside this scrollable panel — see #weight-pinned-bar below) -->
+    </div>
+
+    <!-- 3. CONFIRM BAR — pinned outside the scrollable weigh panel so it is always reachable.
+         Shows the live NET weight and the single manual commit button (r20). -->
+    <div id="weight-pinned-bar" style="display:none;">
+      <div id="weight-net-pinned">—</div>
+      <button id="weight-add-btn" style="width:100%;padding:18px;background:var(--bg3);border:2px solid var(--border2);border-radius:14px;color:var(--text3);font-family:var(--font-ui);font-size:17px;font-weight:700;cursor:pointer;touch-action:manipulation;transition:all 0.2s;" onclick="addWeightItem()">✓ Confirm weight</button>
     </div>
   </div>
 </div>
@@ -1481,6 +1491,8 @@ function setMethod(method, btn) {
   document.getElementById('method-scan').style.display   = method==='scan'   ? 'block':'none';
   document.getElementById('method-search').style.display = method==='search' ? 'block':'none';
   document.getElementById('method-weight').style.display = method==='weight' ? 'block':'none';
+  const _wpb = document.getElementById('weight-pinned-bar');
+  if(_wpb) _wpb.style.display = method==='weight' ? 'block':'none';
 }
 
 // ─── SCAN METHOD ─────────────────────────────────
@@ -2584,34 +2596,37 @@ function weightSearch(q) {
 let weighStableTimer  = null;
 let weighLastReading  = null;
 let weighStableCount  = 0;
+let weighStable       = false;  // true when the live reading has held steady — VISUAL only
 const WEIGH_STABLE_TICKS = 3;   // 3 × 500ms = 1.5 seconds
 const WEIGH_TOLERANCE    = 0.003; // ±3g tolerance in kg
 
+// Watches the live reading purely to show a "stable" indicator on the Confirm button
+// and net readout. It NEVER commits — committing happens only when the user taps Confirm (r20).
 function startWeighStableWatch() {
   stopWeighStableWatch();
   weighLastReading = null;
   weighStableCount = 0;
 
   weighStableTimer = setInterval(() => {
-    if(!weightProduct) { stopWeighStableWatch(); return; }
+    if(!weightProduct) { return; }
+    const btn = document.getElementById('weight-add-btn');
     const current = parseFloat(scaleReading);
-    if(current <= 0) { weighStableCount = 0; weighLastReading = null; return; }
-
+    if(current <= 0) {
+      weighStableCount = 0; weighLastReading = null;
+      if(weighStable) { weighStable = false; if(btn) btn.classList.remove('weigh-stable'); updateScaleNet(); }
+      return;
+    }
     if(weighLastReading !== null && Math.abs(current - weighLastReading) < WEIGH_TOLERANCE) {
       weighStableCount++;
-      // Show progress on the net display
-      const dots = '.'.repeat(weighStableCount);
-      const netEl = document.getElementById('scale-net');
-      if(netEl && weighStableCount < WEIGH_STABLE_TICKS) {
-        const existing = netEl.textContent.replace(/ ·{0,3}$/, '').replace(/\.+$/, '');
-        netEl.textContent = existing + dots;
-      }
-      if(weighStableCount >= WEIGH_STABLE_TICKS) {
-        stopWeighStableWatch();
-        autoAcceptWeight();
+      if(weighStableCount >= WEIGH_STABLE_TICKS && !weighStable) {
+        // VISUAL ONLY (r20) — steady reading. Does NOT auto-commit.
+        weighStable = true;
+        if(btn) btn.classList.add('weigh-stable');
+        updateScaleNet();
       }
     } else {
       weighStableCount = 0;
+      if(weighStable) { weighStable = false; if(btn) btn.classList.remove('weigh-stable'); updateScaleNet(); }
     }
     weighLastReading = current;
   }, 500);
@@ -2621,22 +2636,13 @@ function stopWeighStableWatch() {
   if(weighStableTimer) { clearInterval(weighStableTimer); weighStableTimer = null; }
   weighStableCount = 0;
   weighLastReading = null;
+  weighStable = false;
+  const _b = document.getElementById('weight-add-btn');
+  if(_b) _b.classList.remove('weigh-stable');
 }
 
 function autoAcceptWeight() {
-  if(!weightProduct) return;
-  // Play weight capture beep
-  playBeep('weight');
-  // Flash net display green
-  const netEl = document.getElementById('scale-net');
-  if(netEl) {
-    const prev = netEl.style.color;
-    netEl.style.color = 'var(--green)';
-    setTimeout(() => { netEl.style.color = prev || ''; }, 800);
-  }
-  // Auto-add to count
-  addWeightItem();
-  toast('⚖ Weight captured', true);
+  // Auto-accept removed (r20) — weight commits only via the Confirm button.
 }
 
 function selectWeightProduct(name) {
@@ -2648,16 +2654,21 @@ function selectWeightProduct(name) {
   document.getElementById('wp-tare').textContent = weightProduct.tareG
     ? `Tare: ${weightProduct.tareG}g · Full: ${weightProduct.fullMl||weightProduct.unitVol||weightProduct.vol||'?'}ml`
     : '⚠ No tare weight set — net weight will equal gross';
-  // Activate the capture button
+  // Activate the confirm button
   const btn = document.getElementById('weight-add-btn');
   if(btn) {
-    btn.style.background = 'var(--accent)';
-    btn.style.color      = '#0d0f12';
-    btn.style.border     = 'none';
+    btn.textContent      = '✓ Confirm weight';
+    btn.disabled         = false;
+    btn.classList.remove('weigh-stable');
+    btn.style.background  = 'var(--accent)';
+    btn.style.color       = '#0d0f12';
+    btn.style.border      = 'none';
   }
+  const _wpb2 = document.getElementById('weight-pinned-bar');
+  if(_wpb2) _wpb2.style.display = 'block';
   updateScaleNet();
   startWeighStableWatch();
-  toast('Place ' + weightProduct.name + ' on scale', true);
+  toast('Place ' + weightProduct.name + ' on scale, then tap Confirm', true);
 }
 
 function clearWeightProduct() {
@@ -2687,18 +2698,29 @@ function getWeightGrams() {
   return scaleUnit === 'g' ? inputVal : inputVal * 1000;
 }
 
+// Write the same net/gross readout to both the in-panel and the pinned (always-visible) elements.
+function setNetText(html) {
+  ['scale-net','weight-net-pinned'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) { el.style.display = 'block'; el.innerHTML = html; }
+  });
+}
+
 function updateScaleNet() {
-  const gross = parseFloat(scaleReading) * 1000; // always work in grams internally
-  const net   = Math.max(0, gross - weightProduct.tareG);
-  const ml    = Math.round((net / weightProduct.fullMl) * weightProduct.fullMl);
-  const frac  = (net / weightProduct.fullMl).toFixed(2);
-  const netEl = document.getElementById('scale-net');
-  if (!netEl) return;
-  netEl.style.display = 'block';
-  const netDisplay = scaleUnit === 'g'
-    ? `Net: ${Math.round(net)}g · Est. ${Math.max(0,ml)}ml (${frac} btl)`
-    : `Net: ${(net/1000).toFixed(3)}kg · Est. ${Math.max(0,ml)}ml (${frac} btl)`;
-  netEl.textContent = netDisplay;
+  const gross    = (parseFloat(scaleReading) || 0) * 1000; // grams
+  const grossTxt = Math.round(gross) + 'g';
+  if(!weightProduct) {
+    setNetText(`Gross: <strong style="color:var(--accent);">${grossTxt}</strong>`);
+    return;
+  }
+  const tare = parseFloat(weightProduct.tareG) || 0;
+  if(!(tare > 0)) {
+    setNetText(`Gross: <strong style="color:var(--accent);">${grossTxt}</strong> &nbsp;<span style="color:var(--amber);">⚠ tare not set — net = gross</span>`);
+    return;
+  }
+  const net       = Math.max(0, gross - tare);
+  const stableTag = weighStable ? ' <span style="color:var(--green);">● stable</span>' : '';
+  setNetText(`Net <strong style="color:var(--green);font-size:20px;">${Math.round(net)}g</strong> <span style="color:var(--text3);">(gross ${Math.round(gross)}g − tare ${tare}g)</span>${stableTag}`);
 }
 
 function simulateWeight() {
@@ -2737,42 +2759,51 @@ function addManualWeightItem() {
   toast('⚖ Weight logged', true);
 }
 
+// The ONLY path that commits a weighed value to the count (r20).
+// Reached via the Confirm button, Enter on the reading field, or the numpad ✓.
 function addWeightItem() {
-  if(!weightProduct) return;
+  if(!weightProduct) { toast('Select a product to weigh first'); return; }
   stopWeighStableWatch();
   const gross = getWeightGrams();
-  const net   = Math.max(0, gross - (weightProduct.tareG || 0));
+  const net   = Math.max(0, gross - (parseFloat(weightProduct.tareG) || 0));
   const netG  = Math.round(net);
   if(netG <= 0) { toast('No weight — place bottle on scale or type a value'); return; }
   playBeep('weight');
   addItem(weightProduct, netG, 'g', 'weight');
 
-  // Clear reading display
-  document.getElementById('scale-reading').value = '';
-  document.getElementById('scale-net').style.display = 'none';
+  // Reset the reading for the next product
+  const readingEl = document.getElementById('scale-reading');
+  if(readingEl) readingEl.value = '';
   scaleReading = 0;
+  updateScaleNet();
 
-  // Flash button — do NOT restart stable watch until bottle is removed
+  // Confirm flash on the button
   const btn = document.getElementById('weight-add-btn');
   if(btn) {
-    btn.textContent = '✓ Logged! Remove bottle for next…';
+    btn.classList.remove('weigh-stable');
+    btn.textContent = '✓ Logged ' + netG + 'g';
     btn.style.background = 'var(--green)';
     btn.disabled = true;
   }
 
-  // Watch for scale to clear (bottle removed), then re-enable
-  const clearWatch = setInterval(() => {
-    const current = getWeightGrams();
-    if(current < 50) { // scale is essentially empty
-      clearInterval(clearWatch);
-      if(btn) {
-        btn.textContent = '✓ Capture weight';
-        btn.style.background = 'var(--accent)';
-        btn.disabled = false;
-      }
-      startWeighStableWatch(); // ready for next bottle
+  const handoff = handoffMode;
+  setTimeout(() => {
+    if(btn) {
+      btn.textContent = '✓ Confirm weight';
+      btn.style.background = handoff ? 'var(--bg3)' : 'var(--accent)';
+      btn.disabled = false;
     }
-  }, 500);
+    if(handoff) {
+      // Scan → weigh → confirm → back to scan, ready for the next bottle
+      clearWeightProduct();
+      setMethod('scan', document.getElementById('tab-scan'));
+      activateScanInput();
+      const lbl = document.getElementById('scan-zone-label');
+      if(lbl) lbl.textContent = '✓ Scanner ready — scan next bottle';
+    } else {
+      startWeighStableWatch(); // re-arm the visual stable indicator for the next bottle
+    }
+  }, 700);
 }
 
 function toggleScaleConnect() {
@@ -3204,36 +3235,16 @@ function handoffScanToWeigh(product) {
     showScanResult(product);
     return;
   }
-  // Switch to weigh tab and pre-load the product
+  // Switch to weigh tab and pre-load the product. Commit is manual via Confirm (r20).
+  // Only selectWeightProduct's (visual-only) watcher runs — no second timer, no double-log.
   setMethod('weight', document.getElementById('tab-weight'));
   selectWeightProduct(product.name);
-  // Visual cue
-  toast('⚖️ Place ' + product.name + ' on scale', true);
-  // Start watching for a stable reading
-  startHandoffStableWatch(product);
+  toast('⚖️ Place ' + product.name + ' on scale, then tap Confirm', true);
 }
 
 function startHandoffStableWatch(product) {
+  // Auto-log disabled (r20) — weight commits only via the Confirm button.
   clearHandoffStable();
-  lastReading = null;
-  stableCount = 0;
-
-  handoffStable = setInterval(() => {
-    const current = parseFloat(scaleReading);
-    if (current <= 0) { stableCount = 0; lastReading = null; return; }
-
-    if (lastReading !== null && Math.abs(current - lastReading) < 0.005) {
-      stableCount++;
-      // Stable for ~1.5s (3 ticks × 500ms) → auto-log
-      if (stableCount >= 3) {
-        clearHandoffStable();
-        autoLogWeightAndReset(product);
-      }
-    } else {
-      stableCount = 0;
-    }
-    lastReading = current;
-  }, 500);
 }
 
 function clearHandoffStable() {
@@ -3242,45 +3253,7 @@ function clearHandoffStable() {
 }
 
 function autoLogWeightAndReset(product) {
-  const gross = parseFloat(scaleReading) * 1000; // g
-  const net   = Math.max(0, gross - (product.tareG || 0));
-  const netG  = Math.round(net);
-
-  if(netG <= 0) {
-    toast('Nothing on scale — remove and try again');
-    return;
-  }
-
-  // Log as grams — clear and readable in the count list
-  addItem(product, netG, 'g', 'weight');
-
-  // Flash scale display green
-  const disp = document.querySelector('.scale-display');
-  if (disp) {
-    disp.style.background = 'rgba(91,227,180,0.12)';
-    setTimeout(() => disp.style.background = '', 400);
-  }
-
-  // Reset scale display and product selection
-  scaleReading = 0;
-  document.getElementById('scale-reading').value = '0';
-  document.getElementById('scale-net').style.display   = 'none';
-  document.getElementById('weight-product-info').style.display = 'none';
-  document.getElementById('weight-search').value       = '';
-  document.getElementById('weight-add-btn').style.display = 'none';
-  weightProduct = null;
-
-  // Switch back to scan tab after 600ms
-  setTimeout(() => {
-    if (!handoffMode) return;
-    setMethod('scan', document.getElementById('tab-scan'));
-    activateScanInput();
-    document.getElementById('scan-result').classList.remove('visible');
-    document.getElementById('scan-fracs').style.display   = 'none';
-    document.getElementById('scan-qty-row').style.display = 'none';
-    document.getElementById('scan-add-btn').style.display = 'none';
-    document.getElementById('scan-zone-label').textContent = '✓ Scanner ready — scan next bottle';
-  }, 600);
+  // Auto-log disabled (r20) — weight commits only via the Confirm button (addWeightItem).
 }
 
 // ─── UNIFIED processBarcode WRAPPER ──────────────
