@@ -3337,7 +3337,8 @@ async function generateAIQuestions(type) {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
-        model:'claude-sonnet-4-20250514',
+        // Anthropic model id — update when deprecated (Sonnet 4 → claude-sonnet-4-6, Opus 4 → claude-opus-4-8)
+        model:'claude-sonnet-4-6',
         max_tokens:1000,
         messages:[{role:'user',content:prompts[type]}]
       })
@@ -4375,7 +4376,8 @@ Only include categoryNotes for categories present in the data above. Keep each f
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        // Anthropic model id — update when deprecated (Sonnet 4 → claude-sonnet-4-6, Opus 4 → claude-opus-4-8)
+        model: 'claude-sonnet-4-6',
         max_tokens: 1600,
         messages: [{ role: 'user', content: prompt }],
       }),
@@ -8093,7 +8095,8 @@ async function processDumpFile(file) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        // Anthropic model id — update when deprecated (Sonnet 4 → claude-sonnet-4-6, Opus 4 → claude-opus-4-8)
+        model: 'claude-sonnet-4-6',
         max_tokens: 2000,
         messages: [{
           role: 'user',
@@ -8559,7 +8562,8 @@ async function processInvoiceWithAI(file) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        // Anthropic model id — update when deprecated (Sonnet 4 → claude-sonnet-4-6, Opus 4 → claude-opus-4-8)
+        model: 'claude-sonnet-4-6',
         max_tokens: 2000,
         messages: [{
           role: 'user',
@@ -11264,7 +11268,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r24';
+const APP_VERSION = '2026-06-10-r25';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
