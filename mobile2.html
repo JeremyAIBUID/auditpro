@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<!-- AuditPro Mobile v3.7 - build 2026-06-10-r21 (scale debug: raw BLE packet capture log) -->
+<!-- AuditPro Mobile v3.7 - build 2026-06-10-r22 (Etekcity ENS-L221S protocol: 17-byte weight decode + byte[1] stable flag) -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.7-2026-06-10-r21';
+const APP_VERSION = '3.7-2026-06-10-r22';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -2422,57 +2422,48 @@ function onScaleReading(e) {
 function parseScaleValue(dataView) {
   const bytes = new Uint8Array(dataView.buffer || dataView);
   const len   = bytes.length;
-  let grams   = null;
 
-  try {
-    // ── ETEKCITY NUTRITION SCALE (17 bytes) ──────────────
-    // Bytes 11-12 little-endian ÷ 10 = weight in grams
-    // Confirmed with two physical readings: 318g ✓
-    if(len === 17) {
-      const raw = bytes[11] | (bytes[12] << 8);
-      const val = raw / 10;
-      if(val >= 0 && val < 50000) { grams = val; }
-    }
+  // ── ETEKCITY ENS-L221S PROTOCOL (reverse-engineered from raw capture, r22) ──
+  // The scale emits 17-byte weight packets AND 11-byte status/heartbeat packets
+  // on the SAME characteristic (fff1). ONLY the 17-byte frame carries weight —
+  // every other length is ignored outright (FIX 1 + FIX 2), so the 11-byte
+  // status frames can never corrupt the reading, the net readout or the count.
+  //
+  //   grams = (bytes[11] | (bytes[12] << 8)) / 10   — LE uint16, 0.1g units
+  //   byte[1] stability flag: 0x22 (bit 0x20 set) = stable, 0x02 = settling
+  //
+  // Verified: BC 07 = 198.0g · 0E 15 = 539.0g · EA 24 = 945.0g · 22 4C = 1949.0g.
 
-    // ── FORMAT 1: Standard BLE Weight Scale 0x2A9D ───────
-    if(grams === null && len >= 3) {
-      const flags    = bytes[0];
-      const imperial = flags & 0x01;
-      const val      = dataView.getUint16(1, true);
-      const candidate = imperial ? (val * 0.01 * 453.592) : (val * 5);
-      if(candidate > 0 && candidate < 50000) { grams = candidate; }
-    }
+  if(len !== 17) {
+    // Non-weight frame (e.g. an 11-byte status/heartbeat). Log it as ignored
+    // and bail — never touches the displayed weight, the net readout, or
+    // anything committable (FIX 2). parsed= shows null/ignored (FIX 5).
+    logScaleDebug(bytes, 'null/ignored');
+    return null;
+  }
 
-    // ── FORMAT 2: Generic kitchen scales [unit, hi, lo] ──
-    if(grams === null && len >= 3) {
-      const raw = (bytes[1] << 8) | bytes[2];
-      if(raw > 0 && raw < 50000) grams = raw;
-    }
+  const grams = (bytes[11] | (bytes[12] << 8)) / 10;
 
-    // ── FORMAT 3: Weight at byte 3 ────────────────────────
-    if(grams === null && len >= 5) {
-      const raw = dataView.getUint16(3, true);
-      if(raw > 0 && raw < 50000) grams = raw;
-    }
+  // FIX 3 — the scale's OWN stability bit is authoritative.
+  scaleStableFromDevice = (bytes[1] & 0x20) !== 0;
 
-    // ── FORMAT 4: Raw uint16 at byte 0 ────────────────────
-    if(grams === null && len >= 2) {
-      const raw = dataView.getUint16(0, true);
-      if(raw > 0 && raw < 5000)        grams = raw;
-      else if(raw > 0 && raw < 50000)  grams = raw / 10;
-    }
+  // FIX 5 — on 17-byte lines parsed= matches the decoded weight.
+  logScaleDebug(bytes, Math.round(grams));
 
-  } catch(e) {}
-
-  // Always log to debug panel
-  logScaleDebug(bytes, grams != null ? Math.round(grams) : '?');
-
-  if(grams != null && grams >= 0) {
+  // FIX 4 — value is in grams; stored internally as kg so the existing
+  // grams/kg display and net = gross − tareG math are unchanged. Max decodable
+  // value is 6553.5g, so the bound only ever rejects an obviously corrupt frame.
+  if(grams >= 0 && grams < 50000) {
     scaleReading = grams / 1000;
     const readingEl = document.getElementById('scale-reading');
     if(readingEl) readingEl.value = formatScaleReading(scaleReading);
     updateScaleNet();
   }
+
+  // FIX 3 — drive the "● stable" tag + Confirm-button green glow from the
+  // device flag (replaces the old 1.5s-constant heuristic).
+  applyScaleStable(scaleStableFromDevice);
+  return grams;
 }
 
 function onScaleDisconnected() {
@@ -2608,50 +2599,35 @@ function weightSearch(q) {
     </div>`).join('');
 }
 
-// ─── WEIGH TAB STABLE AUTO-ACCEPT ────────────────
-let weighStableTimer  = null;
-let weighLastReading  = null;
-let weighStableCount  = 0;
-let weighStable       = false;  // true when the live reading has held steady — VISUAL only
-const WEIGH_STABLE_TICKS = 3;   // 3 × 500ms = 1.5 seconds
-const WEIGH_TOLERANCE    = 0.003; // ±3g tolerance in kg
+// ─── WEIGH TAB STABLE INDICATOR ──────────────────
+// FIX 3 (r22) — the Etekcity ENS-L221S reports its OWN stability in byte[1] of
+// every 17-byte weight packet (0x22 = stable, 0x02 = settling). That device flag
+// is now the authoritative "stable" signal; the old 1.5s-constant timing
+// heuristic (and its setInterval) has been removed entirely. The indicator is
+// still VISUAL only — committing happens solely when the user taps Confirm (r20).
+let weighStable           = false;  // mirrors the scale's stable flag — VISUAL only
+let scaleStableFromDevice = false;  // last stability bit decoded from a 17-byte packet
 
-// Watches the live reading purely to show a "stable" indicator on the Confirm button
-// and net readout. It NEVER commits — committing happens only when the user taps Confirm (r20).
+// Apply the scale's stable flag to the "● stable" tag + Confirm-button green glow.
+// Only glows when a product is selected and there is a real positive reading, so a
+// settled 0g (nothing on the scale) never lights up the Confirm button.
+function applyScaleStable(isStable) {
+  const want = !!isStable && !!weightProduct && (parseFloat(scaleReading) || 0) > 0;
+  if(want === weighStable) { return; }
+  weighStable = want;
+  const btn = document.getElementById('weight-add-btn');
+  if(btn) btn.classList.toggle('weigh-stable', weighStable);
+  updateScaleNet();
+}
+
+// Re-arm for a fresh bottle: clear any lingering stable state. The next 17-byte
+// packet's stability bit re-drives the indicator via applyScaleStable().
 function startWeighStableWatch() {
   stopWeighStableWatch();
-  weighLastReading = null;
-  weighStableCount = 0;
-
-  weighStableTimer = setInterval(() => {
-    if(!weightProduct) { return; }
-    const btn = document.getElementById('weight-add-btn');
-    const current = parseFloat(scaleReading);
-    if(current <= 0) {
-      weighStableCount = 0; weighLastReading = null;
-      if(weighStable) { weighStable = false; if(btn) btn.classList.remove('weigh-stable'); updateScaleNet(); }
-      return;
-    }
-    if(weighLastReading !== null && Math.abs(current - weighLastReading) < WEIGH_TOLERANCE) {
-      weighStableCount++;
-      if(weighStableCount >= WEIGH_STABLE_TICKS && !weighStable) {
-        // VISUAL ONLY (r20) — steady reading. Does NOT auto-commit.
-        weighStable = true;
-        if(btn) btn.classList.add('weigh-stable');
-        updateScaleNet();
-      }
-    } else {
-      weighStableCount = 0;
-      if(weighStable) { weighStable = false; if(btn) btn.classList.remove('weigh-stable'); updateScaleNet(); }
-    }
-    weighLastReading = current;
-  }, 500);
 }
 
 function stopWeighStableWatch() {
-  if(weighStableTimer) { clearInterval(weighStableTimer); weighStableTimer = null; }
-  weighStableCount = 0;
-  weighLastReading = null;
+  scaleStableFromDevice = false;
   weighStable = false;
   const _b = document.getElementById('weight-add-btn');
   if(_b) _b.classList.remove('weigh-stable');

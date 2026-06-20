@@ -1,5 +1,5 @@
-// AuditPro Service Worker v10 - force cache clear (r21 scale debug raw packet capture)
-const CACHE_NAME = 'auditpro-v10';
+// AuditPro Service Worker v11 - force cache clear (r22 Etekcity ENS-L221S protocol decode)
+const CACHE_NAME = 'auditpro-v11';
 
 self.addEventListener('install', e => {
   self.skipWaiting();
