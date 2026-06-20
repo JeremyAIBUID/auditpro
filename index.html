@@ -7219,6 +7219,8 @@ function populateSalesData(filename, includedRows, voids, waste) {
 
 function triggerSalesUpload(){ document.getElementById('sales-file-input').click(); }
 
+function triggerInvoiceUpload(){ document.getElementById('invoice-file-input').click(); }
+
 function handleSalesFiles(files) {
   if(!files||!files.length) return;
   // Only process one file at a time for the review flow
@@ -7706,7 +7708,7 @@ function confirmSalesImport(id) {
       }
     });
 
-    dbSaveSession(c);
+    dbSaveSession(c, session);
   }
 
   const reviewEl = document.getElementById(id+'-review');
@@ -8620,10 +8622,18 @@ Rules:
 
     setStatus('Parsing results…');
     const data = await response.json();
+    // Guard against unexpected response shapes — the proxy/API can return HTTP 200
+    // with an error envelope, overloaded/empty body, or proxy wrapper that has no
+    // `content` array. Without this, data.content.map(...) throws a cryptic crash.
+    if(!Array.isArray(data.content)) {
+      throw new Error(data.error?.message || 'AI returned no content (unexpected response shape)');
+    }
     const raw  = data.content.map(b=>b.text||'').join('').trim();
     // Strip any accidental markdown fences
     const clean = raw.replace(/^```json\s*/,'').replace(/```\s*$/,'').trim();
     const invoice = JSON.parse(clean);
+    // Degrade gracefully if the AI returned JSON without an items array.
+    if(!Array.isArray(invoice.items)) invoice.items = [];
 
     // Step 3 — show results
     setStatus(`✓ ${invoice.items.length} items extracted`, 'var(--green)');
@@ -11254,7 +11264,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r23';
+const APP_VERSION = '2026-06-10-r24';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
