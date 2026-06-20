@@ -195,6 +195,13 @@
   .sales-popover.open{display:block;}
   .sales-pop-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;}
   .sales-pop-row:last-child{border-bottom:none;}
+  /* Weighed-count detail popover (Spirits/Wine captured by weight) */
+  .weigh-cell{position:relative;cursor:pointer;}
+  .weigh-frac{font-family:var(--font-mono);font-size:12px;color:#a78bfa;text-decoration:underline dotted;text-underline-offset:3px;white-space:nowrap;}
+  .weigh-popover{display:none;position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);z-index:300;background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:14px 16px;min-width:280px;box-shadow:0 8px 32px rgba(0,0,0,0.5);text-align:left;}
+  .weigh-popover.open{display:block;}
+  .weigh-pop-row{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;}
+  .weigh-pop-row:last-child{border-bottom:none;}
   /* Category total row */
   .cat-total-row td{background:var(--bg3)!important;border-top:1px solid var(--border2)!important;font-size:12px;font-weight:600;color:var(--text2);padding:8px 14px;}
   .cat-total-row .td-total{font-family:var(--font-mono);font-size:12px;color:var(--text);}
@@ -5599,30 +5606,74 @@ const DENSITY = {
   default:     0.950,
 };
 
-// Convert a physical count entry → decimal bottle units
-// entry = {qty, unit, method, grossWeightG?, tareG?, unitVol, cat}
+// Per-product liquid density (g/ml). The product card's own density is the
+// source of truth (merged from ap_master_products at load); the category map is
+// only a last-resort fallback so we never divide by zero.
+function prodDensity(prod) {
+  const d = parseFloat(prod && prod.density);
+  if (d && d > 0) return d;
+  return DENSITY[prod && prod.cat] || DENSITY.default;
+}
+
+// Net grams captured by weight for a count entry. Weighed values are stored as
+// NET grams (the phone subtracts tareG before syncing — see mobile addWeightItem),
+// so we never re-subtract tare here. Returns one value per weighed vessel.
+function weighedGramsList(entry) {
+  if (!entry) return [];
+  if (Array.isArray(entry.weights)) return entry.weights.filter(g => parseFloat(g) > 0);
+  if (entry.netWeightG != null) {
+    const g = parseFloat(entry.netWeightG) || 0;
+    return g > 0 ? [g] : [];
+  }
+  // Bare/legacy weighed entry: grams parked in qty with unit 'g' (or flagged weight)
+  if (entry.method === 'weight' || (entry.unit || '').toLowerCase() === 'g') {
+    const g = parseFloat(entry.qty) || 0;
+    return g > 0 ? [g] : [];
+  }
+  return [];
+}
+
+function isWeighedEntry(entry) {
+  return weighedGramsList(entry).length > 0
+    || entry?.method === 'weight'
+    || (entry?.unit || '').toLowerCase() === 'g';
+}
+
+// Convert a physical count entry → decimal bottle units.
+// Weighed portion: net_ml = net_g / density, then / unitVol → fraction of bottle.
+// Whole-unit portion (bottles/cans/cases/kegs/etc): counted as units.
+// A single product may carry BOTH (e.g. full sealed bottles + one open weighed bottle).
+// entry = {qty, unit, method, weights?[netG…], netWeightG?, ...}
 function countToUnits(entry, prod) {
   if (!entry) return 0;
   const unitVol = prod.unitVol || 750;
+  if (!(unitVol > 0)) return 0;        // guard: can't convert without a bottle volume
 
-  if (entry.method === 'weight' && entry.grossWeightG != null) {
-    // Weight-based: (gross − tare) / density / unitVol
-    const tare    = entry.tareG ?? prod.tareG ?? 0;
-    const density = DENSITY[prod.cat] || DENSITY.default;
-    const netG    = Math.max(0, entry.grossWeightG - tare);
-    const ml      = netG / density;
-    return ml / unitVol;                // fractional bottles
+  let units = 0;
+
+  // ── Weighed portion (stored NET grams; tare already removed at capture) ──
+  const weights = weighedGramsList(entry);
+  if (weights.length) {
+    const density = prodDensity(prod);
+    if (density > 0) {                  // guard div-by-zero — else skip & leave at 0
+      const netG = weights.reduce((s, g) => s + (parseFloat(g) || 0), 0);
+      units += (netG / density) / unitVol;
+    }
   }
 
-  // Bottle / case / can / keg count
-  const qty = parseFloat(entry.qty) || 0;
-  switch ((entry.unit || '').toLowerCase()) {
-    case 'cases':  return qty * (prod.caseSize || 12);
-    case 'kegs':   return qty;           // kegs stay as keg units
-    case 'litres': return (qty * 1000) / unitVol;
-    case 'ml':     return qty / unitVol;
-    default:       return qty;           // bottles / cans / units
+  // ── Whole-unit portion ──
+  const unit = (entry.unit || '').toLowerCase();
+  const qty  = parseFloat(entry.qty) || 0;
+  if (qty > 0 && unit !== 'g') {
+    switch (unit) {
+      case 'cases':  units += qty * (prod.caseSize || 12); break;
+      case 'kegs':   units += qty;            break;        // kegs stay as keg units
+      case 'litres': units += (qty * 1000) / unitVol; break;
+      case 'ml':     units += qty / unitVol;  break;
+      default:       units += qty;            break;        // bottles / cans / units
+    }
   }
+  return units;
 }
 
 // Merge two cost prices — prefer the fresher invoice price
@@ -5807,6 +5858,34 @@ function computeVariances(client) {
     const varPct     = expected > 0 ? (varUnits / expected) * 100 : 0;
     const costImpact = varUnits * costPrice;        // −ve = cost loss
 
+    // ── Weighed-count audit trail ─────────────────────
+    // Detect by the count entry (method/unit 'g'), NOT by category. Weighed values
+    // are stored NET grams; reconstruct gross (= net + tareG) for display only.
+    const weighList     = weighedGramsList(closeEntry);
+    const weighed       = weighList.length > 0;
+    let weighDetail = null, weighError = false;
+    if (weighed) {
+      const densityUsed = prodDensity(prod);
+      const tareGUsed   = parseFloat(prod.tareG) || 0;
+      const netGTotal   = weighList.reduce((s, g) => s + (parseFloat(g) || 0), 0);
+      const grossGTotal = netGTotal + tareGUsed * weighList.length;   // reconstructed
+      weighError        = !(densityUsed > 0) || !(unitVol > 0);
+      weighDetail = {
+        vessels:    weighList.length,
+        weights:    weighList.map(g => parseFloat(g) || 0),  // net g per vessel
+        netG:       netGTotal,
+        grossG:     grossGTotal,
+        tareG:      tareGUsed,
+        density:    densityUsed,
+        unitVol,
+        netMl:      weighError ? 0 : Math.round(netGTotal / densityUsed),
+        countedMl:  Math.round(actual   * unitVol),   // includes any whole-unit portion
+        expectedMl: Math.round(expected * unitVol),
+        varMl,                                          // signed: counted − expected
+        fractionBtl: actual,
+      };
+    }
+
     // ── Status ───────────────────────────────────────
     const absVarPct  = Math.abs(varPct);
     const vc = absVarPct > 8 ? 'var-alert' : absVarPct > 3 ? 'var-warn' : 'var-ok';
@@ -5901,6 +5980,9 @@ function computeVariances(client) {
       sellPrice,
       soldAs:      prod.soldAs  || '',
       subcat:      prod.subcat  || '',
+      weighed,
+      weighError,
+      weighDetail,
       _live:       true,
     });
   });
@@ -6102,7 +6184,7 @@ function togglePurPopover(id, e) {
   if (!el) return;
   const isOpen = el.classList.contains('open');
   // Close all open popovers first
-  document.querySelectorAll('.pur-popover.open, .sales-popover.open').forEach(p => p.classList.remove('open'));
+  document.querySelectorAll('.pur-popover.open, .sales-popover.open, .weigh-popover.open').forEach(p => p.classList.remove('open'));
   if (!isOpen) el.classList.add('open');
 }
 
@@ -6111,14 +6193,23 @@ function toggleSalesPopover(id, e) {
   const el = document.getElementById(id);
   if (!el) return;
   const isOpen = el.classList.contains('open');
-  document.querySelectorAll('.pur-popover.open, .sales-popover.open').forEach(p => p.classList.remove('open'));
+  document.querySelectorAll('.pur-popover.open, .sales-popover.open, .weigh-popover.open').forEach(p => p.classList.remove('open'));
+  if (!isOpen) el.classList.add('open');
+}
+
+function toggleWeighPopover(id, e) {
+  e && e.stopPropagation();
+  const el = document.getElementById(id);
+  if (!el) return;
+  const isOpen = el.classList.contains('open');
+  document.querySelectorAll('.pur-popover.open, .sales-popover.open, .weigh-popover.open').forEach(p => p.classList.remove('open'));
   if (!isOpen) el.classList.add('open');
 }
 
 // Close popovers when clicking elsewhere
 document.addEventListener('click', function(e) {
-  if (!e.target.closest('.pur-cell') && !e.target.closest('.sales-cell')) {
-    document.querySelectorAll('.pur-popover.open, .sales-popover.open').forEach(p => p.classList.remove('open'));
+  if (!e.target.closest('.pur-cell') && !e.target.closest('.sales-cell') && !e.target.closest('.weigh-cell')) {
+    document.querySelectorAll('.pur-popover.open, .sales-popover.open, .weigh-popover.open').forEach(p => p.classList.remove('open'));
   }
 });
 
@@ -6321,12 +6412,50 @@ function renderVarTable() {
           </div>
         </td>`;
 
+      // Actual count cell — weighed products show fraction-of-bottle + an
+      // expandable audit trail; everything else keeps the plain unit figure.
+      let actualCell;
+      if (r.weighed && r.weighDetail) {
+        const wd     = r.weighDetail;
+        const wpopId = `wpop-${cat.replace(/\s/g,'')}-${idx}`;
+        const frac   = (parseFloat(r.a) || 0).toFixed(2);
+        const vCol   = wd.varMl > 0 ? 'var(--green)' : wd.varMl < 0 ? 'var(--red)' : 'var(--text3)';
+        const vLbl   = (wd.varMl > 0 ? '+' : '') + wd.varMl + 'ml';
+        const fmtMl  = ml => Math.abs(ml) >= 1000 ? (ml/1000).toFixed(2).replace(/\.?0+$/,'')+'L' : Math.round(ml)+'ml';
+        const errRow = r.weighError
+          ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:var(--amber);line-height:1.4;">⚠ Missing density or bottle volume on the product card — weight conversion skipped.</div>`
+          : '';
+        const perVessel = wd.vessels > 1
+          ? `<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border);font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:2px;">${wd.vessels} vessels</div>` +
+            wd.weights.map((g,i)=>`<div class="weigh-pop-row"><span style="color:var(--text2);">Vessel ${i+1}</span><span style="font-family:var(--font-mono);color:var(--text2);">net ${Math.round(g)}g · gross ${Math.round((parseFloat(g)||0)+wd.tareG)}g</span></div>`).join('')
+          : '';
+        actualCell = `
+        <td class="weigh-cell" onclick="toggleWeighPopover('${wpopId}',event)">
+          <span class="weigh-frac">${frac} btl</span>
+          <div class="weigh-popover" id="${wpopId}">
+            <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:8px;">${r.p} — weighed count</div>
+            <div class="weigh-pop-row"><span style="color:var(--text2);">Counted</span><span style="font-family:var(--font-mono);color:var(--accent);">${fmtMl(wd.countedMl)} · ${frac} btl</span></div>
+            <div class="weigh-pop-row"><span style="color:var(--text2);">Gross captured</span><span style="font-family:var(--font-mono);color:var(--text2);">${Math.round(wd.grossG)}g</span></div>
+            <div class="weigh-pop-row"><span style="color:var(--text2);">Tare (empty)</span><span style="font-family:var(--font-mono);color:var(--text2);">${Math.round(wd.tareG)}g</span></div>
+            <div class="weigh-pop-row"><span style="color:var(--text2);">Net liquid</span><span style="font-family:var(--font-mono);color:var(--text2);">${Math.round(wd.netG)}g · ${fmtMl(wd.netMl)}</span></div>
+            <div class="weigh-pop-row"><span style="color:var(--text2);">Density used</span><span style="font-family:var(--font-mono);color:var(--text2);">${wd.density} g/ml</span></div>
+            <div class="weigh-pop-row"><span style="color:var(--text2);">Bottle volume</span><span style="font-family:var(--font-mono);color:var(--text2);">${wd.unitVol}ml</span></div>
+            <div class="weigh-pop-row"><span style="color:var(--text2);">Fraction of bottle</span><span style="font-family:var(--font-mono);color:var(--text);">${frac} btl</span></div>
+            <div class="weigh-pop-row"><span style="color:var(--text2);">Expected</span><span style="font-family:var(--font-mono);color:var(--text2);">${fmtMl(wd.expectedMl)}</span></div>
+            <div class="weigh-pop-row" style="border:none;padding-top:8px;margin-top:4px;border-top:1px solid var(--border);"><span style="color:var(--text2);">Variance</span><span style="font-family:var(--font-mono);color:${vCol};">${vLbl}</span></div>
+            ${perVessel}${errRow}
+          </div>
+        </td>`;
+      } else {
+        actualCell = `<td class="td-mono">${r.a}</td>`;
+      }
+
       // col order: Product | Prev.closing | Purchases | Actual | On hand cost | Sales(ml) | Expected | Var.vol | Cost impact | Var% | Days | Par | Status | GP% | Ideal | Gap
       html += `<tr style="${rowBg}">
         <td class="td-main" style="border-right:1px solid var(--border);padding-left:18px;">${r.p}</td>
         <td class="prev-cell">${r.prevClose||r.o}</td>
         ${purCell}
-        <td class="td-mono">${r.a}</td>
+        ${actualCell}
         <td>${onHandHtml}</td>
         ${salesCell}
         <td class="td-mono">${r.e}</td>
@@ -9860,7 +9989,10 @@ function importFromCSVString(csvText) {
   const dataLines = lines.slice(dataStart + 1).filter(l => l.trim());
   const rows = dataLines.map(l => {
     const parts = l.split(',').map(p => p.replace(/"/g,'').trim());
-    return { name: parts[0], cat: parts[1], location: parts[2], qty: parseFloat(parts[3])||1, unit: parts[4]||'Bottles', source: 'mobile' };
+    // Column 6 is Method ('weight' for scale captures) — preserve it so weighed
+    // rows (net grams, unit 'g') aren't mistaken for a whole-unit bottle count.
+    const method = (parts[5] || '').toLowerCase();
+    return { name: parts[0], cat: parts[1], location: parts[2], qty: parseFloat(parts[3])||1, unit: parts[4]||'Bottles', method, source: 'mobile' };
   }).filter(r => r.name);
 
   // REPLACE not append — prevents double counts on re-sync
@@ -9878,7 +10010,8 @@ function importFromCSV(file) {
     const lines = e.target.result.split('\n').slice(1).filter(l=>l.trim());
     const rows  = lines.map(l => {
       const parts = l.split(',').map(p=>p.replace(/"/g,'').trim());
-      return { name:parts[0], cat:parts[1], location:parts[2], qty:parseFloat(parts[3])||1, unit:parts[4]||'Bottles', source:'mobile' };
+      const method = (parts[5] || '').toLowerCase();   // preserve Method (weighed rows)
+      return { name:parts[0], cat:parts[1], location:parts[2], qty:parseFloat(parts[3])||1, unit:parts[4]||'Bottles', method, source:'mobile' };
     }).filter(r=>r.name);
     stkSession.mobileRows = [...stkSession.mobileRows, ...rows];
     closeModal('importCountModal');
@@ -10067,12 +10200,27 @@ function finaliseStocktake(){
   });
   const allRows = [...desktopRows, ...stkSession.mobileRows];
 
-  // Aggregate closing counts per product (sum across areas)
+  // Aggregate closing counts per product (sum across areas).
+  // Weighed rows (method 'weight' / unit 'g') carry NET grams — keep each vessel's
+  // grams in weights[] (the durable audit record) instead of summing them as units.
+  // A product may have BOTH a whole-unit count and a weighed open bottle.
   const closing = {};
   allRows.forEach(r => {
     const key = r.name;
     if(!closing[key]) closing[key] = { qty:0, unit: r.unit };
-    closing[key].qty += parseFloat(r.qty) || 0;
+    const val       = parseFloat(r.qty) || 0;
+    const isWeighed = r.method === 'weight' || (r.unit || '').toLowerCase() === 'g';
+    if(isWeighed){
+      closing[key].method = 'weight';
+      if(!closing[key].weights) closing[key].weights = [];
+      if(val > 0) closing[key].weights.push(val);              // net grams per vessel
+      closing[key].netWeightG = (closing[key].netWeightG || 0) + val;
+      if(!closing[key].unit) closing[key].unit = 'g';
+    } else {
+      closing[key].qty += val;
+      // Prefer a real unit label over a placeholder 'g' from an earlier weighed row
+      if(!closing[key].unit || (closing[key].unit || '').toLowerCase() === 'g') closing[key].unit = r.unit;
+    }
   });
 
   // Find or create the current audit session
@@ -10270,7 +10418,8 @@ function renderFinalisePage() {
   const prodCount= Object.keys(closing).length;
   const totalVal = Object.entries(closing).reduce((s,[name,entry])=>{
     const prod=(c.products||[]).find(p=>(p.n||p.name)===name);
-    return s+(parseFloat(entry.qty)||0)*(prod?.costPrice||0);
+    // Value the closing stock in bottle-units (weighed entries convert from net grams)
+    return s+countToUnits(entry, prod||{})*(prod?.costPrice||0);
   },0);
   const varRows  = lastFinal?.varRows||[];
   const totalVar = varRows.reduce((s,r)=>s+(parseFloat(r.varVal)||0),0);
@@ -11105,7 +11254,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r19';
+const APP_VERSION = '2026-06-10-r23';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
