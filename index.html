@@ -2449,6 +2449,11 @@ function selectClientOnly(id) {
   updateAuditPeriodCtx(activeClient);
   const badge = document.getElementById('variance-badge');
   badge.style.display = activeClient.varStatus==='alert'?'flex':'none';
+  // FIX (r26) — reset + rehydrate Sales & Wastage in-memory state for THIS client so
+  // the sales table/recipe list reflect the selected client and survive a page refresh.
+  salesLoaded = false;
+  window._importedSalesRows = null;
+  rehydrateSalesFromSession();
   renderDropdown(); closeDropdown();
 }
 
@@ -2696,7 +2701,7 @@ function renderPage(page) {
     document.getElementById('var-strip').innerHTML=`<div style="background:${stripBg};border:1px solid ${stripBdr};border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:12px;"><svg viewBox="0 0 24 24" fill="none" stroke="${stripClr}" stroke-width="2" stroke-linecap="round" style="flex-shrink:0;width:18px;height:18px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><div style="font-size:13px;color:var(--text);">${c.alert}</div></div>`;
     renderVarTable();
   }
-  if(page==='sales') { renderSalesTable(); }
+  if(page==='sales') { rehydrateSalesFromSession(); renderSalesTable(); }
   if(page==='insights') document.getElementById('insights-body').innerHTML=c.insights.map(i=>`<div class="insight-card" style="border:1px solid ${i.bdr};background:linear-gradient(135deg,${i.bg},transparent);margin-bottom:0;"><div class="insight-header"><div style="width:28px;height:28px;border-radius:7px;background:rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:16px;">${i.icon}</div><div class="insight-title">${i.title}</div></div><div class="insight-body">${i.body}</div><div style="margin-top:12px;padding:10px 12px;background:rgba(255,255,255,0.04);border-radius:8px;font-size:12px;color:var(--text2);"><strong style="color:var(--text);display:block;margin-bottom:4px;">Recommended actions</strong>${i.actions.map((a,n)=>`${n+1}. ${a}`).join('<br>')}</div></div>`).join('');
   if(page==='products') {
     if(c && (!c.products || !c.products.length) && DB._ready) {
@@ -6706,7 +6711,7 @@ function renderRecipeList() {
   const body = document.getElementById('recipe-body');
   if(!body) return;
 
-  const sales = window._importedSalesRows || DEMO_SALES;
+  const sales = window._importedSalesRows || [];   // FIX (r26) — never fall back to DEMO_SALES for a real client
   const mapped   = sales.filter(r => c.recipes[r.p]?.ingredients?.length > 0).length;
   const unmapped = sales.length - mapped;
 
@@ -6905,7 +6910,8 @@ function autoMatchRecipes() {
   if(!c.recipes) c.recipes = {};
   let matched = 0;
 
-  DEMO_SALES.forEach(sale => {
+  const sales = window._importedSalesRows || [];   // FIX (r26) — match against real imported sales, not DEMO_SALES
+  sales.forEach(sale => {
     if(c.recipes[sale.p]?.ingredients?.length) return; // already has recipe
     // Try to find exact or fuzzy product match
     const prod = (c.products||[]).find(p => {
@@ -6940,7 +6946,8 @@ function runDepletion() {
   // Aggregate depletion across all sale items
   const depletion = {}; // { productName: { qty, unit, cost, sources:[] } }
 
-  DEMO_SALES.forEach(sale => {
+  const sales = window._importedSalesRows || [];   // FIX (r26) — deplete from real imported sales, not DEMO_SALES
+  sales.forEach(sale => {
     const recipe = c.recipes[sale.p];
     if(!recipe?.ingredients?.length) return;
     recipe.ingredients.forEach(ing => {
@@ -6979,7 +6986,7 @@ function runDepletion() {
   document.getElementById('depletion-results').style.display = 'block';
   document.getElementById('dep-run-date').textContent = 'Run '+new Date().toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'});
   document.getElementById('depletion-results').scrollIntoView({behavior:'smooth',block:'start'});
-  showPersistToast(`✓ Depletion calculated — ${results.length} products across ${DEMO_SALES.length} sale items`);
+  showPersistToast(`✓ Depletion calculated — ${results.length} products across ${sales.length} sale items`);
 
   // Save depletion to client for use in variance
   c.lastDepletion = depletion;
@@ -6994,7 +7001,7 @@ function filterSalesTable() {
 function updateSalesQty(idx, newVal) {
   const qty = parseFloat(newVal);
   if(isNaN(qty) || qty < 0) return;
-  const allRows = window._importedSalesRows || DEMO_SALES;
+  const allRows = window._importedSalesRows || [];   // FIX (r26) — never fall back to DEMO_SALES for a real client
   const row = allRows[idx];
   if(!row) return;
   const oldQty = row.qty;
@@ -7076,7 +7083,7 @@ function renderSalesTable(cat='all') {
   showEl('sal-table-wrap', true);
 
   const c       = activeClient;
-  const rawRows = window._importedSalesRows || DEMO_SALES;
+  const rawRows = window._importedSalesRows || [];   // FIX (r26) — never fall back to DEMO_SALES for a real client
 
   // ── Aggregate HH/TAP/JUG variants into single display rows ──
   const normKey = name => (name||'').toLowerCase()
@@ -7216,6 +7223,26 @@ function populateSalesData(filename, includedRows, voids, waste) {
       `Total revenue: <strong style="color:var(--green);">$${totalRev.toLocaleString('en',{minimumFractionDigits:2})}</strong> &nbsp;|&nbsp; ` +
       `${rows.length} products · ${Math.round(totalItems)} units sold` +
       (gpImpact > 0 ? ` &nbsp;|&nbsp; GP impact from waste/voids: <strong style="color:var(--red);">−$${gpImpact.toFixed(2)}</strong>` : '');
+  }
+}
+
+// FIX (r26) — rehydrate the Sales & Wastage in-memory state from the active audit
+// session after a page refresh. window._importedSalesRows / salesLoaded are only set
+// during an import, so without this the sales table renders blank and the recipe list
+// falls back to DEMO_SALES (the "ghost" POS items). Reuses populateSalesData to restore
+// the table, summary cards, voids/waste and the recipe-list source in one pass.
+function rehydrateSalesFromSession() {
+  if(salesLoaded) return;                       // a live import already populated state
+  const c = activeClient; if(!c) return;
+  const sessions = c.auditSessions || [];
+  const session  = sessions[sessions.length-1];
+  if(session && Array.isArray(session.salesRows) && session.salesRows.length) {
+    populateSalesData(
+      session.salesFilename || 'Imported sales',
+      session.salesRows,
+      session.salesVoids || [],
+      session.salesWaste || []
+    );
   }
 }
 
@@ -7709,6 +7736,15 @@ function confirmSalesImport(id) {
         };
       }
     });
+
+    // FIX (r26) — persist the full imported rows (with cog/gp/gpd/vs GP columns
+    // that session.sales does NOT carry) plus voids/waste/filename, so the Sales
+    // table + recipe list can be rehydrated after a page refresh — matching what
+    // variance already reads from session.sales.
+    session.salesRows     = included;
+    session.salesFilename = _pendingSalesData.filename;
+    session.salesVoids    = _pendingSalesData.voids || [];
+    session.salesWaste    = _pendingSalesData.waste || [];
 
     dbSaveSession(c, session);
   }
@@ -11268,7 +11304,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r25';
+const APP_VERSION = '2026-06-10-r26';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
