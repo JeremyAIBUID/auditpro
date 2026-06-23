@@ -5683,11 +5683,41 @@ function countToUnits(entry, prod) {
   return units;
 }
 
-// Merge two cost prices — prefer the fresher invoice price
+// Merge two cost prices — prefer the fresher invoice price.
+// ALWAYS returns a finite per-UNIT number (never a string, never NaN). A product
+// with no price returns 0, so no caller can multiply by '—'/'$x'/undefined and
+// NaN-poison a category or grand total.
 function latestCostPrice(prod, purchaseEntry) {
-  if (purchaseEntry && purchaseEntry.costPrice && purchaseEntry.costPrice > 0)
-    return purchaseEntry.costPrice;
-  return prod.costPrice || prod.cost || 0;
+  prod = prod || {};
+
+  // Invoice/delivery costs are ALREADY per-unit — the delivery loop in
+  // computeVariances divides case/carton line prices by caseSize before storing
+  // purchaseEntry.costPrice. These must NEVER be divided again. Prefer them.
+  const fromInvoice = Number(purchaseEntry && purchaseEntry.costPrice);
+  if (fromInvoice > 0) return fromInvoice;
+
+  // Fallback: product-level costPrice. prod.cost may be a DISPLAY string like
+  // '$54.46' or '—' — strip everything but digits/dot/minus so math never sees
+  // a string.
+  let raw = (prod.costPrice || prod.cost || 0);
+  let unitCost = (typeof raw === 'number')
+    ? raw
+    : parseFloat(String(raw).replace(/[^0-9.\-]/g, ''));
+  if (!isFinite(unitCost)) unitCost = 0;
+
+  // CASE-PRICE SIGNAL — a product whose soldAs is 'Cases' carries a per-CASE
+  // price on its product record, but counts/on-hand are expanded to individual
+  // units (countToUnits multiplies a 'cases' count by caseSize). Convert the
+  // case price to per-unit so unit×cost isn't a caseSize× overstatement
+  // (e.g. Stella 552 units × $54.46/case → must use $54.46/24 = $2.27/unit).
+  // Applied ONLY here on the product-level fallback path — invoice-derived
+  // costs above are already per-unit and are returned before this point, so a
+  // case price is never divided twice.
+  if (unitCost > 0 && prod.soldAs === 'Cases') {
+    const cs = parseFloat(prod.caseSize) || 0;
+    if (cs > 1) unitCost = unitCost / cs;
+  }
+  return unitCost;
 }
 
 function computeVariances(client) {
@@ -6116,7 +6146,8 @@ function fmtVol(ml) {
 }
 
 function fmtCost(cost) {
-  if(cost === 0) return '<span style="color:var(--text3);font-size:12px;">—</span>';
+  // Guard non-finite (NaN/Infinity) → render '—', never '$NaN'.
+  if(!isFinite(cost) || cost === 0) return '<span style="color:var(--text3);font-size:12px;">—</span>';
   return cost > 0
     ? `<span class="cost-neg">−$${cost.toFixed(2)}</span>`
     : `<span class="cost-pos">+$${Math.abs(cost).toFixed(2)}</span>`;
@@ -6278,17 +6309,18 @@ function renderVarTable() {
   const catCostMap = {};
   statsRows.forEach(r => {
     if(!catCostMap[r.cat]) catCostMap[r.cat] = 0;
-    const varUnits = parseFloat(r.e) - parseFloat(r.a);
-    catCostMap[r.cat] += varUnits * (r.costPrice || 0);
+    const varUnits = (parseFloat(r.e)||0) - (parseFloat(r.a)||0);
+    // coerce — a missing/'—'/string price must never NaN-poison the category total
+    catCostMap[r.cat] += varUnits * (Number(r.costPrice) || 0);
   });
   const catColors = {Spirits:'#a78bfa',Beer:'#5b9cf0',Wine:'#f0884a','Soft drinks':'#5be3b4',Food:'#f0c040',Cocktails:'#f472b6'};
   document.getElementById('cat-gp-body').innerHTML = Object.entries(cats).map(([cat,d])=>{
     const gp      = Math.round(d.sum/d.count);
     const col     = gp>=72?'var(--green)':gp>=65?'var(--amber)':'var(--red)';
     const cc      = catColors[cat]||'#9b9890';
-    const cost    = catCostMap[cat] || 0;
+    const cost    = Number(catCostMap[cat]) || 0;
     const costCol = cost > 0 ? 'var(--red)' : cost < 0 ? 'var(--green)' : 'var(--text3)';
-    const costLbl = cost === 0 ? '—'
+    const costLbl = !isFinite(cost) || cost === 0 ? '—'
       : cost > 0 ? `−$${cost.toFixed(2)}`
       : `+$${Math.abs(cost).toFixed(2)}`;
     return `<div class="cat-gp-block">
@@ -6345,25 +6377,26 @@ function renderVarTable() {
       })();
       const rowBg = r.parSt==='dead' ? 'background:rgba(240,80,80,0.03);' : '';
 
-      // Accumulators
-      const varUnits   = parseFloat(r.e) - parseFloat(r.a);
-      const costImpact = varUnits * (r.costPrice || 0);
+      // Accumulators — coerce every cost addend with (Number(x)||0) so one
+      // missing/'—' price can never NaN-poison a category or grand total.
+      const varUnits   = (parseFloat(r.e)||0) - (parseFloat(r.a)||0);
+      const costImpact = varUnits * (Number(r.costPrice) || 0);
       catExpected     += parseFloat(r.e)||0;
       catActual       += parseFloat(r.a)||0;
-      catCostImpact   += costImpact;
+      catCostImpact   += (Number(costImpact) || 0);
       catVarVolMl     += Math.round(varUnits * (r.unitVol || 750));
       catGPSum        += r.actualGP;
       if(r.sales){ catSalesQty += r.sales.qty; catSalesRev += r.sales.rev; }
 
-      const costHtml = costImpact === 0
+      const costHtml = !isFinite(costImpact) || costImpact === 0
         ? `<span style="font-family:var(--font-mono);font-size:12px;color:var(--text3);">—</span>`
         : costImpact > 0
           ? `<span class="cost-neg">−$${costImpact.toFixed(2)}</span>`
           : `<span class="cost-pos">+$${Math.abs(costImpact).toFixed(2)}</span>`;
 
-      // On hand cost: actual qty × cost price
-      const onHandCost = parseFloat(r.a) * (r.costPrice || 0);
-      const onHandHtml = onHandCost > 0
+      // On hand cost: actual qty × per-unit cost price
+      const onHandCost = (parseFloat(r.a)||0) * (Number(r.costPrice) || 0);
+      const onHandHtml = isFinite(onHandCost) && onHandCost > 0
         ? `<span style="font-family:var(--font-mono);font-size:12px;color:var(--text);">$${onHandCost.toFixed(2)}</span>`
         : `<span style="color:var(--text3);font-size:12px;">—</span>`;
 
@@ -6489,14 +6522,14 @@ function renderVarTable() {
     grandExpected   += catExpected;
     grandActual     += catActual;
     grandVarVolMl   += catVarVolMl;
-    grandCostImpact += catCostImpact;
+    grandCostImpact += (Number(catCostImpact) || 0);
     grandGPSum      += catGPSum;
     grandGPCount    += grouped[cat].length;
 
     // ── Category total row ──
     const catVarPct    = catExpected > 0 ? ((catActual-catExpected)/catExpected*100).toFixed(1)+'%' : '—';
     const catVarPctCol = parseFloat(catVarPct) < -5 ? 'var-alert' : parseFloat(catVarPct) < -2 ? 'var-warn' : 'var-ok';
-    const catOnHand    = grouped[cat].reduce((s,r)=>s+parseFloat(r.a)*(r.costPrice||0),0);
+    const catOnHand    = grouped[cat].reduce((s,r)=>s+(Number(r.a)||0)*(Number(r.costPrice)||0),0);
     const catAvgGP     = Math.round(catGPSum / grouped[cat].length);
     const catGpCol     = catAvgGP>=72?'var(--green)':catAvgGP>=65?'var(--amber)':'var(--red)';
 
@@ -6504,7 +6537,7 @@ function renderVarTable() {
       <td style="border-right:1px solid var(--border);padding-left:18px;">${cat} total</td>
       <td>—</td><td>—</td>
       <td class="td-total"><span style="font-family:var(--font-mono);">${catActual.toFixed(2)}</span></td>
-      <td class="td-total"><span style="font-family:var(--font-mono);color:var(--text);">$${catOnHand.toFixed(2)}</span></td>
+      <td class="td-total"><span style="font-family:var(--font-mono);color:var(--text);">${isFinite(catOnHand)?'$'+catOnHand.toFixed(2):'—'}</span></td>
       <td class="td-total">${catSalesQty>0?`<span style="font-family:var(--font-mono);">${catSalesQty} sold</span>`:'—'}</td>
       <td class="td-total"><span style="font-family:var(--font-mono);">${catExpected.toFixed(2)}</span></td>
       <td class="td-total">${catVarVolMl===0?'—':fmtVol(catVarVolMl)}</td>
@@ -6523,7 +6556,7 @@ function renderVarTable() {
   const grandVarPctCol = parseFloat(grandVarPct) < -5 ? 'var-alert' : parseFloat(grandVarPct) < -2 ? 'var-warn' : 'var-ok';
   const grandAvgGP     = Math.round(grandGPSum / grandGPCount);
   const grandGpCol     = grandAvgGP>=72?'var(--green)':grandAvgGP>=65?'var(--amber)':'var(--red)';
-  const grandOnHand    = Object.values(grouped).flat().reduce((s,r)=>s+parseFloat(r.a)*(r.costPrice||0),0);
+  const grandOnHand    = Object.values(grouped).flat().reduce((s,r)=>s+(Number(r.a)||0)*(Number(r.costPrice)||0),0);
   const P = 'padding:12px 14px;';
 
   html += `<tr style="background:var(--bg4);border-top:2px solid var(--border2);">
@@ -6531,7 +6564,7 @@ function renderVarTable() {
     <td style="${P}color:var(--text3);">—</td>
     <td style="${P}color:var(--text3);">—</td>
     <td style="${P}font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--text);">${grandActual.toFixed(2)}</td>
-    <td style="${P}font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text);">$${grandOnHand.toFixed(2)}</td>
+    <td style="${P}font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text);">${isFinite(grandOnHand)?'$'+grandOnHand.toFixed(2):'—'}</td>
     <td style="${P}"><span style="font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--text);">${grandSalesQty} sold</span></td>
     <td style="${P}font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--text);">${grandExpected.toFixed(2)}</td>
     <td style="${P}">${fmtVol(grandVarVolMl)}</td>
@@ -11304,7 +11337,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r26';
+const APP_VERSION = '2026-06-10-r27';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
