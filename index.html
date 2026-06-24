@@ -6872,11 +6872,17 @@ function renderRecipeList() {
     const hasRecipe = recipe?.ingredients?.length > 0;
     const depHtml = hasRecipe
       ? recipe.ingredients.map(i => {
-          const total = ((parseFloat(i.qty)||0) * r.qty);
-          const unit  = i.unit || 'ml';
-          return `<span style="display:inline-flex;align-items:center;gap:3px;background:var(--bg3);border-radius:6px;padding:2px 7px;font-size:11px;color:var(--text2);margin:2px 2px;">
-            <span style="color:var(--accent);font-family:var(--font-mono);font-weight:700;">${i.qty}${unit}</span>
+          const unit = i.unit || 'ml';
+          // Serve-aware label: "Pint 568ml", "1 unit", or just the qty for custom/legacy recipes.
+          const serveLabel = i.serveName === 'Full unit'
+            ? '1 unit'
+            : (i.serveName && i.serveName !== 'Custom')
+              ? `${i.serveName} ${i.qty}${unit}`
+              : `${i.qty}${unit}`;
+          return `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg3);border-radius:6px;padding:2px 8px;font-size:11px;color:var(--text2);margin:2px 2px;">
             <span>${i.product}</span>
+            <span style="color:var(--text3);">—</span>
+            <span style="color:var(--accent);font-family:var(--font-mono);font-weight:700;">${serveLabel}</span>
           </span>`;
         }).join(' + ')
       : `<span style="font-size:12px;color:var(--text3);font-style:italic;">No recipe — click Edit to define</span>`;
@@ -6924,50 +6930,199 @@ function openRecipeEditor(posName, qtySold) {
   openModal('recipeEditorModal');
 }
 
+// ─── Serve-size-aware mapping (Stage 2) ───────────────────────────────────
+// Resolve a recipe ingredient's typed product name back to a catalogue product.
+function findRecipeProduct(name) {
+  const c = activeClient; if(!c||!name) return null;
+  const n = (name||'').toLowerCase().trim();
+  return (c.products||[]).find(p => (p.n||p.name||'').toLowerCase().trim() === n) || null;
+}
+
+// A product is POURED (served by the glass) when it's a spirit/wine/cocktail, or
+// beer/cider served from a keg (soldAs Kegs / Draught vessel). Mirrors how the
+// product edit screen decides whether named serve sizes are relevant. Everything
+// else — beer bottles/cans, RTD, soft drinks — is PACKAGED (full-unit depletion).
+function isPouredProduct(prod) {
+  if(!prod) return false;
+  const cat    = prod.cat || '';
+  const subcat = prod.subcat || '';
+  const soldAs = prod.soldAs || '';
+  if(soldAs === 'Kegs') return true;
+  if(cat === 'Spirits' || cat === 'Wine' || cat === 'Cocktails') return true;
+  if(/draught|keg/i.test(subcat)) return true;
+  return false;
+}
+
+// Decide how a given ingredient row should be presented:
+//  'serve'    → poured product WITH a named-serve palette → serve dropdown
+//  'manual'   → poured product without serves[], or product not in catalogue → free qty+unit
+//  'packaged' → packaged product → locked to one full unit, no picker
+function recipeRowMode(ing) {
+  const prod = findRecipeProduct(ing.product);
+  if(!prod) return { mode:'manual', prod:null };
+  if(isPouredProduct(prod)) return (prod.serves||[]).length ? { mode:'serve', prod } : { mode:'manual', prod };
+  return { mode:'packaged', prod };
+}
+
+// Inner controls for a single ingredient row. Always renders the canonical
+// #ring-qty-i / #ring-unit-i inputs (read by saveRecipe + updateDepletionPreview),
+// hiding them when a serve dropdown or packaged label drives the value instead.
+function recipeServeCellHtml(ing, i) {
+  const { mode, prod } = recipeRowMode(ing);
+  const rawQty  = (ing.qty != null && ing.qty !== '') ? ing.qty : '';
+  const rawUnit = ing.unit || 'ml';
+
+  const mkQty = (val, hidden) => `<input type="number" value="${val===''?'':val}" placeholder="30" min="0" step="1" id="ring-qty-${i}"
+      style="width:76px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-mono);font-size:13px;outline:none;text-align:right;${hidden?'display:none;':''}"
+      onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border2)';updateDepletionPreview()"
+      oninput="updateDepletionPreview()">`;
+  const mkUnit = (val, hidden) => `<select id="ring-unit-${i}" style="width:60px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 8px;color:var(--text);font-family:var(--font-ui);font-size:12px;outline:none;${hidden?'display:none;':''}" onchange="updateDepletionPreview()">
+      <option ${val==='ml'?'selected':''}>ml</option>
+      <option ${val==='cl'?'selected':''}>cl</option>
+      <option ${val==='L'?'selected':''}>L</option>
+      <option ${val==='g'?'selected':''}>g</option>
+      <option ${val==='kg'?'selected':''}>kg</option>
+      <option ${val==='unit'?'selected':''}>unit</option>
+    </select>`;
+
+  if(mode === 'serve') {
+    const serves = prod.serves || [];
+    let selIdx = -1;
+    if(ing.serveName && ing.serveName !== 'Custom') selIdx = serves.findIndex(s => s.name === ing.serveName);
+    if(selIdx < 0 && rawQty !== '') selIdx = serves.findIndex(s => Number(s.ml) === Number(rawQty) && rawUnit === 'ml');
+    const isCustom = (ing.serveName === 'Custom') || (selIdx < 0 && rawQty !== '');
+    if(selIdx < 0 && !isCustom) selIdx = 0;                       // fresh map → default to first serve
+    const qVal = isCustom ? rawQty : (serves[selIdx]?.ml ?? rawQty);
+    const uVal = isCustom ? rawUnit : 'ml';
+    const opts = serves.map((s,si) => `<option value="${si}" ${si===selIdx?'selected':''}>${(s.name||'').replace(/</g,'&lt;')} (${s.ml}ml)</option>`).join('')
+      + `<option value="__custom__" ${isCustom?'selected':''}>Custom…</option>`;
+    return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+      <select id="ring-serve-${i}" onchange="onRecipeServeChange(${i})" title="Pick which serve size this POS line depletes" style="min-width:128px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 8px;color:var(--text);font-family:var(--font-ui);font-size:12px;outline:none;">${opts}</select>
+      ${mkQty(qVal, !isCustom)}
+      ${mkUnit(uVal, !isCustom)}
+    </div>`;
+  }
+
+  if(mode === 'packaged') {
+    const uv = prod.unitVol || 0;                                // full unit in ml — depletes one packaged unit per sale
+    return `<div style="display:flex;gap:6px;align-items:center;">
+      <span title="Packaged product — depletes one full unit per sale" style="font-size:12px;color:var(--text2);background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;white-space:nowrap;">📦 1 unit${uv?` <span style="color:var(--text3);">(${uv}ml)</span>`:''}</span>
+      <input type="hidden" id="ring-qty-${i}" value="${uv||''}">
+      <input type="hidden" id="ring-unit-${i}" value="ml">
+    </div>`;
+  }
+
+  // manual fallback — unmatched product, or poured product with no serve palette
+  return `<div style="display:flex;gap:6px;align-items:center;">
+    ${mkQty(rawQty, false)}
+    ${mkUnit(rawUnit, false)}
+  </div>`;
+}
+
+function recipeIngredientRowHtml(ing, i, productOptions) {
+  return `
+    <div style="display:grid;grid-template-columns:1fr minmax(150px,auto) 36px;gap:6px;align-items:center;" id="ring-${i}">
+      <div style="position:relative;">
+        <input type="text" value="${(ing.product||'').replace(/"/g,'&quot;')}" list="product-datalist-${i}" placeholder="Product name (e.g. Grey Goose 1L)"
+          style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:13px;outline:none;"
+          onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border2)';updateDepletionPreview()"
+          oninput="updateDepletionPreview()" onchange="onRecipeProductChange(${i})" id="ring-prod-${i}">
+        <datalist id="product-datalist-${i}">${productOptions}</datalist>
+      </div>
+      <div id="ring-serve-cell-${i}">${recipeServeCellHtml(ing, i)}</div>
+      <button onclick="removeRecipeIngredient(${i})" style="background:rgba(240,80,80,0.1);border:1px solid rgba(240,80,80,0.2);border-radius:8px;color:var(--red);font-size:16px;cursor:pointer;padding:4px 8px;line-height:1;">×</button>
+    </div>`;
+}
+
 function renderRecipeIngredients(ingredients) {
   const c    = activeClient;
   const list = document.getElementById('recipe-ingredients-list');
   if(!list) return;
   const productOptions = (c?.products||[]).map(p => `<option value="${(p.n||p.name||'').replace(/"/g,'&quot;')}">${p.n||p.name}</option>`).join('');
+  list.innerHTML = (ingredients||[]).map((ing,i) => recipeIngredientRowHtml(ing, i, productOptions)).join('');
+}
 
-  list.innerHTML = (ingredients||[]).map((ing,i) => `
-    <div style="display:grid;grid-template-columns:1fr 80px 70px 36px;gap:6px;align-items:center;" id="ring-${i}">
-      <div style="position:relative;">
-        <input type="text" value="${ing.product||''}" list="product-datalist-${i}" placeholder="Product name (e.g. Grey Goose 1L)"
-          style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:13px;outline:none;"
-          onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border2)';updateDepletionPreview()"
-          oninput="updateDepletionPreview()" id="ring-prod-${i}">
-        <datalist id="product-datalist-${i}">${productOptions}</datalist>
-      </div>
-      <input type="number" value="${ing.qty||''}" placeholder="30" min="0" step="1"
-        style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-mono);font-size:13px;outline:none;text-align:right;"
-        onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border2)';updateDepletionPreview()"
-        oninput="updateDepletionPreview()" id="ring-qty-${i}">
-      <select id="ring-unit-${i}" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 8px;color:var(--text);font-family:var(--font-ui);font-size:12px;outline:none;"
-        onchange="updateDepletionPreview()">
-        <option ${ing.unit==='ml'||!ing.unit?'selected':''}>ml</option>
-        <option ${ing.unit==='cl'?'selected':''}>cl</option>
-        <option ${ing.unit==='L'?'selected':''}>L</option>
-        <option ${ing.unit==='g'?'selected':''}>g</option>
-        <option ${ing.unit==='kg'?'selected':''}>kg</option>
-        <option ${ing.unit==='unit'?'selected':''}>unit</option>
-      </select>
-      <button onclick="removeRecipeIngredient(${i})" style="background:rgba(240,80,80,0.1);border:1px solid rgba(240,80,80,0.2);border-radius:8px;color:var(--red);font-size:16px;cursor:pointer;padding:4px 8px;line-height:1;">×</button>
-    </div>`).join('');
+// Read the live ingredient rows from the DOM (incl. chosen serve name) so add/remove
+// never drops values the user has typed but not yet saved.
+function readRecipeIngredientsFromDOM() {
+  const out = [];
+  document.querySelectorAll('[id^="ring-prod-"]').forEach((el,i) => {
+    const product = el.value.trim();
+    const qty     = document.getElementById('ring-qty-'+i)?.value ?? '';
+    const unit    = document.getElementById('ring-unit-'+i)?.value || 'ml';
+    const ing     = { product, qty, unit };
+    const serveSel = document.getElementById('ring-serve-'+i);
+    if(serveSel) {
+      if(serveSel.value === '__custom__') ing.serveName = 'Custom';
+      else {
+        const prod = findRecipeProduct(product);
+        const s = (prod?.serves||[])[parseInt(serveSel.value,10)];
+        if(s) ing.serveName = s.name;
+      }
+    } else {
+      const prod = findRecipeProduct(product);
+      if(prod && !isPouredProduct(prod)) ing.serveName = 'Full unit';
+    }
+    out.push(ing);
+  });
+  return out;
+}
+
+// Product changed → re-evaluate the serve controls for just this row (poured w/ serves →
+// dropdown, packaged → locked unit, else manual), preserving any qty already entered.
+function onRecipeProductChange(i) {
+  const cell = document.getElementById('ring-serve-cell-'+i);
+  if(!cell) return;
+  const product = document.getElementById('ring-prod-'+i)?.value || '';
+  const qtyEl   = document.getElementById('ring-qty-'+i);
+  const unitEl  = document.getElementById('ring-unit-'+i);
+  // Only carry over a qty the user actually typed in a visible field. Auto-driven
+  // values (packaged full-unit, named-serve fill) start fresh so the new product
+  // defaults to its own first serve rather than a stale ml from the old product.
+  const auto = !qtyEl || qtyEl.type === 'hidden' || qtyEl.style.display === 'none';
+  const qty  = auto ? '' : (qtyEl.value || '');
+  const unit = auto ? 'ml' : (unitEl?.value || 'ml');
+  cell.innerHTML = recipeServeCellHtml({ product, qty, unit }, i);
+  updateDepletionPreview();
+}
+
+// Serve dropdown changed → named serve auto-fills qty (ml) and hides manual inputs;
+// "Custom…" reveals the manual qty+unit inputs for a hand-typed ml value.
+function onRecipeServeChange(i) {
+  const sel = document.getElementById('ring-serve-'+i);
+  if(!sel) return;
+  const qtyEl  = document.getElementById('ring-qty-'+i);
+  const unitEl = document.getElementById('ring-unit-'+i);
+  if(sel.value === '__custom__') {
+    if(qtyEl)  qtyEl.style.display  = '';
+    if(unitEl) unitEl.style.display = '';
+    if(qtyEl)  qtyEl.focus();
+  } else {
+    const prod   = findRecipeProduct(document.getElementById('ring-prod-'+i)?.value);
+    const serves = prod?.serves || [];
+    const s = serves[parseInt(sel.value,10)];
+    if(s && qtyEl) qtyEl.value = s.ml;
+    if(unitEl)     unitEl.value = 'ml';
+    if(qtyEl)  qtyEl.style.display  = 'none';
+    if(unitEl) unitEl.style.display = 'none';
+  }
+  updateDepletionPreview();
 }
 
 function addRecipeIngredientRow() {
   const c = activeClient; if(!c||!_editingRecipePOS) return;
   if(!c.recipes[_editingRecipePOS]) c.recipes[_editingRecipePOS] = { displayName:'', ingredients:[] };
-  c.recipes[_editingRecipePOS].ingredients.push({ product:'', qty:'', unit:'ml' });
-  renderRecipeIngredients(c.recipes[_editingRecipePOS].ingredients);
+  const cur = readRecipeIngredientsFromDOM();        // keep unsaved edits in existing rows
+  cur.push({ product:'', qty:'', unit:'ml' });
+  renderRecipeIngredients(cur);
+  updateDepletionPreview();
 }
 
 function removeRecipeIngredient(idx) {
   const c = activeClient; if(!c||!_editingRecipePOS) return;
-  const r = c.recipes[_editingRecipePOS]; if(!r) return;
-  r.ingredients.splice(idx,1);
-  renderRecipeIngredients(r.ingredients);
+  const cur = readRecipeIngredientsFromDOM();        // keep unsaved edits in other rows
+  cur.splice(idx,1);
+  renderRecipeIngredients(cur);
   updateDepletionPreview();
 }
 
@@ -6998,14 +7153,31 @@ function saveRecipe() {
   const c = activeClient; if(!c||!_editingRecipePOS) return;
   if(!c.recipes) c.recipes = {};
 
-  // Read all ingredient rows
+  // Read all ingredient rows. qty is the RESOLVED ml (from the named serve, the
+  // packaged full-unit, or a custom value) so Stage 3 can consume it directly;
+  // serveName is stored alongside purely for display.
   const rows = document.querySelectorAll('[id^="ring-prod-"]');
   const ingredients = [];
   rows.forEach((el,i) => {
     const product = el.value.trim();
     const qty     = parseFloat(document.getElementById('ring-qty-'+i)?.value) || 0;
     const unit    = document.getElementById('ring-unit-'+i)?.value || 'ml';
-    if(product && qty > 0) ingredients.push({ product, qty, unit });
+    if(product && qty > 0) {
+      const ing = { product, qty, unit };
+      const serveSel = document.getElementById('ring-serve-'+i);
+      if(serveSel) {
+        if(serveSel.value === '__custom__') ing.serveName = 'Custom';
+        else {
+          const prod = findRecipeProduct(product);
+          const s = (prod?.serves||[])[parseInt(serveSel.value,10)];
+          if(s) ing.serveName = s.name;
+        }
+      } else {
+        const prod = findRecipeProduct(product);
+        if(prod && !isPouredProduct(prod)) ing.serveName = 'Full unit';
+      }
+      ingredients.push(ing);
+    }
   });
 
   c.recipes[_editingRecipePOS] = {
@@ -11428,7 +11600,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r28';
+const APP_VERSION = '2026-06-10-r29';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
