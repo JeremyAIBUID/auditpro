@@ -3941,10 +3941,13 @@ function sessionOverallVariancePct(client, session) {
   const purchases = session.purchases || {};
   const sales     = session.sales     || {};
   const closing   = session.closing   || {};
+  // Recipe-aware depletion (r31) — same per-line consumption as computeVariances.
+  const salesDep  = buildSalesDepletion(client, session, prodMap);
   const names = new Set([
     ...Object.keys(opening), ...Object.keys(purchases),
     ...Object.keys(sales),   ...Object.keys(closing),
   ].filter(n => prodMap[n]));
+  if (salesDep) Object.keys(salesDep).forEach(n => { if (prodMap[n]) names.add(n); });
   let expVal = 0, varVal = 0;
   names.forEach(name => {
     const prod     = prodMap[name];
@@ -3961,12 +3964,17 @@ function sessionOverallVariancePct(client, session) {
       const q  = parseFloat(purEntry.qty) || 0;
       purUnits = (u === 'cases' || u === 'car') ? q * cs : q;
     }
-    const saleData = sales[name];
     let salesUnits = 0;
-    if (saleData) {
-      const soldAsUnit = ['Bottles', 'Cans', 'Kegs'].includes(prod.soldAs);
-      const sv = soldAsUnit ? unitVol : (saleData.serveVol || serveVol || unitVol);
-      salesUnits = ((parseFloat(saleData.qty) || 0) * sv) / unitVol;
+    if (salesDep) {
+      const depEntry = salesDep[name];
+      if (depEntry) salesUnits = depEntry.units;
+    } else {
+      const saleData = sales[name];
+      if (saleData) {
+        const soldAsUnit = ['Bottles', 'Cans', 'Kegs'].includes(prod.soldAs);
+        const sv = soldAsUnit ? unitVol : (saleData.serveVol || serveVol || unitVol);
+        salesUnits = ((parseFloat(saleData.qty) || 0) * sv) / unitVol;
+      }
     }
     const cost     = latestCostPrice(prod, purEntry);
     const expected = openUnits + purUnits - salesUnits;
@@ -5811,6 +5819,115 @@ function latestCostPrice(prod, purchaseEntry) {
   return unitCost;
 }
 
+// ─── Recipe-aware sales depletion (Stage 3 — r31) ─────────────────────────────
+// Consumes the session's UN-AGGREGATED per-line POS sales (session.salesRows,
+// persisted in r26) through the c.recipes POS→product+serve mappings (Stages 1-2),
+// so each POS line depletes the correct ml/units:
+//   • Recipe mapped → deplete EACH ingredient by (ingredient.qty → ml) × qtySold,
+//     then ml → units via that ingredient product's unitVol. This lets "Steinlager
+//     Pint" (568ml) and "Steinlager Handle" (425ml) deplete the SAME keg by
+//     different amounts, and lets a multi-ingredient cocktail hit several products.
+//   • No recipe → fall back to the legacy soldAs/serveVol path for that single line
+//     (so unmapped items behave exactly as before).
+// Output units are in the SAME unit space as countToUnits (fraction-of-bottle for
+// poured stock, whole units for packaged), so expected = open + purchases − depletion
+// stays unit-consistent with openUnits/closeUnits.
+// Returns { catalogueName → { units, ml, rev, qty, serveVol } }, or null when the
+// session carries no per-line rows (caller then uses the pre-aggregated session.sales).
+function buildSalesDepletion(client, session, prodMap) {
+  const rows = (session && Array.isArray(session.salesRows)) ? session.salesRows : null;
+  if (!rows || !rows.length) return null;
+
+  const recipes  = (client && client.recipes)  || {};
+  const products = (client && client.products) || [];
+  const dep = {};
+  const add = (name, units, ml, rev, qty, serveVol) => {
+    if (!dep[name]) dep[name] = { units: 0, ml: 0, rev: 0, qty: 0, serveVol };
+    dep[name].units += units;
+    dep[name].ml    += ml;
+    dep[name].rev   += rev;
+    dep[name].qty   += qty;
+  };
+
+  // Convert a recipe ingredient (qty + unit ml/cl/L/g/kg/unit) → { units, ml } for
+  // the given product. 'unit' depletes whole units directly; mass (g/kg) routes
+  // through density (mirrors countToUnits); volume (ml/cl/L) divides by unitVol.
+  // Returns null when it cannot be computed (caller skips + warns).
+  const ingredientUnits = (qty, unit, prod) => {
+    const q = parseFloat(qty) || 0;
+    if (!(q > 0)) return { units: 0, ml: 0 };
+    const u       = (unit || 'ml').toLowerCase();
+    const unitVol = parseFloat(prod.unitVol) || 0;
+    if (u === 'unit' || u === 'units') {
+      const units = q;
+      return { units, ml: units * (unitVol > 0 ? unitVol : 0) };
+    }
+    let ml;
+    if (u === 'g' || u === 'kg') {
+      const grams   = u === 'kg' ? q * 1000 : q;
+      const density = prodDensity(prod) || 0;
+      ml = density > 0 ? grams / density : grams;   // density-guard: fall back to 1:1
+    } else if (u === 'cl') {
+      ml = q * 10;
+    } else if (u === 'l' || u === 'litre' || u === 'litres') {
+      ml = q * 1000;
+    } else {
+      ml = q;                                       // ml (default)
+    }
+    if (!(unitVol > 0)) return null;                // div-by-zero guard → skip
+    return { units: ml / unitVol, ml };
+  };
+
+  rows.forEach(row => {
+    const posName = (row.p || '').trim();
+    if (!posName) return;
+    const qtySold = parseFloat(row.qty) || 0;
+    const rev     = parseFloat(row.rev) || 0;
+    if (!(qtySold > 0)) return;
+
+    const recipe = recipes[posName];
+    if (recipe && Array.isArray(recipe.ingredients) && recipe.ingredients.length) {
+      // ── Recipe-driven: deplete every mapped ingredient ──
+      recipe.ingredients.forEach((ing, idx) => {
+        const prod = prodMap[ing.product];
+        if (!prod) {
+          console.warn(`[AuditPro] Recipe depletion: "${posName}" references product "${ing.product}" not in catalogue — ingredient skipped.`);
+          return;
+        }
+        const per = ingredientUnits(ing.qty, ing.unit, prod);
+        if (!per || !isFinite(per.units) || !isFinite(per.ml)) {
+          console.warn(`[AuditPro] Recipe depletion: "${posName}" → "${ing.product}" has no/zero unitVol — ingredient skipped.`);
+          return;
+        }
+        // Attribute the POS line's revenue + sold-count to the FIRST ingredient only,
+        // so multi-ingredient cocktails don't double-count GP across products.
+        const lineRev = idx === 0 ? rev : 0;
+        const lineQty = idx === 0 ? qtySold : 0;
+        add(prod.n || prod.name, per.units * qtySold, per.ml * qtySold, lineRev, lineQty, parseFloat(ing.qty) || 0);
+      });
+    } else {
+      // ── No recipe: legacy soldAs/serveVol fallback, per single line ──
+      const prodName = matchPOSNameToProduct(posName, row.plu, products);
+      if (!prodName) return;                        // unmatched POS item → no depletion (as before)
+      const prod = prodMap[prodName];
+      if (!prod) return;
+      const unitVol = parseFloat(prod.unitVol) || 0;
+      if (!(unitVol > 0)) {
+        console.warn(`[AuditPro] Sales depletion: "${posName}" → "${prodName}" has no/zero unitVol — line skipped.`);
+        return;
+      }
+      const cat        = prod.cat || 'Spirits';
+      const serveVol   = prod.serveVol || (cat === 'Spirits' ? 30 : cat === 'Wine' ? 150 : unitVol);
+      const soldAsUnit = ['Bottles', 'Cans', 'Kegs'].includes(prod.soldAs);
+      const sv         = soldAsUnit ? unitVol : (serveVol || unitVol);
+      const ml         = qtySold * sv;
+      add(prod.n || prod.name, ml / unitVol, ml, rev, qtySold, sv);
+    }
+  });
+
+  return dep;
+}
+
 function computeVariances(client) {
   const sessions = client.auditSessions || [];
   
@@ -5830,6 +5947,12 @@ function computeVariances(client) {
   const { opening, purchases, sales, closing, periodDays = 30 } = workingSession;
   const prodMap = {};
   (client.products || []).forEach(p => { prodMap[p.n||p.name] = p; });
+
+  // Recipe-aware sales depletion (r31). When the session carries per-line POS rows,
+  // this consumes them through c.recipes so each serve depletes the correct ml/units
+  // (Pint vs Handle off the same keg). Null ⇒ legacy session with no per-line rows,
+  // so the per-product loop falls back to the pre-aggregated session.sales below.
+  const salesDep = buildSalesDepletion(client, workingSession, prodMap);
 
   // Build purchases map from deliveries
   const sessionPurchases = purchases || {};
@@ -5933,6 +6056,10 @@ function computeVariances(client) {
     ...Object.keys(mergedPurchases),
     ...Object.keys(sales    || {}),
   ].filter(name => catalogueNames.has(name)));
+  // Recipe-mapped ingredient products may not appear in opening/closing/purchases or
+  // session.sales (the recipe maps a POS name to a different stock product), so pull
+  // their catalogue names in too — otherwise their depletion would never get a row.
+  if (salesDep) Object.keys(salesDep).forEach(n => { if (catalogueNames.has(n)) allNames.add(n); });
 
   const rows = [];
 
@@ -5961,17 +6088,39 @@ function computeVariances(client) {
       if (idx >= 0) client.products[idx].costPrice = purEntry.costPrice;
     }
 
-    // ── Sales ─────────────────────────────────────────
+    // ── Sales (recipe-aware depletion — r31) ─────────────
+    // When the session has per-line POS rows, salesDep has already consumed them
+    // through c.recipes so each serve depletes the correct ml/units (a Pint and a
+    // Handle hit the same keg by different amounts); unmapped POS items fall back to
+    // the legacy soldAs/serveVol path inside buildSalesDepletion. ONLY when there are
+    // no per-line rows (legacy/finalised sessions) do we read pre-aggregated session.sales.
     const saleData   = (sales || {})[name];
+    const depEntry   = salesDep ? salesDep[name] : null;
     let salesUnits = 0, salesMl = 0, salesRev = 0;
-    if (saleData) {
+    let salesQtyDisp = 0, salesServeVol = serveVol, salesUnitLabel = 'serves';
+    if (salesDep) {
+      if (depEntry) {
+        salesUnits    = depEntry.units;
+        salesMl       = depEntry.ml;
+        salesRev      = depEntry.rev;
+        salesQtyDisp  = depEntry.qty;
+        salesServeVol = depEntry.serveVol || serveVol;
+      }
+    } else if (saleData) {
       // For bottles/cans/kegs sold as whole units, each sale = 1 full unit
       const soldAsUnit = ['Bottles','Cans','Kegs'].includes(prod.soldAs);
       const sv   = soldAsUnit ? unitVol : (saleData.serveVol || serveVol || unitVol);
-      salesMl    = (parseFloat(saleData.qty) || 0) * sv;
-      salesUnits = salesMl / unitVol;
-      salesRev   = saleData.revenue || 0;
+      salesMl       = (parseFloat(saleData.qty) || 0) * sv;
+      salesUnits    = salesMl / unitVol;
+      salesRev      = saleData.revenue || 0;
+      salesQtyDisp  = parseFloat(saleData.qty) || 0;
+      salesServeVol = saleData.serveVol || serveVol;
+      salesUnitLabel = saleData.unit || 'serves';
     }
+    // In recipe-driven mode a product "has sales" iff it actually received depletion
+    // (the fallback path keys off the SAME matchPOSNameToProduct that built session.sales,
+    // so no matched product is lost); in legacy mode, iff session.sales carries it.
+    const hasSales = salesDep ? !!depEntry : !!saleData;
 
     // ── Closing (physical count) ──────────────────────
     const closeEntry = (closing || {})[name];
@@ -6077,11 +6226,11 @@ function computeVariances(client) {
             : Math.round(purUnits * unitVol)+'ml')
         : '—',
       purchases:   purDetail,
-      sales: saleData ? {
-        qty:      parseFloat(saleData.qty) || 0,
-        unit:     saleData.unit || 'serves',
+      sales: hasSales ? {
+        qty:      salesQtyDisp,
+        unit:     salesUnitLabel,
         rev:      salesRev,
-        serveVol: saleData.serveVol || serveVol,
+        serveVol: salesServeVol,
       } : null,
       o:           openUnits.toFixed(2),
       e:           expected.toFixed(2),
@@ -6095,7 +6244,7 @@ function computeVariances(client) {
       parSt,
       actualGP,
       idealGP,
-      lastSold:    saleData ? 0 : 45,
+      lastSold:    hasSales ? 0 : 45,
       // Numeric fields for the full PDF report builder (additive — existing
       // consumers keep reading the string o/e/a/v above).
       openNum:     openUnits,
@@ -11600,7 +11749,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r30';
+const APP_VERSION = '2026-06-10-r31';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
