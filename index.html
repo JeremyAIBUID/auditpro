@@ -6640,10 +6640,15 @@ function renderVarTable() {
         ? `<span style="font-family:var(--font-mono);font-size:12px;color:var(--text);">$${onHandCost.toFixed(2)}</span>`
         : `<span style="color:var(--text3);font-size:12px;">—</span>`;
 
-      // Sales in ml + popover
+      // Sales in ml + popover. Use the recipe-driven depletion the variance math
+      // already computed (salesUnits × unitVol) instead of re-deriving from a
+      // hardcoded per-serve guess — the old mlPerServe ternary multiplied keg
+      // sales by the WHOLE keg volume (52 × 25000ml = 1300L) and only matched for
+      // 30ml spirits / 150ml wine by coincidence. salesUnits already reflects each
+      // recipe serve (Pint/Handle/nip/glass) and the legacy fallback, so × unitVol
+      // reconstructs true ml uniformly for every category.  (r32)
       const s = r.sales;
-      const mlPerServe = r.cat==='Spirits' ? 30 : r.cat==='Wine' ? 150 : (r.unitVol || 330);
-      const salesMl    = s ? Math.round(s.qty * mlPerServe) : 0;
+      const salesMl    = s ? Math.round((r.salesUnits || 0) * (r.unitVol || 0)) : 0;
       const salesMlLbl = salesMl >= 1000 ? `${(salesMl/1000).toFixed(2).replace(/\.?0+$/,'')}L` : `${salesMl}ml`;
       const salesPopId = `spop-${cat.replace(/\s/g,'')}-${idx}`;
       const salesCell  = s ? `
@@ -11749,7 +11754,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r31';
+const APP_VERSION = '2026-06-10-r32';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
