@@ -946,10 +946,6 @@
           </table></div>
         </div>
       </div>
-    </div>
-
-    <!-- legacy waste page kept hidden for JS compat -->
-    <div class="page" id="page-waste" style="display:none!important;"></div>
 
       <!-- RECIPES & DEPLETION VIEW -->
       <div id="sal-view-recipes" style="display:none;">
@@ -1013,6 +1009,10 @@
         </div>
 
       </div>
+    </div>
+
+    <!-- legacy waste page kept hidden for JS compat -->
+    <div class="page" id="page-waste" style="display:none!important;"></div>
 
     <!-- VARIANCES -->
     <div class="page" id="page-variances">
@@ -2711,7 +2711,7 @@ function renderPage(page) {
     document.getElementById('var-strip').innerHTML=`<div style="background:${stripBg};border:1px solid ${stripBdr};border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:12px;"><svg viewBox="0 0 24 24" fill="none" stroke="${stripClr}" stroke-width="2" stroke-linecap="round" style="flex-shrink:0;width:18px;height:18px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><div style="font-size:13px;color:var(--text);">${c.alert}</div></div>`;
     renderVarTable();
   }
-  if(page==='sales') { rehydrateSalesFromSession(); renderSalesTable(); }
+  if(page==='sales') { switchSalesTab('sales'); rehydrateSalesFromSession(); renderSalesTable(); }
   if(page==='insights') document.getElementById('insights-body').innerHTML=c.insights.map(i=>`<div class="insight-card" style="border:1px solid ${i.bdr};background:linear-gradient(135deg,${i.bg},transparent);margin-bottom:0;"><div class="insight-header"><div style="width:28px;height:28px;border-radius:7px;background:rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:16px;">${i.icon}</div><div class="insight-title">${i.title}</div></div><div class="insight-body">${i.body}</div><div style="margin-top:12px;padding:10px 12px;background:rgba(255,255,255,0.04);border-radius:8px;font-size:12px;color:var(--text2);"><strong style="color:var(--text);display:block;margin-bottom:4px;">Recommended actions</strong>${i.actions.map((a,n)=>`${n+1}. ${a}`).join('<br>')}</div></div>`).join('');
   if(page==='products') {
     if(c && (!c.products || !c.products.length) && DB._ready) {
@@ -11600,7 +11600,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r29';
+const APP_VERSION = '2026-06-10-r30';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
