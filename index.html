@@ -4833,6 +4833,37 @@ function deleteProduct(idx) {
   renderProducts(c);
 }
 
+// -1 = adding a new product, ≥0 = editing the product at that index in c.products.
+// Declared once here so a first-ever "+ Add product" (before any edit) is safe, and so
+// saveProduct() never silently overwrites the last-edited product.
+let prodEditIdx = -1;
+
+// Opens the shared product modal in "add new" mode: blank fields, default vessel/units,
+// and prodEditIdx reset to -1 so saveProduct() takes its new-product (push) branch.
+function openNewProductModal() {
+  const c = activeClient; if(!c) return;
+  prodEditIdx = -1; // CRITICAL — forces the new-product branch; prevents overwriting the last-edited product
+  document.getElementById('prod-modal-title').textContent = 'Add product';
+  document.getElementById('prod-save-btn').textContent    = 'Add product';
+  // Clear all text/number fields
+  ['pf-name','pf-barcode','pf-unitvol','pf-servevol','pf-tareg','pf-fullg','pf-cost','pf-sell',
+   'pf-par','pf-supplier','pf-suppliercode','pf-casesize','pf-casebarcode','pf-density-custom']
+    .forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  // Sensible defaults
+  document.getElementById('pf-idealgp').value = '72';
+  document.getElementById('pf-cat').value     = '';
+  document.getElementById('pf-parunit').value = 'Bottles';
+  if(document.getElementById('pf-soldas'))       document.getElementById('pf-soldas').value       = 'Bottles';
+  if(document.getElementById('pf-unitvol-unit')) document.getElementById('pf-unitvol-unit').value = 'ml'; // editProduct never resets this — clear stale 'L'
+  if(document.getElementById('pf-density-custom')) document.getElementById('pf-density-custom').style.display = 'none';
+  // Refresh dependent UI for a blank NEW product
+  renderProdServes([]);     // clear serve rows + show category suggestion chips
+  updateProdSubcats(true);  // rebuild subcats + auto-set default density (true = new product)
+  updateProdSoldAs();       // show/hide vessel + case sections
+  updateProdPreview();      // hides the empty live preview
+  openModal('newProductModal');
+}
+
 function editProduct(idx) {
   const c = activeClient; if(!c) return;
   const p = c.products[idx]; if(!p) return;
@@ -11760,7 +11791,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r33';
+const APP_VERSION = '2026-06-10-r34';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
