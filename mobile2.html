@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.7-2026-06-10-r22';
+const APP_VERSION = '3.8-2026-06-10-r35';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -2295,6 +2295,27 @@ function numpadPress(method, key) {
   input.dispatchEvent(new Event('input'));
 }
 
+// ─── DEFAULT COUNT UNIT ──────────────────────────
+// Pick a product's natural counting unit so the unit selector starts on the right
+// base unit instead of staying stuck on whatever the previous product used. Cases is
+// never auto-selected — counting in cases is always a deliberate manual switch.
+function defaultCountUnit(product) {
+  const sold = ((product && product.soldAs) || '').toLowerCase();
+  const cat  = ((product && product.cat)    || '').toLowerCase();
+  if(sold === 'kegs'   || cat === 'draught') return 'Kegs';
+  if(sold === 'cans'   || cat === 'rtd')     return 'Cans';
+  if(sold === 'litres')                      return 'Litres';
+  return 'Bottles'; // Spirits, Wine, bottled Beer, etc.
+}
+
+// Reset a unit <select> to a product's base unit — only if that option exists.
+function applyDefaultUnit(selectId, product) {
+  const sel = document.getElementById(selectId);
+  if(!sel) return;
+  const want = defaultCountUnit(product);
+  if([...sel.options].some(o => o.value === want)) sel.value = want;
+}
+
 function showScanResult(product) {
   scannedProduct = product;
   _numpadFresh = true; // next numpad press replaces the default 1
@@ -2323,6 +2344,7 @@ function showScanResult(product) {
   addBtn.style.padding    = '';
   addBtn.onclick = addScannedItem;
   document.getElementById('scan-qty').value = '1';
+  applyDefaultUnit('scan-unit', product);
   toast('Scanned: ' + product.name, true);
 }
 
@@ -2566,6 +2588,7 @@ function selectSearchProduct(name) {
   document.getElementById('search-numpad').style.display = 'grid';
   document.getElementById('search-add-btn').style.display = 'block';
   document.getElementById('search-qty').value = '1';
+  applyDefaultUnit('search-unit', searchProduct);
   _numpadFresh = true; // first keypress replaces the 1
 }
 
