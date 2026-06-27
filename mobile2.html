@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r37';
+const APP_VERSION = '3.8-2026-06-10-r38';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -1226,6 +1226,7 @@ async function loadProductsFromSupabase() {
           costPrice: p.costPrice || 0,
           sellPrice: p.sellPrice || 0,
           soldAs:    p.soldAs || 'Bottles',
+          caseSize:  p.caseSize || null,
           _fromDB:   true,
         });
         added++;
@@ -2321,6 +2322,27 @@ function applyDefaultUnit(selectId, product) {
   if([...sel.options].some(o => o.value === want)) sel.value = want;
 }
 
+// Offer "Cases" in a unit <select> only when the product defines a case size, and
+// label it with that size. Without a caseSize the option is disabled so a case can't
+// be counted for a product that has no defined case quantity — and any stale "Cases"
+// selection carried over from a previous product is snapped back to its base unit.
+function applyCaseOption(selectId, product) {
+  const sel = document.getElementById(selectId);
+  if(!sel) return;
+  const opt = [...sel.options].find(o => o.value === 'Cases' || o.textContent.indexOf('Cases') === 0);
+  if(!opt) return;
+  const cs = parseFloat(product && product.caseSize) || 0;
+  opt.value = 'Cases'; // pin the value so the changing label can't alter what gets stored
+  if(cs > 0) {
+    opt.disabled    = false;
+    opt.textContent = 'Cases (×' + cs + ')';
+  } else {
+    opt.disabled    = true;
+    opt.textContent = 'Cases';
+    if(sel.value === 'Cases') sel.value = defaultCountUnit(product);
+  }
+}
+
 function showScanResult(product) {
   scannedProduct = product;
   _numpadFresh = true; // next numpad press replaces the default 1
@@ -2350,6 +2372,7 @@ function showScanResult(product) {
   addBtn.onclick = addScannedItem;
   document.getElementById('scan-qty').value = '1';
   applyDefaultUnit('scan-unit', product);
+  applyCaseOption('scan-unit', product);
   toast('Scanned: ' + product.name, true);
 }
 
@@ -2594,6 +2617,7 @@ function selectSearchProduct(name) {
   document.getElementById('search-add-btn').style.display = 'block';
   document.getElementById('search-qty').value = '1';
   applyDefaultUnit('search-unit', searchProduct);
+  applyCaseOption('search-unit', searchProduct);
   _numpadFresh = true; // first keypress replaces the 1
 }
 

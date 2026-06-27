@@ -10731,6 +10731,11 @@ function finaliseStocktake(){
   closeModal('finaliseModal');
   const c = activeClient; if(!c) return;
 
+  // Map product name → product so a 'Cases' count can be expanded by its caseSize in
+  // the merge below (which keys on name only). Keyed on the same p.n||p.name used everywhere.
+  const prodByName = {};
+  (c.products || []).forEach(p => { prodByName[p.n||p.name] = p; });
+
   // Collect all counted rows (desktop + mobile)
   const desktopRows = [];
   document.querySelectorAll('#stocktake-body tr').forEach(tr=>{
@@ -10756,9 +10761,23 @@ function finaliseStocktake(){
       closing[key].netWeightG = (closing[key].netWeightG || 0) + val;
       if(!closing[key].unit) closing[key].unit = 'g';
     } else {
-      closing[key].qty += val;
-      // Prefer a real unit label over a placeholder 'g' from an earlier weighed row
-      if(!closing[key].unit || (closing[key].unit || '').toLowerCase() === 'g') closing[key].unit = r.unit;
+      let v   = val;
+      let lbl = r.unit;
+      // A 'Cases' count is expanded to base units HERE (×caseSize). It must be stored
+      // with a BASE label, never 'Cases', or countToUnits() would multiply by caseSize
+      // a SECOND time. A product counted only in cases yields the same number as before
+      // (expanded here instead of in countToUnits).
+      if((r.unit || '').toLowerCase() === 'cases'){
+        const prod = prodByName[r.name];
+        const cs   = parseFloat(prod && prod.caseSize) || 12;
+        v   = val * cs;
+        lbl = (prod && prod.soldAs && prod.soldAs !== 'Cases') ? prod.soldAs : 'Bottles';
+      }
+      closing[key].qty += v;
+      // Prefer a real base unit over a placeholder 'g' (earlier weighed row) or a 'cases'
+      // label (now expanded above), so countToUnits never re-multiplies by caseSize.
+      const cur = (closing[key].unit || '').toLowerCase();
+      if(!closing[key].unit || cur === 'g' || cur === 'cases') closing[key].unit = lbl;
     }
   });
 
@@ -11793,7 +11812,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r36';
+const APP_VERSION = '2026-06-10-r38';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
