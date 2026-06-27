@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r35';
+const APP_VERSION = '3.8-2026-06-10-r37';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -1441,7 +1441,12 @@ function setSearchFrac(val) { setSearchQty(val); }
 // ─── COUNT UI ────────────────────────────────────
 function updateCountUI() {
   const rows = session.counts[currentArea] || [];
-  const totalQty = rows.reduce((s,r)=>s+parseFloat(r.qty),0);
+  // Weighed entries store qty as NET GRAMS, so never add grams into the item total —
+  // count each weighed vessel as 1 item; unit-counts contribute their qty (r37).
+  const totalQty = rows.reduce((s,r)=>{
+    const weighed = r.method==='weight' || (r.unit||'').toLowerCase()==='g';
+    return s + (weighed ? 1 : (parseFloat(r.qty)||0));
+  },0);
   document.getElementById('cs-items').textContent = totalQty % 1 === 0 ? totalQty : totalQty.toFixed(2);
   document.getElementById('cs-lines').textContent = rows.length;
   document.getElementById('count-area-sub').textContent = rows.length + ' line' + (rows.length!==1?'s':'') + ' · tap method below to add';
@@ -3059,12 +3064,10 @@ function playBeep(type) {
 function addItem(product, qty, unit, method) {
   if(!currentArea) { toast('Select an area first'); return; }
   if(!session.counts[currentArea]) session.counts[currentArea] = [];
-  const existing = session.counts[currentArea].find(r => r.name === product.name && r.unit === unit);
-  if(existing) {
-    existing.qty = parseFloat((parseFloat(existing.qty) + qty).toFixed(2));
-  } else {
-    session.counts[currentArea].push({ name: product.name, cat: product.cat||'', qty, unit, method });
-  }
+  // Always push a NEW entry — every capture (weigh or unit-count) is its own line
+  // so each can be re-checked / removed individually. Desktop sums per product
+  // (weighed → weights[], unit → qty) so variance totals stay correct (r37).
+  session.counts[currentArea].push({ name: product.name, cat: product.cat||'', qty, unit, method });
   updateCountUI();
   saveToStorage();
   toast('+' + qty + ' ' + unit + ' · ' + product.name, true);
@@ -3079,7 +3082,11 @@ function showSync() {
 async function acceptAndSync() {
   const areas  = Object.keys(session.counts).filter(a=>session.counts[a].length>0);
   const lines  = areas.reduce((s,a)=>s+session.counts[a].length,0);
-  const total  = areas.reduce((s,a)=>s+session.counts[a].reduce((ss,r)=>ss+parseFloat(r.qty),0),0);
+  // Weighed entries hold NET GRAMS in qty — count each as 1 vessel, not its grams (r37).
+  const total  = areas.reduce((s,a)=>s+session.counts[a].reduce((ss,r)=>{
+    const weighed = r.method==='weight' || (r.unit||'').toLowerCase()==='g';
+    return ss + (weighed ? 1 : (parseFloat(r.qty)||0));
+  },0),0);
   const syncClientEl = document.getElementById('sync-client');
   const syncAreasEl  = document.getElementById('sync-areas');
   const syncLinesEl  = document.getElementById('sync-lines');
