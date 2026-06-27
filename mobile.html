@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r38';
+const APP_VERSION = '3.8-2026-06-10-r39';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -1507,6 +1507,9 @@ function setMethod(method, btn) {
   document.getElementById('method-weight').style.display = method==='weight' ? 'block':'none';
   const _wpb = document.getElementById('weight-pinned-bar');
   if(_wpb) _wpb.style.display = method==='weight' ? 'block':'none';
+  // Don't leave the camera running when we leave the scan tab — a stray decode would
+  // otherwise fire a result into a now-hidden panel.
+  if(method !== 'scan') stopCamera();
 }
 
 // ─── SCAN METHOD ─────────────────────────────────
@@ -2357,7 +2360,10 @@ function showScanResult(product) {
   } else {
     lastEl.style.display = 'none';
   }
-  document.getElementById('scan-result').classList.add('visible');
+  const resultCard = document.getElementById('scan-result');
+  resultCard.style.background  = ''; // reset any red tint left by a prior unknown-barcode scan
+  resultCard.style.borderColor = '';
+  resultCard.classList.add('visible');
   document.getElementById('scan-fracs').style.display = 'flex';
   document.getElementById('scan-qty-row').style.display = 'flex';
   document.getElementById('scan-numpad').style.display = 'grid';
@@ -2373,6 +2379,15 @@ function showScanResult(product) {
   document.getElementById('scan-qty').value = '1';
   applyDefaultUnit('scan-unit', product);
   applyCaseOption('scan-unit', product);
+  // Guarantee the qty pad is actually on-screen no matter what fed the scan (camera or
+  // plug-in scanner) or which tab was active. Mirror showUnknownBarcode: force the scan
+  // tab visible, stop any live camera (its feed sits above the pad and would cover it),
+  // hide the camera zone, then scroll the result into view.
+  setMethod('scan', document.getElementById('tab-scan'));
+  stopCamera();
+  const _camZone = document.getElementById('cam-scan-zone');
+  if(_camZone) _camZone.style.display = 'none';
+  setTimeout(() => document.getElementById('scan-result')?.scrollIntoView({ behavior:'smooth', block:'center' }), 100);
   toast('Scanned: ' + product.name, true);
 }
 
