@@ -5968,10 +5968,12 @@ function buildSalesDepletion(client, session, prodMap) {
 function computeVariances(client) {
   const sessions = client.auditSessions || [];
   
-  // Prefer open session first, then most recent session with purchases, then just last session
+  // Prefer the open session; otherwise the LATEST session by order (sessions are
+  // pushed chronologically on finalise, so the last element is the most recent).
+  // A freshly finalised count with no invoices imported yet must NOT be shadowed
+  // by an older session that merely happened to carry purchases (r36).
   const openSession = sessions.find(s => s.status === 'open');
-  const sessionWithPurchases = [...sessions].reverse().find(s => s.purchases && Object.keys(s.purchases).length > 0);
-  const session = openSession || sessionWithPurchases || (sessions.length ? sessions[sessions.length - 1] : null);
+  const session = openSession || (sessions.length ? sessions[sessions.length - 1] : null);
   
   // If no session at all, check if there are deliveries we can show
   const deliveries = client.deliveries || [];
@@ -11791,7 +11793,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r34';
+const APP_VERSION = '2026-06-10-r36';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
