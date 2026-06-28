@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r41';
+const APP_VERSION = '3.8-2026-06-10-r42';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -2609,7 +2609,11 @@ function addScannedItem() {
 function searchProducts(q) {
   const res = document.getElementById('search-results');
   if(!q.trim()){ res.classList.remove('visible'); return; }
-  const matches = PRODUCTS.filter(p=>p.name.toLowerCase().includes(q.toLowerCase()));
+  // Permissive multi-word match: every whitespace-separated token must appear
+  // somewhere in the name (order-independent). Fixes "Ste Li" → "Steinlager Light"
+  // and the spacebar-collapses-results bug. (p.name||'') guards nameless products (r42).
+  const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = PRODUCTS.filter(p => { const name=(p.name||'').toLowerCase(); return tokens.every(t=>name.includes(t)); });
 
   res.classList.add('visible');
 
@@ -2668,7 +2672,9 @@ function addSearchItem() {
 function weightSearch(q) {
   const res = document.getElementById('weight-results');
   if(!q.trim()){ res.classList.remove('visible'); return; }
-  const matches = PRODUCTS.filter(p=>p.name.toLowerCase().includes(q.toLowerCase()) && p.tareG > 0);
+  // Same permissive token match as searchProducts, but only weighable products (r42).
+  const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = PRODUCTS.filter(p => { const name=(p.name||'').toLowerCase(); return tokens.every(t=>name.includes(t)) && p.tareG > 0; });
   if(!matches.length){ res.classList.remove('visible'); return; }
   res.classList.add('visible');
   res.innerHTML = matches.slice(0,5).map(p=>`
