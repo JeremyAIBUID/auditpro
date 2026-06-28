@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<!-- AuditPro Mobile v3.7 - build 2026-06-10-r22 (Etekcity ENS-L221S protocol: 17-byte weight decode + byte[1] stable flag) -->
+<!-- AuditPro Mobile v3.8 - build 2026-06-10-r40 (Weigh screen shows GROSS prominently to match the scale; net stored unchanged) -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r39';
+const APP_VERSION = '3.8-2026-06-10-r40';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -2779,7 +2779,7 @@ function updateScaleNet() {
   }
   const net       = Math.max(0, gross - tare);
   const stableTag = weighStable ? ' <span style="color:var(--green);">● stable</span>' : '';
-  setNetText(`Net <strong style="color:var(--green);font-size:20px;">${Math.round(net)}g</strong> <span style="color:var(--text3);">(gross ${Math.round(gross)}g − tare ${tare}g)</span>${stableTag}`);
+  setNetText(`Gross <strong style="color:var(--accent);font-size:22px;">${Math.round(gross)}g</strong> <span style="color:var(--text3);">(net ${Math.round(net)}g · tare ${tare}g)</span>${stableTag}`);
 }
 
 function simulateWeight() {
