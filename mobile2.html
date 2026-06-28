@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r40';
+const APP_VERSION = '3.8-2026-06-10-r41';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -1456,16 +1456,30 @@ function updateCountUI() {
   const empty = document.getElementById('count-empty');
   if(!rows.length){ body.innerHTML=''; empty.style.display='block'; return; }
   empty.style.display='none';
-  body.innerHTML = rows.map((r,i)=>`
+  body.innerHTML = rows.map((r,i)=>{
+    // Weighed entries store qty as NET grams. Display GROSS (net + tareG) as the
+    // main number with net alongside — matching the r40 weigh screen. Display only:
+    // qty stays net for the CSV/sync/desktop pipeline (r41).
+    const weighed = r.method==='weight' || (r.unit||'').toLowerCase()==='g';
+    let qtyHtml;
+    if(weighed){
+      const net   = Number(r.qty)||0;
+      const tare  = Number(PRODUCTS.find(p=>p.name===r.name)?.tareG)||0;
+      qtyHtml = `${Math.round(net+tare)}g <span style="font-size:11px;color:var(--text3);">(net ${Math.round(net)}g)</span>`;
+    } else {
+      qtyHtml = `${parseFloat(r.qty)%1===0?r.qty:parseFloat(r.qty).toFixed(2)} ${r.unit}`;
+    }
+    return `
     <div class="item-row" onclick="editCountItem(${i})" style="cursor:pointer;">
       <div class="item-cat-dot" style="background:${CAT_COLORS[r.cat]||'#9b9890'};"></div>
       <div class="item-info">
         <div class="item-name">${r.name}</div>
         <div class="item-sub">${r.cat} · ${r.method==='weight'?'weighed':r.method} · ${currentArea}</div>
       </div>
-      <div class="item-qty">${parseFloat(r.qty)%1===0?r.qty:parseFloat(r.qty).toFixed(2)} ${r.unit}</div>
+      <div class="item-qty">${qtyHtml}</div>
       <button class="item-del" onclick="event.stopPropagation();removeItem(${i})">×</button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function editCountItem(idx) {
@@ -3224,6 +3238,14 @@ function showReview() {
       const product = PRODUCTS.find(p=>p.name===r.name);
       const lastC   = product?.lastCount;
       const current = parseFloat(r.qty);
+      // Weighed rows show GROSS (net + tareG) as the main number with net alongside —
+      // matching the r40 weigh screen. Display only: qty stays net for sync (r41).
+      const weighed = r.method==='weight' || (r.unit||'').toLowerCase()==='g';
+      const tare    = Number(product?.tareG)||0;
+      const net     = Number(current)||0;
+      const curHtml = weighed
+        ? `${Math.round(net+tare)}g <span style="font-size:11px;color:var(--text3);">(net ${Math.round(net)}g)</span>`
+        : `${current%1===0?current:current.toFixed(2)} ${r.unit}`;
       const lastHtml = lastC
         ? `<span style="font-size:11px;color:var(--text3);font-family:var(--font-mono);margin-left:6px;">· prev: ${lastC.qty} ${lastC.unit}</span>`
         : '';
@@ -3234,7 +3256,7 @@ function showReview() {
           <div class="review-row-sub">${r.cat} · ${r.method}${lastHtml}</div>
         </div>
         <div class="review-row-qty">
-          <div class="review-row-current">${current%1===0?current:current.toFixed(2)} ${r.unit}</div>
+          <div class="review-row-current">${curHtml}</div>
         </div>
         <button class="review-edit-btn" onclick="editReviewItem('${area}',${idx})">Edit</button>
       </div>`;
