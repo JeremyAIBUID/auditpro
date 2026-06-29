@@ -701,7 +701,7 @@
         </div>
 
         <!-- Combined count preview -->
-        <div class="card" style="margin-top:16px;" id="combined-count-card" style="display:none;">
+        <div class="card" style="margin-top:16px;display:none;" id="combined-count-card">
           <div class="card-header">
             <span class="card-title">Combined count — all sources</span>
             <span class="chip chip-amber" id="combined-chip">Pending review</span>
@@ -711,7 +711,7 @@
             <tbody id="combined-body"></tbody></table>
           </div>
           <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;">
-            <button class="btn btn-primary" style="font-size:12px;" onclick="showStocktakeReview()">Review & finalise →</button>
+            <button class="btn btn-primary" id="combined-review-btn" style="font-size:12px;" onclick="showStocktakeReview()">Review & finalise →</button>
           </div>
         </div>
       </div>
@@ -10647,6 +10647,17 @@ function rejectMobileCount() {
   if(body)  body.innerHTML = `<div style="text-align:center;padding:24px 0;color:var(--text3);"><p style="font-size:13px;color:var(--red);">Count rejected — request a new sync from the mobile app.</p></div>`;
   if(badge) { badge.textContent = ''; badge.style.display = 'none'; }
   if(rejectBtn) rejectBtn.style.display = 'none';
+  // r46 — a rejected count isn't finalised: hide the combined card entirely and
+  // reset the chip/button back to the pending state, leaving the page ready for a
+  // fresh count (unlike finalise, which relabels the card to "✓ Finalised").
+  const combinedCard = document.getElementById('combined-count-card');
+  if(combinedCard) combinedCard.style.display = 'none';
+  const combinedBody = document.getElementById('combined-body');
+  if(combinedBody) combinedBody.innerHTML = '';
+  const combinedChip = document.getElementById('combined-chip');
+  if(combinedChip) { combinedChip.textContent = 'Pending review'; combinedChip.classList.remove('chip-green'); combinedChip.classList.add('chip-amber'); }
+  const reviewBtn = document.getElementById('combined-review-btn');
+  if(reviewBtn) reviewBtn.style.display = '';
   updateSessionLines();
   showPersistToast('Mobile count rejected');
 }
@@ -10679,6 +10690,12 @@ function renderMobileCounts() {
   // Build combined view
   const combinedCard = document.getElementById('combined-count-card');
   combinedCard.style.display = 'block';
+  // r46 — a fresh count is pending review again: reset chip + restore the review
+  // button (a prior finalise may have left them in the "✓ Finalised" state).
+  const combinedChip = document.getElementById('combined-chip');
+  if(combinedChip) { combinedChip.textContent = 'Pending review'; combinedChip.classList.remove('chip-green'); combinedChip.classList.add('chip-amber'); }
+  const reviewBtn = document.getElementById('combined-review-btn');
+  if(reviewBtn) reviewBtn.style.display = '';
   buildCombinedTable();
 }
 
@@ -10916,6 +10933,14 @@ function clearStagedCount() {
     </div>`;
   if(badge) { badge.textContent = ''; badge.style.display = 'none'; }
   if(rejectBtn) rejectBtn.style.display = 'none';
+  // r46 — finalise consumed this count: relabel the combined card to a finalised
+  // confirmation (positive feedback) instead of leaving the amber "Pending review"
+  // chip + an actionable "Review & finalise →" button. Card stays visible so the
+  // page confirms the count is done; the button is hidden so it can't be re-clicked.
+  const combinedChip = document.getElementById('combined-chip');
+  if(combinedChip) { combinedChip.textContent = '✓ Finalised'; combinedChip.classList.remove('chip-amber'); combinedChip.classList.add('chip-green'); }
+  const reviewBtn = document.getElementById('combined-review-btn');
+  if(reviewBtn) reviewBtn.style.display = 'none';
   updateSessionLines();
 }
 // ─── STOCKTAKE EXCEL EXPORT ──────────────────────
@@ -11896,7 +11921,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r45';
+const APP_VERSION = '2026-06-10-r46';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
