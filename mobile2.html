@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<!-- AuditPro Mobile v3.8 - build 2026-06-10-r40 (Weigh screen shows GROSS prominently to match the scale; net stored unchanged) -->
+<!-- AuditPro Mobile v3.8 - build 2026-06-10-r43 (Never overwrite/wipe a barcode the user set; preserve existing barcode + user-set fields on name-merge) -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r42';
+const APP_VERSION = '3.8-2026-06-10-r43';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -1263,7 +1263,21 @@ async function pushProductToSupabase(prod) {
     const name = prod.n || prod.name || '';
     const exists = clientData.products.findIndex(p=>(p.n||p.name||'').toLowerCase()===name.toLowerCase());
     if(exists >= 0) {
-      clientData.products[exists] = { ...clientData.products[exists], ...prod };
+      const cur = clientData.products[exists];
+      const merged = { ...cur, ...prod };
+      // r43 — never destroy a barcode the user set on desktop. If the existing venue
+      // product already has a barcode, keep it as primary regardless of what this mobile
+      // add carries (blank, or a different code). Multi-barcode union is r44; for now the
+      // rule is simply "never overwrite an existing barcode".
+      if(cur.barcode) merged.barcode = cur.barcode;
+      // Likewise, a blank mobile value must not wipe other user-set fields.
+      ['costPrice','density','soldAs'].forEach(f => {
+        const v = prod[f];
+        const incomingBlank = v === undefined || v === null || v === '' || v === 0;
+        const existingSet    = cur[f] !== undefined && cur[f] !== null && cur[f] !== '' && cur[f] !== 0;
+        if(incomingBlank && existingSet) merged[f] = cur[f];
+      });
+      clientData.products[exists] = merged;
     } else {
       clientData.products.push(prod);
     }

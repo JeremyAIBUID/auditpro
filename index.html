@@ -2384,10 +2384,20 @@ function getMasterProduct(name) {
 
 function addToMasterCatalogue(prod) {
   const existing = getMasterProduct(prod.n || prod.name);
+  // toSave is the object actually written to the DB. For an existing row this is the
+  // merged master row itself (full, protected) — NOT the partial `prod` — because the
+  // upsert replaces the whole `data` JSONB; writing the raw partial would wipe fields.
+  let toSave;
   if(existing) {
-    Object.assign(existing, { cat: prod.cat, subcat: prod.subcat, barcode: prod.barcode, unitVol: prod.unitVol, serveVol: prod.serveVol, tareG: prod.tareG, density: prod.density });
+    Object.assign(existing, { cat: prod.cat, subcat: prod.subcat, unitVol: prod.unitVol, serveVol: prod.serveVol, tareG: prod.tareG, density: prod.density });
+    // r43 — never wipe a real master barcode with a blank/missing one. The invoice
+    // master-write loop passes barcode:'' for every line, which previously erased the
+    // catalogue barcode on every import. Only update when a non-empty barcode is given.
+    if(prod.barcode) existing.barcode = prod.barcode;
+    toSave = existing;
   } else {
-    masterProducts.push({ ...prod });
+    toSave = { ...prod };
+    masterProducts.push(toSave);
   }
   if(!DB._ready) return;
   const slug = masterSlug(prod.n||prod.name||'');
@@ -2401,7 +2411,7 @@ function addToMasterCatalogue(prod) {
   fetch(`${SUPABASE_CONFIG.url}/rest/v1/ap_master_products?on_conflict=slug`, {
     method: 'POST',
     headers: { ...headers, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify({ slug, data: prod })
+    body: JSON.stringify({ slug, data: toSave })
   }).then(r => {
     if(!r.ok) console.warn('Master catalogue save status:', r.status);
   }).catch(e => console.warn('Master save error:', e));
@@ -11812,7 +11822,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r38';
+const APP_VERSION = '2026-06-10-r43';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
