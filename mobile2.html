@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<!-- AuditPro Mobile v3.8 - build 2026-06-10-r43 (Never overwrite/wipe a barcode the user set; preserve existing barcode + user-set fields on name-merge) -->
+<!-- AuditPro Mobile v3.8 - build 2026-06-10-r44 (Multi-barcode: store several barcodes per product, any matches on scan; merges UNION barcodes) -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r43';
+const APP_VERSION = '3.8-2026-06-10-r44';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -1219,6 +1219,8 @@ async function loadProductsFromSupabase() {
           unitVol:   p.unitVol || p.vol || 750,
           serveVol:  p.serveVol || 30,
           barcode:   p.barcode || '',
+          barcodes:  p.barcodes || (p.barcode ? [p.barcode] : []),  // r44 — multi-barcode carry-through
+          caseBarcode: p.caseBarcode || '',
           tareG:     p.tareG || 0,
           fullG:     p.fullG || 0,
           fullMl:    p.unitVol || p.vol || 750,
@@ -1265,11 +1267,15 @@ async function pushProductToSupabase(prod) {
     if(exists >= 0) {
       const cur = clientData.products[exists];
       const merged = { ...cur, ...prod };
-      // r43 — never destroy a barcode the user set on desktop. If the existing venue
-      // product already has a barcode, keep it as primary regardless of what this mobile
-      // add carries (blank, or a different code). Multi-barcode union is r44; for now the
-      // rule is simply "never overwrite an existing barcode".
-      if(cur.barcode) merged.barcode = cur.barcode;
+      // r44 — multi-barcode UNION: scanning a variant for an existing product ADDS it to
+      // the product's barcode list rather than overwriting. Union cur ∪ prod (both primary
+      // strings + arrays + case codes), keeping the existing primary string if it has one
+      // (extends the r43 rule "never destroy a barcode the user set").
+      const mergedBarcodes = unionBarcodes(cur, prod);
+      if(mergedBarcodes.length) {
+        merged.barcodes = mergedBarcodes;
+        merged.barcode  = cur.barcode || mergedBarcodes[0];
+      }
       // Likewise, a blank mobile value must not wipe other user-set fields.
       ['costPrice','density','soldAs'].forEach(f => {
         const v = prod[f];
@@ -2104,11 +2110,30 @@ function handleBarcodeKey(e) {
   }, 200);
 }
 
+// ─── MULTI-BARCODE (r44) ─────────────────────────
+// A product can carry several barcodes (variants, repacks, case codes). p.barcode stays
+// the PRIMARY string; p.barcodes[] holds the full list. productBarcodes() returns the
+// deduped, normalised (leading-zeros stripped) set of EVERY code a product matches on so
+// scanning any variant hits. Legacy products with only p.barcode work as one-element lists.
+function normalizeBarcode(code) { return String(code==null?'':code).trim().replace(/^0+/,''); }
+function productBarcodes(p) {
+  const out = [];
+  if(Array.isArray(p.barcodes)) out.push(...p.barcodes);
+  if(p.barcode) out.push(p.barcode);
+  if(p.caseBarcode) out.push(p.caseBarcode);
+  return [...new Set(out.map(b => normalizeBarcode(b)).filter(Boolean))];
+}
+// Union two+ products' barcode lists into a deduped, normalised array (primary first).
+function unionBarcodes(...prods) {
+  const out = [];
+  for(const p of prods) { if(p) out.push(...productBarcodes(p)); }
+  return [...new Set(out.filter(Boolean))];
+}
+
 function processBarcode(barcode) {
-  // Loose match — compare as strings, strip leading zeros
-  const normalise = b => String(b||'').trim().replace(/^0+/, '') || '0';
-  const bc = normalise(barcode);
-  const product = PRODUCTS.find(p => p.barcode && normalise(p.barcode) === bc);
+  // Loose match — r44: match against ANY of the product's barcodes, normalised
+  const bc = normalizeBarcode(barcode);
+  const product = PRODUCTS.find(p => productBarcodes(p).includes(bc));
   if (product) {
     showScanResult(product);
   } else {
@@ -3395,9 +3420,9 @@ function autoLogWeightAndReset(product) {
 // Priority: handoff mode → fast mode → normal
 const _origProcessBarcode = processBarcode;
 processBarcode = function(barcode) {
-  const normalise = b => String(b||'').trim().replace(/^0+/, '') || '0';
-  const bc = normalise(barcode);
-  const product = PRODUCTS.find(p => p.barcode && normalise(p.barcode) === bc);
+  // r44 — match against ANY of the product's barcodes, normalised
+  const bc = normalizeBarcode(barcode);
+  const product = PRODUCTS.find(p => productBarcodes(p).includes(bc));
 
   // 1. Handoff mode (scan → weigh → scan)
   if (handoffMode) {

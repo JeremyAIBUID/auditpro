@@ -2205,8 +2205,8 @@
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Barcode (EAN/UPC)</label>
-        <input type="text" id="pf-barcode" placeholder="e.g. 9300675000123" style="font-family:var(--font-mono);">
+        <label>Barcode(s) (EAN/UPC)</label>
+        <input type="text" id="pf-barcode" placeholder="Barcode(s) — comma-separated for multiple" style="font-family:var(--font-mono);">
       </div>
       <div class="form-group">
         <label>Supplier code</label>
@@ -2378,6 +2378,28 @@ function masterSlug(name) {
   return (name||'').toLowerCase().replace(/[^a-z0-9]/g,'_');
 }
 
+// ─── MULTI-BARCODE (r44) ─────────────────────────
+// A product can carry several barcodes (variants, repacks, case codes). p.barcode stays
+// the PRIMARY string for display/CSV/legacy; p.barcodes[] holds the full list (primary
+// first). productBarcodes() returns the deduped, normalised (leading-zeros stripped) set
+// of EVERY code a product matches on — array + primary + caseBarcode — so a scan of any
+// variant hits. Legacy products with only p.barcode work as a one-element list (no migration).
+function normalizeBarcode(code) { return String(code==null?'':code).trim().replace(/^0+/,''); }
+function productBarcodes(p) {
+  const out = [];
+  if(Array.isArray(p.barcodes)) out.push(...p.barcodes);
+  if(p.barcode) out.push(p.barcode);
+  if(p.caseBarcode) out.push(p.caseBarcode);
+  return [...new Set(out.map(b => normalizeBarcode(b)).filter(Boolean))];
+}
+// Union two products' barcode lists into a deduped, normalised array (primary first).
+// Used by every merge path so adding a variant never drops the originals.
+function unionBarcodes(...prods) {
+  const out = [];
+  for(const p of prods) { if(p) out.push(...productBarcodes(p)); }
+  return [...new Set(out.filter(Boolean))];
+}
+
 function getMasterProduct(name) {
   const slug = masterSlug(name);
   if(!slug) return undefined;
@@ -2394,8 +2416,13 @@ function addToMasterCatalogue(prod) {
     Object.assign(existing, { cat: prod.cat, subcat: prod.subcat, unitVol: prod.unitVol, serveVol: prod.serveVol, tareG: prod.tareG, density: prod.density });
     // r43 — never wipe a real master barcode with a blank/missing one. The invoice
     // master-write loop passes barcode:'' for every line, which previously erased the
-    // catalogue barcode on every import. Only update when a non-empty barcode is given.
-    if(prod.barcode) existing.barcode = prod.barcode;
+    // catalogue barcode on every import. r44 — UNION the two barcode lists so adding a
+    // variant never drops existing codes; keep the existing primary string if it has one.
+    const mergedBarcodes = unionBarcodes(existing, prod);
+    if(mergedBarcodes.length) {
+      existing.barcodes = mergedBarcodes;
+      existing.barcode  = existing.barcode || mergedBarcodes[0];
+    }
     toSave = existing;
   } else {
     toSave = { ...prod };
@@ -4884,7 +4911,8 @@ function editProduct(idx) {
   document.getElementById('prod-save-btn').textContent    = 'Save changes';
   // Populate all fields
   document.getElementById('pf-name').value          = p.n || p.name || '';
-  document.getElementById('pf-barcode').value        = p.barcode || '';
+  // r44 — show every barcode (array, fallback to legacy single) comma-joined for editing.
+  document.getElementById('pf-barcode').value        = (Array.isArray(p.barcodes) && p.barcodes.length ? p.barcodes : (p.barcode ? [p.barcode] : [])).join(', ');
   document.getElementById('pf-unitvol').value        = p.unitVol || '';
   document.getElementById('pf-servevol').value       = p.serveVol || '';
   document.getElementById('pf-tareg').value          = p.tareG || '';
@@ -5167,6 +5195,11 @@ async function saveProduct() {
   const soldAs   = document.getElementById('pf-soldas')?.value || 'Bottles';
   const caseSize = soldAs === 'Cases' ? (parseInt(document.getElementById('pf-casesize')?.value)||null) : null;
   const caseBc   = soldAs === 'Cases' ? (document.getElementById('pf-casebarcode')?.value.trim()||'') : '';
+  // r44 — multi-barcode: the pf-barcode field accepts several codes (comma/newline
+  // separated). Split into a trimmed, non-empty list; barcodes[0] stays the PRIMARY
+  // string for display/CSV/legacy backward-compat. caseBarcode stays separate.
+  const barcodeList = (document.getElementById('pf-barcode').value || '')
+    .split(/[\n,]+/).map(b => b.trim()).filter(Boolean);
 
   // Optional named serve sizes — read from the editable rows. Defaults to [] when
   // none added. Does NOT replace serveVol (the single default/fallback serve).
@@ -5179,7 +5212,8 @@ async function saveProduct() {
     name:         name,
     cat,
     subcat:       document.getElementById('pf-subcat').value,
-    barcode:      document.getElementById('pf-barcode').value.trim(),
+    barcode:      barcodeList[0] || '',
+    barcodes:     barcodeList,
     supplierCode: document.getElementById('pf-suppliercode')?.value.trim() || '',
     soldAs,
     caseSize,
@@ -5214,12 +5248,18 @@ async function saveProduct() {
     }
     c.products[prodEditIdx] = prod;
     addToMasterCatalogue(prod);
-    const syncFields = ['cat','subcat','barcode','unitVol','serveVol','tareG','fullG','density','soldAs','supplier'];
+    // r44 — 'barcode'/'barcodes' are deliberately NOT in syncFields: a cross-venue edit
+    // must never clobber another venue's barcodes. They are UNIONed explicitly below.
+    const syncFields = ['cat','subcat','unitVol','serveVol','tareG','fullG','density','soldAs','supplier'];
     for(const otherClient of clients) {
       if(clientSlug(otherClient) === clientSlug(c)) continue;
       const otherIdx = (otherClient.products||[]).findIndex(p => (p.n||p.name||'') === (prod.n||prod.name||''));
       if(otherIdx >= 0) {
         syncFields.forEach(f => { if(prod[f] !== undefined) otherClient.products[otherIdx][f] = prod[f]; });
+        // Union barcode lists so neither venue loses codes the other already has.
+        const op = otherClient.products[otherIdx];
+        const mergedBarcodes = unionBarcodes(op, prod);
+        if(mergedBarcodes.length) { op.barcodes = mergedBarcodes; op.barcode = op.barcode || mergedBarcodes[0]; }
         await dbSaveProducts(otherClient);
       }
     }
@@ -8007,7 +8047,7 @@ function parsePOSFormat(lines, headerIdx, filename) {
     const c = activeClient;
     const prod = (c?.products||[]).find(p =>
       (p.n||p.name||'').toLowerCase() === item.toLowerCase() ||
-      (p.barcode||'') === itemId ||
+      (itemId && productBarcodes(p).includes(normalizeBarcode(itemId))) ||  // r44 — any barcode
       (p.supplierCode||'') === itemId
     );
     const costPrice = prod?.costPrice || 0;
@@ -8280,7 +8320,7 @@ function matchPOSNameToProduct(posName, plu, products) {
 
   // 1. Exact PLU match
   if(plu) {
-    const byPLU = products.find(p => p.barcode === plu || p.supplierCode === plu);
+    const byPLU = products.find(p => (plu && productBarcodes(p).includes(normalizeBarcode(plu))) || p.supplierCode === plu);  // r44 — any barcode
     if(byPLU) return byPLU.n || byPLU.name;
   }
 
@@ -9395,8 +9435,8 @@ function renderInvoiceResults(id, invoice, filename) {
 
     // 1. Barcode match (strongest)
     if(barcode) {
-      const bc = String(barcode).trim().replace(/^0+/,'');
-      const bm = (c?.products||[]).find(p => p.barcode && String(p.barcode).replace(/^0+/,'') === bc);
+      const bc = normalizeBarcode(barcode);          // r44 — any-barcode match
+      const bm = (c?.products||[]).find(p => productBarcodes(p).includes(bc));
       if(bm) return bm;
     }
 
@@ -9523,8 +9563,8 @@ function openInvoiceReviewModal(id) {
     // Barcode match first
     let existing = null;
     if(item.barcode) {
-      const bc = String(item.barcode).trim().replace(/^0+/,'');
-      existing = (c?.products||[]).find(p => p.barcode && String(p.barcode).replace(/^0+/,'') === bc);
+      const bc = normalizeBarcode(item.barcode);     // r44 — any-barcode match
+      existing = (c?.products||[]).find(p => productBarcodes(p).includes(bc));
     }
     if(!existing) {
       const nn = norm(item.name||'');
@@ -9990,8 +10030,8 @@ function applyInvoiceToProducts(id) {
       const iName = (item.name||'').toLowerCase();
       // Exact name match
       if(pName === cName || pName === iName) return true;
-      // Barcode match
-      if(p.barcode && item.barcode && p.barcode === item.barcode) return true;
+      // Barcode match — r44: any of the product's barcodes, normalised
+      if(item.barcode && productBarcodes(p).includes(normalizeBarcode(item.barcode))) return true;
       // Partial name match (invoice name contains product name or vice versa)
       if(cName.length > 5 && (pName.includes(cName) || cName.includes(pName))) return true;
       return false;
@@ -11337,10 +11377,8 @@ function processDesktopBarcode(code) {
   const c = activeClient;
   // Search products by barcode
   const allProds = [...(c?.products||[]), ...masterProducts];
-  const prod = allProds.find(p =>
-    (p.barcode && p.barcode === code) ||
-    (p.caseBarcode && p.caseBarcode === code)
-  );
+  // r44 — match against ANY of the product's barcodes (incl. case barcode), normalised.
+  const prod = allProds.find(p => productBarcodes(p).includes(normalizeBarcode(code)));
 
   if(prod) {
     // Known product — beep success, add to count
@@ -11921,7 +11959,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r46';
+const APP_VERSION = '2026-06-10-r47';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
