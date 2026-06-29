@@ -553,7 +553,7 @@
         </div>
         <div style="display:flex;gap:8px;flex-shrink:0;">
           <button class="btn btn-secondary" style="font-size:12px;padding:7px 14px;" onclick="openModal('mobileConnectModal')">📱 Connect phone</button>
-          <button class="btn btn-secondary" style="font-size:12px;padding:7px 14px;" onclick="openModal('importCountModal')">⬇ Import count</button>
+          <button class="btn btn-secondary" style="font-size:12px;padding:7px 14px;" onclick="openImportCount()">⬇ Import count</button>
           <button class="btn btn-primary" style="font-size:12px;padding:7px 14px;" onclick="showStocktakeReview()">Review & finalise</button>
         </div>
       </div>
@@ -694,7 +694,7 @@
               </div>
             </div>
             <div id="mobile-counts-actions" style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;">
-              <button class="btn btn-secondary" style="flex:1;font-size:12px;" onclick="openModal('importCountModal')">⬇ Import count by code</button>
+              <button class="btn btn-secondary" style="flex:1;font-size:12px;" onclick="openImportCount()">⬇ Import count by code</button>
               <button class="btn btn-secondary" id="reject-count-btn" style="flex:1;font-size:12px;color:var(--red);border-color:rgba(240,80,80,0.3);display:none;" onclick="rejectMobileCount()">✕ Reject count</button>
             </div>
           </div>
@@ -1732,6 +1732,8 @@
       </div>
       <input type="file" id="count-csv-input" accept=".csv" style="display:none;" onchange="importFromCSV(this.files[0])">
     </div>
+
+    <div id="imp-imported-hint"></div>
 
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal('importCountModal')">Cancel</button>
@@ -10520,8 +10522,12 @@ async function importByCode() {
     const data = await res.json();
     if(data && data.length > 0) {
       const record = data[0];
+      const already = (activeClient?.importedCounts||[]).some(x => x.code === code);
       importFromCSVString(record.csv_data);
-      showPersistToast(`✓ Count imported — ${record.lines} lines from ${record.client}`);
+      markCountImported(code, record.lines);
+      showPersistToast(already
+        ? `↻ Re-imported ${code} — ${record.lines} lines (already imported earlier)`
+        : `✓ Count imported — ${record.lines} lines from ${record.client}`);
       return;
     } else {
       showPersistToast('Code not found in cloud — try CSV upload');
@@ -10530,6 +10536,49 @@ async function importByCode() {
     console.warn('Supabase fetch failed:', e);
     showPersistToast('Cloud fetch failed — try CSV upload');
   }
+}
+
+// r45 — record that a mobile-count code was imported so the import screen can label it
+// "Imported" and the user knows it was already consumed. Stored on the client object
+// (ap_clients.data JSONB) — schema-safe, no ap_mobile_counts column needed. Re-import is
+// still allowed (re-stages, replacing mobileRows) so a mistaken finalise can be recovered.
+function markCountImported(code, lines) {
+  const c = activeClient;
+  if(!c || !code) return;
+  if(!Array.isArray(c.importedCounts)) c.importedCounts = [];
+  const at = new Date().toISOString();
+  const existing = c.importedCounts.find(x => x.code === code);
+  if(existing) { existing.at = at; existing.lines = lines; }
+  else c.importedCounts.push({ code, at, lines });
+  dbSaveClient(c);
+}
+
+// Open the import modal, refreshing the "previously imported" hint first.
+function openImportCount() {
+  renderImportedCountsHint();
+  openModal('importCountModal');
+}
+
+// Render the list of codes already imported for the active client. There is no
+// server-side list of ap_mobile_counts rows in the desktop app, so this is driven off
+// the client-side importedCounts record. Codes can still be re-entered above to re-import.
+function renderImportedCountsHint() {
+  const el = document.getElementById('imp-imported-hint');
+  if(!el) return;
+  const list = (activeClient?.importedCounts||[]).slice()
+    .sort((a,b)=>(b.at||'').localeCompare(a.at||''));
+  if(!list.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div style="border-top:1px solid var(--border);margin-top:16px;padding-top:12px;">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:8px;">Previously imported</div>
+    ${list.map(x=>{
+      const d = x.at ? new Date(x.at).toLocaleDateString('en-NZ',{day:'numeric',month:'short'}) : '';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:12px;">
+        <span style="color:var(--text2);"><span style="font-family:var(--font-mono);">${x.code}</span> · ${x.lines||0} lines${d?` · ${d}`:''}</span>
+        <span style="font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--green);border:1px solid rgba(91,227,180,0.4);border-radius:20px;padding:1px 9px;">Imported</span>
+      </div>`;
+    }).join('')}
+    <p style="font-size:11px;color:var(--text3);margin-top:8px;">Re-entering a code above re-imports it (replaces the staged count) — use this to recover from a mistaken finalise.</p>
+  </div>`;
 }
 
 function importFromCSVString(csvText) {
@@ -10842,7 +10891,32 @@ function finaliseStocktake(){
   }
   dbSaveClient(c);
   updateAuditPeriodCtx(c);
+  // r45 — this finalise consumed the staged count: clear it (desktop rows + mobile
+  // staging + UI) so it doesn't linger across SPA navigation and can't be re-aggregated
+  // into a second session (double-count). The session + variance are already persisted
+  // above; only clear on this successful path (the only earlier exit is the !c guard).
+  clearStagedCount();
   navigate('variances');
+}
+
+// Reset the staged stocktake count to empty — desktop table, mobile staging, and the
+// "Received from mobile" card UI (restores its original empty-state markup). Mirrors
+// rejectMobileCount()'s reset and is reused by finaliseStocktake() after a finalise.
+function clearStagedCount() {
+  stkSession.mobileRows = [];
+  const deskBody  = document.getElementById('stocktake-body');
+  if(deskBody) deskBody.innerHTML = '';
+  const body      = document.getElementById('mobile-counts-body');
+  const badge     = document.getElementById('mobile-received-badge');
+  const rejectBtn = document.getElementById('reject-count-btn');
+  if(body) body.innerHTML = `<div style="text-align:center;padding:24px 0;color:var(--text3);">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:32px;height:32px;margin-bottom:10px;opacity:0.3;"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>
+      <p style="font-size:13px;color:var(--text2);">No mobile counts received yet</p>
+      <p style="font-size:12px;margin-top:4px;">Counts will appear here when the auditor syncs from the phone app.</p>
+    </div>`;
+  if(badge) { badge.textContent = ''; badge.style.display = 'none'; }
+  if(rejectBtn) rejectBtn.style.display = 'none';
+  updateSessionLines();
 }
 // ─── STOCKTAKE EXCEL EXPORT ──────────────────────
 function exportStocktakeExcel() {
@@ -11822,7 +11896,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r43';
+const APP_VERSION = '2026-06-10-r45';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
