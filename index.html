@@ -11502,7 +11502,16 @@ function simulateScan(){
 function addStockItem(){
   const p=document.getElementById('manual-product').value.trim();
   if(!p){alert('Please enter a product name or barcode.');return;}
-  addRow(p,document.getElementById('manual-location').value,document.getElementById('manual-qty').value||'1',document.getElementById('manual-unit').value);
+  // r48 — the field accepts "Name or barcode". Try to resolve the typed value as a barcode
+  // first (any of a product's primary/secondary/case codes via the r44 productBarcodes
+  // helper) across venue + master products. On a hit, add the matched PRODUCT by name and
+  // use its soldAs as the unit; otherwise fall back to treating the input as a literal name.
+  const manualUnit = document.getElementById('manual-unit').value;
+  const hit = [...(activeClient?.products||[]), ...masterProducts]
+    .find(x => productBarcodes(x).includes(normalizeBarcode(p)));
+  const rowName = hit ? (hit.n||hit.name) : p;
+  const rowUnit = hit ? (hit.soldAs||manualUnit) : manualUnit;
+  addRow(rowName,document.getElementById('manual-location').value,document.getElementById('manual-qty').value||'1',rowUnit);
   document.getElementById('manual-product').value='';document.getElementById('manual-qty').value='';
   updateSessionLines();
 }
@@ -11959,7 +11968,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r47';
+const APP_VERSION = '2026-06-10-r48';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
