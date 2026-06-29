@@ -634,7 +634,7 @@
             <div class="card">
               <div class="card-header"><span class="card-title">Manual entry</span></div>
               <div class="card-body">
-                <div class="form-group"><label>Product</label><input type="text" id="manual-product" placeholder="Name or barcode"></div>
+                <div class="form-group"><label>Product</label><input type="text" id="manual-product" placeholder="Name or barcode" onkeydown="if(event.key==='Enter')addStockItem()"></div>
                 <div class="form-row">
                   <div class="form-group"><label>Qty</label><input type="number" id="manual-qty" placeholder="e.g. 3.5"></div>
                   <div class="form-group"><label>Unit</label><select id="manual-unit"><option>Bottles</option><option>Cases</option><option>Kg</option><option>Litres</option><option>Units</option></select></div>
@@ -5195,11 +5195,13 @@ async function saveProduct() {
   const soldAs   = document.getElementById('pf-soldas')?.value || 'Bottles';
   const caseSize = soldAs === 'Cases' ? (parseInt(document.getElementById('pf-casesize')?.value)||null) : null;
   const caseBc   = soldAs === 'Cases' ? (document.getElementById('pf-casebarcode')?.value.trim()||'') : '';
-  // r44 — multi-barcode: the pf-barcode field accepts several codes (comma/newline
-  // separated). Split into a trimmed, non-empty list; barcodes[0] stays the PRIMARY
-  // string for display/CSV/legacy backward-compat. caseBarcode stays separate.
+  // r44 — multi-barcode: the pf-barcode field accepts several codes. r49 — split on any
+  // run of whitespace, commas, semicolons OR hyphens so "123456789 - 987654321" (or a
+  // plain space) becomes two codes instead of one malformed string. Barcodes are numeric,
+  // so strip every non-digit from each token and drop anything left empty. barcodes[0]
+  // stays the PRIMARY string for display/CSV/legacy backward-compat. caseBarcode stays separate.
   const barcodeList = (document.getElementById('pf-barcode').value || '')
-    .split(/[\n,]+/).map(b => b.trim()).filter(Boolean);
+    .split(/[\s,;\-]+/).map(b => b.replace(/\D/g, '')).filter(Boolean);
 
   // Optional named serve sizes — read from the editable rows. Defaults to [] when
   // none added. Does NOT replace serveVol (the single default/fallback serve).
@@ -11502,16 +11504,23 @@ function simulateScan(){
 function addStockItem(){
   const p=document.getElementById('manual-product').value.trim();
   if(!p){alert('Please enter a product name or barcode.');return;}
-  // r48 — the field accepts "Name or barcode". Try to resolve the typed value as a barcode
-  // first (any of a product's primary/secondary/case codes via the r44 productBarcodes
-  // helper) across venue + master products. On a hit, add the matched PRODUCT by name and
-  // use its soldAs as the unit; otherwise fall back to treating the input as a literal name.
+  // r49 — CATALOGUE-ONLY: resolve the typed value against THIS venue's products (not master
+  // — you count what the venue carries) by barcode OR name, and reject anything that isn't a
+  // real product. No more literal-name rows. Resolution priority: (1) barcode (any of the
+  // product's codes via productBarcodes), (2) exact name (case-insensitive), (3) permissive
+  // r42-style token match — every whitespace token must appear in the name; unique match only.
   const manualUnit = document.getElementById('manual-unit').value;
-  const hit = [...(activeClient?.products||[]), ...masterProducts]
-    .find(x => productBarcodes(x).includes(normalizeBarcode(p)));
-  const rowName = hit ? (hit.n||hit.name) : p;
-  const rowUnit = hit ? (hit.soldAs||manualUnit) : manualUnit;
-  addRow(rowName,document.getElementById('manual-location').value,document.getElementById('manual-qty').value||'1',rowUnit);
+  const pool = (activeClient?.products||[]).filter(Boolean);
+  let hit = pool.find(x => productBarcodes(x).includes(normalizeBarcode(p)));
+  if(!hit) hit = pool.find(x => (x.n||x.name||'').toLowerCase() === p.toLowerCase());
+  if(!hit){
+    const toks = p.toLowerCase().split(/\s+/).filter(Boolean);
+    const m = pool.filter(x => { const n=(x.n||x.name||'').toLowerCase(); return toks.every(t=>n.includes(t)); });
+    if(m.length === 1) hit = m[0];
+    else if(m.length > 1){ alert('Multiple products match — be more specific.'); return; }
+  }
+  if(!hit){ alert(`"${p}" isn't in the catalogue. Add it on the Products page first.`); return; }
+  addRow(hit.n||hit.name,document.getElementById('manual-location').value,document.getElementById('manual-qty').value||'1',hit.soldAs||manualUnit);
   document.getElementById('manual-product').value='';document.getElementById('manual-qty').value='';
   updateSessionLines();
 }
@@ -11968,7 +11977,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r48';
+const APP_VERSION = '2026-06-10-r49';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
