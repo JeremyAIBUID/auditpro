@@ -10920,11 +10920,22 @@ function finaliseStocktake(){
   });
   const allRows = [...desktopRows, ...stkSession.mobileRows];
 
-  // Aggregate closing counts per product (sum across areas).
-  // Weighed rows (method 'weight' / unit 'g') carry NET grams — keep each vessel's
-  // grams in weights[] (the durable audit record) instead of summing them as units.
-  // A product may have BOTH a whole-unit count and a weighed open bottle.
-  const closing = {};
+  // r52 — Determine the audit session to EXTEND so post-finalise manual adds ACCUMULATE
+  // into the same period instead of wiping it. Prefer the open session; else extend the
+  // latest session (the period being counted); else (no prior session) create one below.
+  if(!c.auditSessions) c.auditSessions = [];
+  let sess = c.auditSessions.find(s => s.status === 'open')
+          || (c.auditSessions.length ? c.auditSessions[c.auditSessions.length - 1] : null);
+
+  // Aggregate closing counts per product (sum across areas) ON TOP of the target session's
+  // EXISTING closing. Seed from a DEEP CLONE so newly-staged rows add to prior counts and we
+  // never mutate the stored closing before the write-back. clearStagedCount() still wipes the
+  // DOM after finalise, so each staged row is aggregated exactly once (no double-count): prior
+  // counts live in session.closing and the DOM only ever holds NEW un-finalised rows.
+  // Weighed rows (method 'weight' / unit 'g') carry NET grams — each vessel's grams append to
+  // weights[] (the durable audit record). A product may have BOTH a whole-unit count and a
+  // weighed open bottle.
+  const closing = sess && sess.closing ? JSON.parse(JSON.stringify(sess.closing)) : {};
   allRows.forEach(r => {
     const key = r.name;
     if(!closing[key]) closing[key] = { qty:0, unit: r.unit };
@@ -10957,25 +10968,21 @@ function finaliseStocktake(){
     }
   });
 
-  // Find or create the current audit session
-  if(!c.auditSessions) c.auditSessions = [];
-  const today     = new Date().toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'});
-  const existing  = c.auditSessions.find(s => s.status === 'open');
-  let sess;
-  if(existing) {
-    existing.closing    = closing;
-    existing.closeDate  = today;
-    sess = existing;              // keep 'open' until the variance snapshot below
+  // Write the MERGED closing back to the target session (extend the period). When there is
+  // no prior session at all, create the first one. The session is kept 'open' through the
+  // variance snapshot below, then flipped to 'finalised'.
+  const today = new Date().toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'});
+  if(sess) {
+    sess.closing   = closing;
+    sess.closeDate = today;
+    sess.status    = 'open';      // keep 'open' until the variance snapshot below
   } else {
-    // Create a new session from scratch with just closing counts
-    const openDate = c.auditSessions.length
-      ? c.auditSessions[c.auditSessions.length-1].closeDate || today
-      : today;
+    // Create the first session from scratch with just closing counts
     sess = {
       id:        'AUD-' + Date.now(),
       label:     new Date().toLocaleDateString('en-NZ',{month:'long',year:'numeric'}),
       status:    'open',          // flipped to 'finalised' after the snapshot
-      openDate,
+      openDate:  today,
       closeDate:  today,
       periodDays: 30,
       opening:   {}, // no opening data this time — will improve with Supabase
@@ -12035,7 +12042,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r51';
+const APP_VERSION = '2026-06-10-r52';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
