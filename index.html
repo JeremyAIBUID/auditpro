@@ -5763,12 +5763,32 @@ function catColor(cat) {
   const map = {
     'Spirits':    {bg:'rgba(167,139,250,0.15)', text:'#a78bfa'},
     'Beer':       {bg:'rgba(91,156,240,0.15)',  text:'#5b9cf0'},
+    // Draught + bottled beer split sections (variance page) — reuse the PDF
+    // report's REPORT_CAT_COLORS so the pills match the report. (r51)
+    'Draught':              {bg:'rgba(186,117,23,0.15)', text:'#BA7517'},
+    'Beer & Cider Bottles': {bg:'rgba(99,153,34,0.15)',  text:'#639922'},
     'Wine':       {bg:'rgba(240,136,74,0.15)',  text:'#f0884a'},
     'Soft drinks':{bg:'rgba(91,227,180,0.15)',  text:'#5be3b4'},
     'Food':       {bg:'rgba(240,192,64,0.15)',  text:'#f0c040'},
     'Cocktails':  {bg:'rgba(244,114,182,0.15)', text:'#f472b6'},
   };
   return map[cat] || {bg:'rgba(155,152,144,0.15)', text:'#9b9890'};
+}
+
+// Variance-page section key — forks ONLY Beer/Cider into a "Draught" (keg-served)
+// section and a "Beer & Cider Bottles" (bottled/canned) section, mirroring the PDF
+// report's reportCategory rule and isPouredProduct's tolerant keg test. Every other
+// category passes straight through unchanged. Presentation-only — the variance row
+// already carries cat/soldAs/subcat. (r51)
+function varSection(r) {
+  const cat    = r.cat    || '';
+  const subcat = r.subcat || '';
+  const soldAs = r.soldAs || '';
+  if (cat === 'Beer' || cat === 'Cider') {
+    const keg = soldAs === 'Kegs' || /draught|keg/i.test(subcat);
+    return keg ? 'Draught' : 'Beer & Cider Bottles';
+  }
+  return cat;
 }
 
 function varVol(r) {
@@ -6633,18 +6653,21 @@ function renderVarTable() {
   // Render par widget
   renderParWidget(statsRows);
 
-  // Category GP blocks — use statsRows
+  // Category GP blocks — use statsRows. Keyed by varSection() so the mini-cards
+  // split Draught vs Beer & Cider Bottles consistently with the table below. (r51)
   const cats = {};
   statsRows.forEach(r => {
-    if (!cats[r.cat]) cats[r.cat] = {sum:0,count:0};
-    cats[r.cat].sum += r.actualGP; cats[r.cat].count++;
+    const sec = varSection(r);
+    if (!cats[sec]) cats[sec] = {sum:0,count:0};
+    cats[sec].sum += r.actualGP; cats[sec].count++;
   });
   const catCostMap = {};
   statsRows.forEach(r => {
-    if(!catCostMap[r.cat]) catCostMap[r.cat] = 0;
+    const sec = varSection(r);
+    if(!catCostMap[sec]) catCostMap[sec] = 0;
     const varUnits = (parseFloat(r.e)||0) - (parseFloat(r.a)||0);
     // coerce — a missing/'—'/string price must never NaN-poison the category total
-    catCostMap[r.cat] += varUnits * (Number(r.costPrice) || 0);
+    catCostMap[sec] += varUnits * (Number(r.costPrice) || 0);
   });
   const catColors = {Spirits:'#a78bfa',Beer:'#5b9cf0',Wine:'#f0884a','Soft drinks':'#5be3b4',Food:'#f0c040',Cocktails:'#f472b6'};
   document.getElementById('cat-gp-body').innerHTML = Object.entries(cats).map(([cat,d])=>{
@@ -6668,11 +6691,12 @@ function renderVarTable() {
     </div>`;
   }).join('');
 
-  // Group by category, preserving sort order within each group
-  const CAT_ORDER = ['Spirits','Beer','Wine','Soft drinks','Food','Cocktails'];
+  // Group by section, preserving sort order within each group. varSection() forks
+  // Beer/Cider into Draught vs Beer & Cider Bottles; every other cat passes through. (r51)
+  const CAT_ORDER = ['Spirits','Wine','Draught','Beer & Cider Bottles','Soft drinks','Food','Cocktails'];
   const grouped = {};
   rows.forEach(r => {
-    const c = r.cat || 'Other';
+    const c = varSection(r) || 'Other';
     if (!grouped[c]) grouped[c] = [];
     grouped[c].push(r);
   });
@@ -12011,7 +12035,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r50';
+const APP_VERSION = '2026-06-10-r51';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
