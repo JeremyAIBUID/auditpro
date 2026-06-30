@@ -634,7 +634,7 @@
             <div class="card">
               <div class="card-header"><span class="card-title">Manual entry</span></div>
               <div class="card-body">
-                <div class="form-group"><label>Product</label><input type="text" id="manual-product" placeholder="Name or barcode" onkeydown="if(event.key==='Enter')addStockItem()"></div>
+                <div class="form-group"><label>Product</label><input type="text" id="manual-product" placeholder="Name or barcode" oninput="manualProductSearch(this.value)" onfocus="manualProductSearch(this.value)" onkeydown="if(event.key==='Enter')addStockItem()"><div id="manual-product-list" style="display:none;"></div></div>
                 <div class="form-row">
                   <div class="form-group"><label>Qty</label><input type="number" id="manual-qty" placeholder="e.g. 3.5"></div>
                   <div class="form-group"><label>Unit</label><select id="manual-unit"><option>Bottles</option><option>Cases</option><option>Kg</option><option>Litres</option><option>Units</option></select></div>
@@ -9413,6 +9413,40 @@ function filterInvNameList(id, idx, query) {
   }, 100);
 }
 
+// ─── MANUAL STOCKTAKE ENTRY TYPEAHEAD (r50) ──────
+// Live autocomplete under #manual-product. Reuses the SAME r42 token match that
+// addStockItem (r49 catalogue-only) accepts, so every row shown will resolve cleanly.
+// Clicking a row FILLS the field with the canonical name (no auto-add) and focuses qty.
+function manualProductSearch(query) {
+  const listEl  = document.getElementById('manual-product-list');
+  const inputEl = document.getElementById('manual-product');
+  if(!listEl || !inputEl) return;
+  const q = (query||'').toLowerCase().trim();
+  if(!q) { listEl.style.display = 'none'; return; }
+  const pool = (activeClient?.products||[]).filter(Boolean);
+  const toks = q.split(/\s+/).filter(Boolean);
+  const matches = pool.filter(x => { const n=(x.n||x.name||'').toLowerCase(); return toks.every(t=>n.includes(t)); }).slice(0, 8);
+  if(!matches.length) { listEl.style.display = 'none'; return; }
+
+  const rect = inputEl.getBoundingClientRect();
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const openUp = spaceBelow < 220;
+  listEl.style.cssText = `display:block;position:fixed;width:${rect.width}px;left:${rect.left}px;z-index:9999;max-height:180px;overflow-y:auto;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.4);${openUp?`bottom:${window.innerHeight-rect.top}px;top:auto;`:`top:${rect.bottom}px;bottom:auto;`}`;
+
+  listEl.innerHTML = matches.map(p => {
+    const name = (p.n||p.name||'');
+    const safe = name.replace(/'/g,"\\'").replace(/"/g,'&quot;');
+    const cat  = (p.cat||'').replace(/"/g,'&quot;');
+    return `<div onclick="var el=document.getElementById('manual-product');el.value='${safe}';document.getElementById('manual-product-list').style.display='none';document.getElementById('manual-qty').focus();"
+      style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;font-size:13px;color:var(--text);border-bottom:1px solid var(--border);background:var(--bg2);"
+      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='var(--bg2)'"><span>${name}</span><span style="font-size:11px;color:var(--text3);white-space:nowrap;">${cat}</span></div>`;
+  }).join('');
+  setTimeout(() => {
+    const close = (e) => { if(!listEl.contains(e.target) && e.target!==inputEl) { listEl.style.display='none'; document.removeEventListener('click',close); } };
+    document.addEventListener('click', close);
+  }, 100);
+}
+
 function renderInvoiceResults(id, invoice, filename) {
   const c   = activeClient;
   const res = document.getElementById(id+'-results');
@@ -11977,7 +12011,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r49';
+const APP_VERSION = '2026-06-10-r50';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
