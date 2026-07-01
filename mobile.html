@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r44';
+const APP_VERSION = '3.8-2026-06-10-r53';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -16,6 +16,7 @@ if(localStorage.getItem('ap_version') !== APP_VERSION) {
 <meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="AuditPro">
 <meta name="theme-color" content="#0d0f12">
@@ -2856,25 +2857,6 @@ function tareScale() {
   const netEl = document.getElementById('scale-net');
   if(netEl) netEl.style.display = 'none';
   toast('Scale zeroed');
-}
-
-function addManualWeightItem() {
-  if(!weightProduct) return;
-  const input = document.getElementById('manual-weight-input');
-  const netG  = parseFloat(input?.value) || 0;
-  if(netG <= 0) { if(input) input.focus(); return; }
-  playBeep('weight');
-  addItem(weightProduct, netG, 'g', 'weight');
-  // Reset
-  if(input) input.value = '';
-  document.getElementById('weight-add-btn').style.display = 'none';
-  document.getElementById('weight-product-info').style.display = 'none';
-  document.getElementById('scale-net').style.display = 'none';
-  document.getElementById('weight-search').value = '';
-  weightProduct = null; scaleReading = 0;
-  document.getElementById('scale-reading').value = '0';
-  stopWeighStableWatch();
-  toast('⚖ Weight logged', true);
 }
 
 // The ONLY path that commits a weighed value to the count (r20).
