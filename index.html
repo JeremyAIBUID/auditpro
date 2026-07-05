@@ -10166,7 +10166,8 @@ function applyInvoiceToProducts(id) {
   // Create a pending session if none exists
   if(!openSession) {
     openSession = {
-      id: 'AUD-' + new Date().toISOString().slice(0,7),
+      id: newSessionId(),
+      seq: nextSessionSeq(c),
       label: new Date().toLocaleDateString('en-NZ',{month:'long',year:'numeric'}),
       status: 'open',
       openDate: new Date().toLocaleDateString('en-NZ'),
@@ -10979,7 +10980,8 @@ function finaliseStocktake(){
   } else {
     // Create the first session from scratch with just closing counts
     sess = {
-      id:        'AUD-' + Date.now(),
+      id:        newSessionId(),
+      seq:       nextSessionSeq(c),
       label:     new Date().toLocaleDateString('en-NZ',{month:'long',year:'numeric'}),
       status:    'open',          // flipped to 'finalised' after the snapshot
       openDate:  today,
@@ -11247,11 +11249,15 @@ function finalisePeriodAndRollover() {
   // Roll closing → opening of new session
   if(rollover==='opening' && justFinalised?.closing) {
     c.auditSessions.push({
-      id:       'AUD-'+Date.now(),
+      id:       newSessionId(),
+      seq:      nextSessionSeq(c),
       label:    nextDate?new Date(nextDate).toLocaleDateString('en-NZ',{month:'long',year:'numeric'}):'Next period',
       status:   'open',
       openDate: nextDate||new Date().toISOString().slice(0,10),
-      opening:  {...justFinalised.closing},
+      // DEEP copy (STAGE 0 FIX 4) — the new period's opening must be an independent
+      // snapshot of the prior closing, not a shallow spread that shares the same
+      // countEntry objects (mutating one would bleed into the other).
+      opening:  JSON.parse(JSON.stringify(justFinalised.closing || {})),
       purchases:{}, sales:{}, closing:{},
     });
   }
@@ -11825,6 +11831,61 @@ async function dbSaveProducts(client) {
   }
 }
 
+// ─── AUDIT SESSION IDENTITY (STAGE 0, r54) ────────
+// Stable, unique id + explicit monotonic ordering for audit sessions, so later
+// lifecycle stages (parameterized variance, rollover chain, reopen, cascade) can
+// order/address a period without relying on fragile array position. STAGE 0 only
+// POPULATES these on new/loaded sessions and SORTS on load — no reader yet consumes
+// seq, and no user-visible behaviour changes.
+
+// Globally-unique session id. Timestamp keeps rough chronology; the short random
+// suffix prevents a collision when two sessions are minted in the same millisecond
+// (e.g. finaliseStocktake() then the rollover push in finalisePeriodAndRollover()).
+function newSessionId() {
+  return 'AUD-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+}
+
+// Next monotonic sequence number for a client's sessions: max existing seq + 1,
+// or the current session count when none carry a seq yet (index-based fallback).
+function nextSessionSeq(c) {
+  const seqs = ((c && c.auditSessions) || [])
+    .map(s => Number(s && s.seq))
+    .filter(n => Number.isFinite(n));
+  if (seqs.length) return Math.max(...seqs) + 1;
+  return ((c && c.auditSessions) || []).length;
+}
+
+// Deterministic chronological comparator: seq first; openDate then id as a
+// best-effort fallback for legacy sessions that predate seq. Never throws.
+function compareSessions(a, b) {
+  const sa = Number(a && a.seq), sb = Number(b && b.seq);
+  const aHas = Number.isFinite(sa), bHas = Number.isFinite(sb);
+  if (aHas && bHas && sa !== sb) return sa - sb;
+  if (aHas !== bHas) return aHas ? 1 : -1; // seq'd sessions sort after seq-less ones
+  const da = Date.parse(a && a.openDate), db = Date.parse(b && b.openDate);
+  if (Number.isFinite(da) && Number.isFinite(db) && da !== db) return da - db;
+  return String((a && a.id) || '').localeCompare(String((b && b.id) || ''));
+}
+
+// Backfill seq (in current array order) for any session lacking one, then sort the
+// array chronologically by seq. Returns true if anything was backfilled (caller
+// persists so the assignment sticks). Idempotent: a fully-seq'd array is untouched.
+function backfillAndSortSessions(c) {
+  const arr = c && c.auditSessions;
+  if (!Array.isArray(arr) || !arr.length) return false;
+  let backfilled = false;
+  let running = -Infinity; // tracks the highest seq assigned/seen so far
+  arr.forEach((s, i) => {
+    const cur = Number(s && s.seq);
+    if (Number.isFinite(cur)) { running = Math.max(running, cur); return; }
+    running = Number.isFinite(running) ? running + 1 : i;
+    s.seq = running;
+    backfilled = true;
+  });
+  arr.sort(compareSessions);
+  return backfilled;
+}
+
 // Save an audit session
 async function dbSaveSession(client, session) {
   if (!DB._ready) return;
@@ -11927,6 +11988,24 @@ async function dbLoadAll() {
         }
       });
     }
+
+    // STAGE 0 (r54) — deterministic session ordering. The two session sources above
+    // (the client row + the ap_audit_sessions table, returned updated_at.desc) can
+    // leave c.auditSessions in non-chronological order, and legacy sessions predate
+    // `seq`. Backfill seq for any session missing one (in current array order), then
+    // sort by seq so array position is always chronological regardless of DB return
+    // order. Defensive: nothing is dropped or deduped — only ordered. When a backfill
+    // actually happened, persist so seq sticks (client row + each session row) — this
+    // self-heals over one load, after which the arrays are already fully seq'd and no
+    // further writes occur.
+    clients.forEach(c => {
+      const changed = backfillAndSortSessions(c);
+      if (changed) {
+        dbSaveClient(c).catch(e => console.error('[AuditPro] seq backfill save (client):', e));
+        (c.auditSessions || []).forEach(s =>
+          dbSaveSession(c, s).catch(e => console.error('[AuditPro] seq backfill save (session):', e)));
+      }
+    });
 
     // Load batches
     const dbBatches = await DB.get('ap_batches', '?id=eq.1');
@@ -12042,7 +12121,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r52';
+const APP_VERSION = '2026-06-10-r54';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
