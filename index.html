@@ -6039,15 +6039,19 @@ function buildSalesDepletion(client, session, prodMap) {
   return dep;
 }
 
-function computeVariances(client) {
+function computeVariances(client, session = null) {
   const sessions = client.auditSessions || [];
   
   // Prefer the open session; otherwise the LATEST session by order (sessions are
   // pushed chronologically on finalise, so the last element is the most recent).
   // A freshly finalised count with no invoices imported yet must NOT be shadowed
   // by an older session that merely happened to carry purchases (r36).
-  const openSession = sessions.find(s => s.status === 'open');
-  const session = openSession || (sessions.length ? sessions[sessions.length - 1] : null);
+  // When the caller passes an explicit session (STAGE 1, r55) target it directly
+  // (open OR finalised); otherwise fall back to the historic auto-pick described above.
+  if (!session) {
+    const openSession = sessions.find(s => s.status === 'open');
+    session = openSession || (sessions.length ? sessions[sessions.length - 1] : null);
+  }
   
   // If no session at all, check if there are deliveries we can show
   const deliveries = client.deliveries || [];
@@ -6067,8 +6071,13 @@ function computeVariances(client) {
   // so the per-product loop falls back to the pre-aggregated session.sales below.
   const salesDep = buildSalesDepletion(client, workingSession, prodMap);
 
-  // Build purchases map from deliveries
+  // Build the purchases map. STAGE 1 (r55): a LIVE (open) period merges the live
+  // client.deliveries below; a CLOSED (finalised) period reads ONLY its own frozen
+  // purchase snapshot (sess.purchases, resolved at finalise — FIX 3) so a later invoice
+  // edit/delete can never retroactively move a locked period's numbers.
   const sessionPurchases = purchases || {};
+  let mergedPurchases;
+  if (isLive) {
   const deliveryPurchases = {};
   const normName = s => s.toLowerCase().trim()
     .replace(/'/g,'').replace(/\b\d+\s*s\b/gi,'')
@@ -6159,7 +6168,30 @@ function computeVariances(client) {
     }
   });
   // Delivery lines win where they exist; session fills in where lines are empty
-  const mergedPurchases = { ...fallbackSessionPurchases, ...deliveryPurchases };
+  mergedPurchases = { ...fallbackSessionPurchases, ...deliveryPurchases };
+  } else {
+    // CLOSED period — immutable. Read ONLY the session's own purchase snapshot and
+    // ignore live client.deliveries entirely. r55+ periods store an already-resolved
+    // set (unit 'Bottles'/'Kegs', qty in whole units); pre-r55 finalised sessions may
+    // still hold the raw invoice form (unit 'Cases', un-expanded qty), so apply the same
+    // case->unit expansion the live path uses. No activeInvoiceRefs gate: a locked period
+    // must reproduce regardless of the current live delivery list.
+    const frozen = {};
+    Object.entries(sessionPurchases).forEach(([name, entry]) => {
+      const entryUnit = (entry.unit || '').toLowerCase();
+      const prod = prodMap[name] || {};
+      const cs = entry.caseSize || prod.caseSize || parseCaseSize(entry.originalName || name) || 12;
+      const expandedQty = (entryUnit === 'cases' || entryUnit === 'car')
+        ? (parseFloat(entry.qty) || 0) * cs
+        : (parseFloat(entry.qty) || 0);
+      frozen[name] = {
+        ...entry,
+        qty:  expandedQty,
+        unit: entryUnit === 'kegs' ? 'Kegs' : (entry.lines ? entry.unit : 'Bottles'),
+      };
+    });
+    mergedPurchases = frozen;
+  }
 
   // Collect all product names — only include products in the catalogue
   const catalogueNames = new Set(Object.keys(prodMap));
@@ -6326,6 +6358,11 @@ function computeVariances(client) {
 
     rows.push({
       p:           name,
+      // STAGE 1 (r55) FIX 4 — aliases the legacy varRows readers expect (they sum
+      // r.varVal and label r.product): product = name, varVal = the signed dollar
+      // variance (= costImpact, -ve = loss). Persisted onto sess.varRows at finalise.
+      product:     name,
+      varVal:      costImpact,
       cat,
       unitVol,
       tareG:       prod.tareG || 0,
@@ -6379,6 +6416,10 @@ function computeVariances(client) {
 
   // Sort by name for consistency
   rows.sort((a,b) => a.p.localeCompare(b.p));
+  // STAGE 1 (r55) FIX 3 — expose the resolved purchase set so finaliseStocktake() can
+  // FREEZE it onto the session. Attached as a non-index property: JSON.stringify(rows)
+  // and the 4 callers (which only iterate) ignore it.
+  rows._resolvedPurchases = mergedPurchases;
   return rows;
 }
 
@@ -11004,6 +11045,21 @@ function finaliseStocktake(){
     let evSum = 0, vvSum = 0;
     vrows.forEach(r => { evSum += (r.expectedNum || 0) * (r.costPrice || 0); vvSum += (r.costImpact || 0); });
     sess.overallVariancePct = evSum > 0 ? (vvSum / evSum) * 100 : 0;
+    // STAGE 1 (r55) FIX 3 — FREEZE the resolved purchases this period actually used.
+    // computeVariances ran while sess was still 'open' (status flips to 'finalised'
+    // below), so it merged the LIVE deliveries; storing that resolved set back onto
+    // sess.purchases makes the now-closed period immutable — every future recompute
+    // reads this snapshot (computeVariances' isLive=false branch) instead of live
+    // deliveries, so a later invoice edit can't move a locked period. Deep-cloned so
+    // the frozen copy shares no objects with the live delivery data.
+    if (vrows._resolvedPurchases) {
+      sess.purchases = JSON.parse(JSON.stringify(vrows._resolvedPurchases));
+    }
+    // STAGE 1 (r55) FIX 4 — persist the variance rows. The legacy readers (insights
+    // ~2889/~3376, finalise summary ~11201, period list ~11337) sum r.varVal and label
+    // r.product off sess.varRows, which was NEVER written before r55 (so they silently
+    // read []). Rows already carry the product/varVal aliases (see rows.push).
+    sess.varRows = JSON.parse(JSON.stringify(vrows));
   } catch (e) { /* non-fatal — trend falls back to a best-effort recompute */ }
   sess.status = 'finalised';
 
@@ -12121,7 +12177,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r54';
+const APP_VERSION = '2026-06-10-r55';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
