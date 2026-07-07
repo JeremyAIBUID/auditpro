@@ -6109,8 +6109,10 @@ function computeVariances(client, session = null) {
       if(!name) return;
       const rawQty = parseFloat(line.qty) || 1;
       const lineUnit = (line.unit || '').toLowerCase();
-      // Expand cases/cartons into individual bottles using product's caseSize
-      const caseSize = (prodMap[name] && prodMap[name].caseSize) || parseCaseSize(line.name || '') || 1;
+      // Expand cases/cartons into individual bottles using product's caseSize.
+      // Fallback is 12 (r56) — matches countToUnits (~5886) and the session path (~6154)
+      // so a Cases line with no resolvable caseSize expands sensibly instead of ×1 (no-op).
+      const caseSize = (prodMap[name] && prodMap[name].caseSize) || parseCaseSize(line.name || '') || line.caseSize || 12;
       const qty = (lineUnit === 'cases' || lineUnit === 'car' || lineUnit === 'cartons' || lineUnit === 'ctn')
         ? rawQty * caseSize
         : rawQty;
@@ -10318,6 +10320,28 @@ function applyInvoiceToProducts(id) {
       const printedTotal = parseFloat(res._invoiceTotal) || 0;
       const finalTotal   = anyEdit ? editedSum : (printedTotal > 0 ? printedTotal : editedSum);
 
+      // FIX (r56) — stamp the REVIEWED "Sold as" unit + resolved units-per-case onto every
+      // delivery line, overriding the raw AI-parsed item.unit. At variance time the delivery
+      // record wins the purchase merge and only expands a case when unit==='cases'/'car'
+      // (computeVariances ~6114). Without this, a case the AI mislabelled "Bottles" was
+      // stored as raw units (1 case → 1 unit, 5 cases → 5 units). qty is kept RAW here so the
+      // EXISTING compute-time expansion does the ×caseSize exactly once and the purchase
+      // history still reads "5 Cases". Mirrors preserveCaseSizes() on the sibling
+      // addDumpInvoiceToClient path and the session.purchases write (~10246) it must agree with.
+      const srcRows = (storedInv.rows && storedInv.rows.length) ? storedInv.rows : (res?._invoiceData || []);
+      const deliveryLines = srcRows.map((row, i) => {
+        const soldasEl   = document.getElementById(id+'-soldas-'+i);
+        const casesizeEl = document.getElementById(id+'-casesize-'+i);
+        const nameEl     = document.getElementById(id+'-name-'+i);
+        const lineName   = nameEl ? nameEl.value.trim() : (row._cleanName || row.name || '');
+        // Reviewed dropdown wins → raw AI unit → Bottles (same precedence as ~10246).
+        const reviewedUnit = soldasEl?.value || row.unit || 'Bottles';
+        // Resolve units-per-case: review input → matched product → parse from name → prior stamp.
+        const prod = (c.products || []).find(p => (p.n||p.name||'').toLowerCase() === (lineName||'').toLowerCase());
+        const resolvedCase = parseInt(casesizeEl?.value) || (prod && prod.caseSize) || parseCaseSize(row.name || lineName) || row.caseSize || 0;
+        return { ...row, unit: reviewedUnit, caseSize: Number(resolvedCase) || 0 };
+      });
+
       const delivery = {
         s: storedInv.supplier,
         d: storedInv.date || 'Unknown date',
@@ -10325,7 +10349,7 @@ function applyInvoiceToProducts(id) {
         i: (storedInv.rows||[]).length,
         t: '$' + finalTotal.toFixed(2),
         st: 'Verified', sc: 'chip-green',
-        lines: (storedInv.rows && storedInv.rows.length) ? storedInv.rows : (res?._invoiceData || []),
+        lines: deliveryLines,
         pdfUrl: res._pdfUrl || null,
       };
       c.deliveries.unshift(delivery);
@@ -12177,7 +12201,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r55';
+const APP_VERSION = '2026-06-10-r56';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
