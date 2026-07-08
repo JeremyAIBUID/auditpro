@@ -1597,18 +1597,10 @@
         <div class="card" style="margin-bottom:16px;">
           <div class="card-header"><span class="card-title">🔄 Next period setup</span></div>
           <div class="card-body">
-            <div class="form-row">
-              <div class="form-group">
-                <label>Next audit date</label>
-                <input type="date" id="fin-next-date" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;color:var(--text);font-family:var(--font-ui);font-size:13px;outline:none;width:100%;">
-              </div>
-              <div class="form-group">
-                <label>Closing stock rolls to</label>
-                <select id="fin-rollover" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;color:var(--text);font-family:var(--font-ui);font-size:13px;outline:none;width:100%;">
-                  <option value="opening">Opening stock of next period ✓ (recommended)</option>
-                  <option value="zero">Start next period from zero</option>
-                </select>
-              </div>
+            <div class="form-group">
+              <label>Next audit date</label>
+              <input type="date" id="fin-next-date" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;color:var(--text);font-family:var(--font-ui);font-size:13px;outline:none;width:100%;">
+              <div style="font-size:11px;color:var(--text3);margin-top:6px;">On rollover, this period's closing count always carries over as the next period's opening stock.</div>
             </div>
             <div class="form-group">
               <label>Audit notes (optional)</label>
@@ -1617,17 +1609,28 @@
           </div>
         </div>
 
-        <!-- Finalise button -->
+        <!-- Period actions (STAGE 2, r58) — two clearly-separated steps -->
         <div id="fin-action-area">
-          <button id="fin-lock-btn" class="btn btn-primary" style="width:100%;padding:16px;font-size:15px;" onclick="finalisePeriodAndRollover()">
-            🔒 Lock this period &amp; roll over to next audit
+          <!-- Everyday, re-runnable review (unguarded) -->
+          <button id="fin-lock-btn" class="btn btn-primary" style="width:100%;padding:16px;font-size:15px;" onclick="finalisePageReview()">
+            🔒 Finalise &amp; run variance
           </button>
           <div style="font-size:12px;color:var(--text3);text-align:center;margin-top:8px;">
-            This will lock the current audit period, archive it, and open a fresh count for the next period
+            Locks this count as the period's closing stock and runs variance. Safe to re-run any time — it just recomputes.
+          </div>
+
+          <!-- One-way, guarded rollover (visually distinct) -->
+          <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border);">
+            <button id="fin-rollover-btn" style="width:100%;padding:15px;font-size:15px;font-weight:700;border-radius:10px;background:rgba(240,192,64,0.12);border:1px solid rgba(240,192,64,0.45);color:var(--amber);font-family:var(--font-ui);cursor:pointer;" onclick="rolloverPeriod()">
+              📦 Close period &amp; roll over →
+            </button>
+            <div id="fin-rollover-hint" style="font-size:12px;color:var(--text3);text-align:center;margin-top:8px;">
+              Locks this period as history and opens a fresh count with opening carried over from this closing count.
+            </div>
           </div>
         </div>
 
-        <!-- Already finalised state -->
+        <!-- Legacy done-state container — retired in r58 (kept hidden for back-compat) -->
         <div id="fin-done-area" style="display:none;">
           <div style="background:rgba(91,227,180,0.08);border:1px solid rgba(91,227,180,0.2);border-radius:14px;padding:24px;text-align:center;">
             <div style="font-size:32px;margin-bottom:10px;">✅</div>
@@ -1635,7 +1638,7 @@
             <div style="font-size:13px;color:var(--text2);margin-bottom:16px;" id="fin-done-label">Closing stock rolled over to next period</div>
             <div style="display:flex;gap:10px;justify-content:center;">
               <button class="btn btn-secondary" onclick="navigate('variances')">View variance report</button>
-              <button class="btn btn-primary" onclick="navigate('stocktake')">Start next count</button>
+              <button class="btn btn-primary" onclick="navigate('stocktake')">Back to stocktake</button>
             </div>
           </div>
         </div>
@@ -2574,8 +2577,9 @@ function renderOverview() {
   let auditsMonth = 0;
   clients.forEach(c=>{
     (c.auditSessions||[]).forEach(s=>{
-      if(s.status==='finalised' && s.closeDate) {
-        // closeDate is like "1 Apr 2026"
+      if(isClosedSession(s) && s.closeDate) {
+        // closeDate is like "1 Apr 2026" — count both finalised and rolled-over periods
+        // as completed audits (STAGE 2, r58).
         const d = new Date(s.closeDate);
         if(d.getMonth()===thisMonth && d.getFullYear()===thisYear) auditsMonth++;
       }
@@ -3297,7 +3301,9 @@ function populateRecheckBody() {
   });
   const allRows = [...desktopRows, ...(stkSession?.mobileRows||[])];
 
-  const lastAudit = (c.auditSessions||[]).filter(s=>s.status==='finalised').slice(-1)[0];
+  // Most recent CLOSED period (finalised OR rolled-over) — a rolled-over period is
+  // still valid history to compare this staged count against (STAGE 2, r58).
+  const lastAudit = (c.auditSessions||[]).filter(isClosedSession).slice(-1)[0];
   const lastClose = lastAudit?.closing || {};
 
   const flagged = allRows.map((r,i) => {
@@ -4177,12 +4183,13 @@ function renderReportDocument(client, meta, data) {
   // ── PAGE 2b — Variance trend (multi-period) ──
   const OVERALL_T = REPORT_OVERALL_VAR_THRESHOLD;
   const _sessAll  = client.auditSessions || [];
-  const _finals   = _sessAll.filter(s => s.status === 'finalised');
-  // Which session does computeVariances() (and therefore data.totals) reflect?
-  // Match that one to the live figure so the latest trend point ties to the headline.
-  const _openS    = _sessAll.find(s => s.status === 'open');
-  const _purS     = [..._sessAll].reverse().find(s => s.purchases && Object.keys(s.purchases).length > 0);
-  const _working  = _openS || _purS || (_sessAll.length ? _sessAll[_sessAll.length - 1] : null);
+  // Closed periods (finalised + rolled-over) are the trend's data points — a rolled-over
+  // period must stay on the chart as history (STAGE 2, r58).
+  const _finals   = _sessAll.filter(isClosedSession);
+  // Which session does computeVariances() (and therefore data.totals) reflect? Match that
+  // exact session (the deterministic current-period pick) so the latest trend point ties
+  // to the headline figure.
+  const _working  = currentSession(client);
   const trendPts = _finals.map(s => {
     let pct;
     if (s === _working && typeof data.totals.variancePct === 'number') pct = data.totals.variancePct;
@@ -6040,17 +6047,14 @@ function buildSalesDepletion(client, session, prodMap) {
 }
 
 function computeVariances(client, session = null) {
-  const sessions = client.auditSessions || [];
-  
-  // Prefer the open session; otherwise the LATEST session by order (sessions are
-  // pushed chronologically on finalise, so the last element is the most recent).
-  // A freshly finalised count with no invoices imported yet must NOT be shadowed
-  // by an older session that merely happened to carry purchases (r36).
   // When the caller passes an explicit session (STAGE 1, r55) target it directly
-  // (open OR finalised); otherwise fall back to the historic auto-pick described above.
+  // (open OR finalised OR rolledover — e.g. viewing a historical period). Otherwise
+  // auto-pick the CURRENT working period via the deterministic selector (STAGE 2,
+  // r58 FIX 5): open → highest-seq non-'rolledover' → highest-seq. A rolled-over
+  // (locked/history) period is never auto-selected as the working period, so a fresh
+  // rollover's new open period is picked up immediately.
   if (!session) {
-    const openSession = sessions.find(s => s.status === 'open');
-    session = openSession || (sessions.length ? sessions[sessions.length - 1] : null);
+    session = currentSession(client);
   }
   
   // If no session at all, check if there are deliveries we can show
@@ -6059,7 +6063,10 @@ function computeVariances(client, session = null) {
   
   // Build a virtual session from deliveries if no real session exists
   const workingSession = session || { purchases: {}, opening: {}, closing: {}, sales: {} };
-  const isLive = !session || session.status !== 'finalised';
+  // A period is LIVE (merges current client.deliveries) only while it is still open. Any
+  // CLOSED period — 'finalised' OR 'rolledover' (STAGE 2, r58) — reads ONLY its frozen
+  // sess.purchases snapshot, so a later invoice edit can never move a locked period.
+  const isLive = !session || !isClosedSession(session);
   
   const { opening, purchases, sales, closing, periodDays = 30 } = workingSession;
   const prodMap = {};
@@ -6494,8 +6501,9 @@ function renderParWidget(rows) {
 function renderVarBanner(client) {
   const el = document.getElementById('var-data-banner');
   if (!el) return;
-  const sessions = client.auditSessions || [];
-  const session  = sessions.length ? sessions[sessions.length - 1] : null;
+  // Reflect the CURRENT working period (deterministic pick), not the raw last array
+  // element — a rolled-over period is history and must not drive this banner (STAGE 2, r58).
+  const session = currentSession(client);
 
   if (session && session.status === 'finalised') {
     const closing    = session.closing || {};
@@ -10205,7 +10213,11 @@ function applyInvoiceToProducts(id) {
 
   // Sync invoice purchases into active/latest audit session for variance
   if(!c.auditSessions) c.auditSessions = [];
-  let openSession = c.auditSessions.find(s=>s.status==='open') || c.auditSessions[c.auditSessions.length-1] || null;
+  // STAGE 2 (r58) FIX 5 — attach invoice purchases to the CURRENT working period
+  // (open, else the current finalised period) — never to a rolled-over/locked history
+  // period. currentSession() collapses to the same open-session pick used before for
+  // every real case (a rolledover period always has a newer open/finalised successor).
+  let openSession = currentSession(c);
   // Create a pending session if none exists
   if(!openSession) {
     openSession = {
@@ -11233,16 +11245,20 @@ function exportStocktakeExcel() {
 
 function renderFinalisePage() {
   const c = activeClient; if(!c) return;
-  const sessions  = c.auditSessions || [];
-  const openSess  = sessions.find(s => s.status === 'open');
-  const lastFinal = sessions.filter(s => s.status === 'finalised').slice(-1)[0];
+  // STAGE 2 (r58) — the current working period (open, else the current finalised one).
+  const cur       = currentSession(c);
+  const curStatus = cur ? cur.status : null;
 
   // Banner
   const banner = document.getElementById('fin-page-banner');
   if(banner) {
-    if(openSess) {
+    if(curStatus === 'open') {
       banner.innerHTML = `<div style="background:rgba(200,240,100,0.07);border:1px solid rgba(200,240,100,0.2);border-radius:10px;padding:12px 16px;font-size:13px;color:var(--text2);">
-        <strong style="color:var(--accent);">Active session: ${openSess.label||openSess.id}</strong> &nbsp;·&nbsp; Started ${openSess.openDate||'—'} &nbsp;·&nbsp; ${Object.keys(openSess.closing||{}).length} products counted
+        <strong style="color:var(--accent);">Active session: ${cur.label||cur.id}</strong> &nbsp;·&nbsp; Started ${cur.openDate||'—'} &nbsp;·&nbsp; ${Object.keys(cur.closing||{}).length} products counted
+      </div>`;
+    } else if(curStatus === 'finalised') {
+      banner.innerHTML = `<div style="background:rgba(91,227,180,0.08);border:1px solid rgba(91,227,180,0.25);border-radius:10px;padding:12px 16px;font-size:13px;color:var(--text2);">
+        <strong style="color:var(--green);">Period finalised: ${cur.label||cur.closeDate||cur.id}</strong> &nbsp;·&nbsp; ${Object.keys(cur.closing||{}).length} products counted &nbsp;·&nbsp; re-runnable — or close &amp; roll over to start the next period
       </div>`;
     } else {
       banner.innerHTML = `<div style="background:rgba(240,192,64,0.07);border:1px solid rgba(240,192,64,0.2);border-radius:10px;padding:12px 16px;font-size:13px;color:var(--amber);">
@@ -11257,7 +11273,9 @@ function renderFinalisePage() {
   const allRows     = [...desktopRows, ...(stkSession?.mobileRows||[])];
   const hasSales    = !!(window._importedSalesRows?.length);
   const hasPurchases= !!(c.deliveries?.length);
-  const countedKeys = Object.keys(openSess?.closing||{}).length;
+  // Count from the current period's closing (open OR already-finalised), so the
+  // checklist keeps ticking "count completed" after a finalise (STAGE 2, r58).
+  const countedKeys = Object.keys(cur?.closing||{}).length;
   const hasCount    = allRows.length > 0 || countedKeys > 0;
 
   const checks = [
@@ -11282,15 +11300,15 @@ function renderFinalisePage() {
       <div style="font-size:11px;font-weight:700;color:${ch.ok?'var(--green)':ch.warn?'var(--amber)':'var(--red)'}">${ch.ok?'Done':ch.warn?'Optional':'Needed'}</div>
     </div>`).join('');
 
-  // Period summary
-  const closing  = openSess?.closing || lastFinal?.closing || {};
+  // Period summary — reflects the CURRENT period (open or finalised).
+  const closing  = cur?.closing || {};
   const prodCount= Object.keys(closing).length;
   const totalVal = Object.entries(closing).reduce((s,[name,entry])=>{
     const prod=(c.products||[]).find(p=>(p.n||p.name)===name);
     // Value the closing stock in bottle-units (weighed entries convert from net grams)
     return s+countToUnits(entry, prod||{})*(prod?.costPrice||0);
   },0);
-  const varRows  = lastFinal?.varRows||[];
+  const varRows  = cur?.varRows||[];
   const totalVar = varRows.reduce((s,r)=>s+(parseFloat(r.varVal)||0),0);
   const revenue  = (window._importedSalesRows||[]).reduce((s,r)=>s+(r.rev||0),0);
 
@@ -11309,15 +11327,31 @@ function renderFinalisePage() {
   const nd = document.getElementById('fin-next-date');
   if(nd && !nd.value) { const d=new Date(); d.setMonth(d.getMonth()+1); nd.value=d.toISOString().slice(0,10); }
 
-  // Show/hide states
-  const alreadyFinalised = lastFinal && !openSess;
+  // ── STAGE 2 (r58) — action buttons state ──
+  // The Finalise page always exposes TWO clearly-separated actions (both live in
+  // #fin-action-area): the everyday, re-runnable "Finalise & run variance" (unguarded)
+  // and the one-way, guarded "Close period & roll over →". The old single-button
+  // action-area/done-area toggle is retired: action-area stays visible, done-area hidden.
   const actionArea = document.getElementById('fin-action-area');
   const doneArea   = document.getElementById('fin-done-area');
-  if(actionArea) actionArea.style.display = alreadyFinalised?'none':'block';
-  if(doneArea)   doneArea.style.display   = alreadyFinalised?'block':'none';
-  if(alreadyFinalised) {
-    const dl = document.getElementById('fin-done-label');
-    if(dl) dl.textContent = `Locked: ${lastFinal.label||lastFinal.closeDate||'—'} · ${Object.keys(lastFinal.closing||{}).length} products archived`;
+  if(actionArea) actionArea.style.display = 'block';
+  if(doneArea)   doneArea.style.display   = 'none';
+
+  // Rollover is only valid FROM a finalised current period. Enable/disable + explain why.
+  const rollBtn  = document.getElementById('fin-rollover-btn');
+  const rollHint = document.getElementById('fin-rollover-hint');
+  const canRoll  = curStatus === 'finalised';
+  if(rollBtn) {
+    rollBtn.disabled      = !canRoll;
+    rollBtn.style.opacity = canRoll ? '1' : '0.45';
+    rollBtn.style.cursor  = canRoll ? 'pointer' : 'not-allowed';
+  }
+  if(rollHint) {
+    rollHint.textContent = canRoll
+      ? 'Locks this period as history and opens a fresh count with opening carried over from this closing count.'
+      : (curStatus === 'open'
+          ? 'Finalise & run variance first — then this period can be closed and rolled over.'
+          : 'Complete and finalise a stocktake before you can roll over.');
   }
 
   // Green dot on nav
@@ -11325,50 +11359,100 @@ function renderFinalisePage() {
   if(badge) badge.style.display = hasCount?'block':'none';
 }
 
-function finalisePeriodAndRollover() {
+// STAGE 2 (r58) FIX 3/4 — the everyday, RE-RUNNABLE "Finalise & run variance" action for
+// the Finalise Audit page. This is the SAME review path as the stocktake modal
+// (finaliseStocktake): it locks the current count as this period's closing, runs variance,
+// and flips the current session to 'finalised'. It is intentionally UNGUARDED and repeatable
+// — re-running just recomputes. It does NOT start a new period; that is rolloverPeriod().
+function finalisePageReview() {
   const c = activeClient; if(!c) return;
-  const nextDate = document.getElementById('fin-next-date')?.value;
-  const rollover = document.getElementById('fin-rollover')?.value || 'opening';
-  const notes    = document.getElementById('fin-audit-notes')?.value.trim()||'';
+  const notes    = document.getElementById('fin-audit-notes')?.value.trim() || '';
+  const nextDate = document.getElementById('fin-next-date')?.value || '';
 
-  // Use existing finalise function to lock count + run variance
+  // finaliseStocktake() locks closing + runs variance on the current session and navigates
+  // to the variance page. It is the working, wrapped path (persists via the r-wrap) — reused
+  // verbatim so we don't fork the finalise logic.
   finaliseStocktake();
 
-  // Attach notes + next date to freshly finalised session
-  const sessions     = c.auditSessions||[];
-  const justFinalised= sessions.filter(s=>s.status==='finalised').slice(-1)[0];
-  if(justFinalised) { justFinalised.notes=notes; justFinalised.nextDate=nextDate; }
+  // Attach the page's notes / planned next date onto the just-finalised current period.
+  const sess = currentSession(c);
+  if(sess) {
+    if(notes)    sess.notes    = notes;
+    if(nextDate) sess.nextDate = nextDate;
+    dbSaveSession(c, sess);
+    dbSaveClient(c);
+  }
+}
 
-  // Roll closing → opening of new session
-  if(rollover==='opening' && justFinalised?.closing) {
-    c.auditSessions.push({
-      id:       newSessionId(),
-      seq:      nextSessionSeq(c),
-      label:    nextDate?new Date(nextDate).toLocaleDateString('en-NZ',{month:'long',year:'numeric'}):'Next period',
-      status:   'open',
-      openDate: nextDate||new Date().toISOString().slice(0,10),
-      // DEEP copy (STAGE 0 FIX 4) — the new period's opening must be an independent
-      // snapshot of the prior closing, not a shallow spread that shares the same
-      // countEntry objects (mutating one would bleed into the other).
-      opening:  JSON.parse(JSON.stringify(justFinalised.closing || {})),
-      purchases:{}, sales:{}, closing:{},
-    });
+// STAGE 2 (r58) FIX 1/2/3 — the real, GUARDED rollover chain. Closes the current finalised
+// period (→ 'rolledover', locked history) and starts a NEW open period whose opening stock
+// is a deep copy of the closed period's closing count — the chain link. Requires the current
+// period to be FINALISED first (the safe path): rollover never silently finalises.
+function rolloverPeriod() {
+  const c = activeClient; if(!c) return;
+
+  // Precondition — there must be a CURRENT, FINALISED period to roll over FROM.
+  const cur = currentSession(c);
+  if(!cur) { alert('No audit period to roll over yet — complete and finalise a stocktake first.'); return; }
+  if(cur.status === 'open') {
+    alert('This period is still open.\n\nFinalise it and run variance first (use “Finalise & run variance”), then close & roll over.');
+    return;
+  }
+  if(cur.status !== 'finalised') {
+    alert('The current period is already closed. Nothing to roll over.');
+    return;
   }
 
+  // Guard — this step is one-way (the closed period becomes locked history).
+  const ok = confirm('This closes the current period and starts a new one with opening stock carried over from this period’s closing count. The closed period is locked. Continue?');
+  if(!ok) return;
+
+  const closingKeys = Object.keys(cur.closing || {}).length;
+  const today       = new Date().toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'});
+  const nextDate    = document.getElementById('fin-next-date')?.value || '';
+
+  // 1) Lock the current finalised period as history.
+  cur.status = 'rolledover';
+
+  // 2) Create the NEW open period. opening = DEEP copy of the prior closing (the chain link —
+  //    an independent snapshot, never shared countEntry objects). prevId is the explicit
+  //    reverse pointer back to the closed period; seq keeps forward ordering.
+  const newSess = {
+    id:         newSessionId(),
+    seq:        nextSessionSeq(c),
+    prevId:     cur.id,
+    label:      nextDate ? new Date(nextDate).toLocaleDateString('en-NZ',{month:'long',year:'numeric'})
+                         : new Date().toLocaleDateString('en-NZ',{month:'long',year:'numeric'}),
+    status:     'open',
+    openDate:   nextDate || today,
+    periodDays: cur.periodDays || 30,
+    opening:    JSON.parse(JSON.stringify(cur.closing || {})),
+    purchases:  {},
+    sales:      {},
+    salesRows:  [],
+    varRows:    [],
+    closing:    {},
+  };
+  c.auditSessions.push(newSess);
+  // Explicit forward reverse-link (old → new) to complement newSess.prevId (new → old),
+  // so the period chain is walkable both ways without leaning solely on seq ordering.
+  cur.nextId = newSess.id;
+
+  // 3) Make the new open period the ACTIVE/current one (clear any manual period pin so the
+  //    top-bar selector and computeVariances auto-pick land on the fresh period).
+  activeSessionIdx = -1;
+
+  // 4) Persist both sessions + the client.
+  dbSaveSession(c, cur);
+  dbSaveSession(c, newSess);
   dbSaveClient(c);
   updateAuditPeriodCtx(c);
 
-  // Switch to done state
-  const aa = document.getElementById('fin-action-area');
-  const da = document.getElementById('fin-done-area');
-  const dl = document.getElementById('fin-done-label');
-  if(aa) aa.style.display='none';
-  if(da) da.style.display='block';
-  if(dl) dl.textContent = rollover==='opening'
-    ? `Closing stock rolled to opening of next period${nextDate?' · Next audit: '+new Date(nextDate).toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'}):''}`
-    : 'Period archived · next count starts fresh';
-
-  showPersistToast(rollover==='opening'?'✓ Period locked & rolled over to next audit':'✓ Period locked');
+  // 5) Clear any staged rows so the new period starts from an empty count, then land the
+  //    user on the stocktake page ready to count.
+  clearStagedCount();
+  showPersistToast(`✓ Period closed. New period started — opening carried over from last closing (${closingKeys} products).`);
+  navigate('stocktake');
 }
 
 // ─── AUDIT PERIOD SELECTOR ────────────────────────
@@ -11377,7 +11461,9 @@ let activeSessionIdx = -1; // -1 = latest
 function updateAuditPeriodCtx(c) {
   const ctx = document.getElementById('audit-period-ctx');
   if(!ctx) return;
-  const sessions = (c?.auditSessions||[]).filter(s => s.status === 'finalised');
+  // History = every CLOSED period (finalised + rolled-over), so rolled-over periods
+  // stay browsable in the period selector (STAGE 2, r58).
+  const sessions = (c?.auditSessions||[]).filter(isClosedSession);
   if(!sessions.length) { ctx.style.display = 'none'; return; }
   ctx.style.display = 'flex';
 
@@ -11409,7 +11495,8 @@ function toggleAuditPeriodDropdown(e) {
 
 function populateAuditPeriodDropdown() {
   const c = activeClient; if(!c) return;
-  const sessions = (c.auditSessions||[]).filter(s => s.status === 'finalised');
+  // History dropdown lists every CLOSED period (finalised + rolled-over) — STAGE 2, r58.
+  const sessions = (c.auditSessions||[]).filter(isClosedSession);
   const list = document.getElementById('audit-period-list');
   if(!list) return;
 
@@ -11927,13 +12014,13 @@ async function dbSaveProducts(client) {
 // ─── AUDIT SESSION IDENTITY (STAGE 0, r54) ────────
 // Stable, unique id + explicit monotonic ordering for audit sessions, so later
 // lifecycle stages (parameterized variance, rollover chain, reopen, cascade) can
-// order/address a period without relying on fragile array position. STAGE 0 only
-// POPULATES these on new/loaded sessions and SORTS on load — no reader yet consumes
-// seq, and no user-visible behaviour changes.
+// order/address a period without relying on fragile array position. STAGE 0 populates
+// seq on new/loaded sessions and sorts on load; STAGE 2 (r58) now CONSUMES seq via
+// compareSessions()/currentSession() to pick the current working period deterministically.
 
 // Globally-unique session id. Timestamp keeps rough chronology; the short random
 // suffix prevents a collision when two sessions are minted in the same millisecond
-// (e.g. finaliseStocktake() then the rollover push in finalisePeriodAndRollover()).
+// (e.g. finaliseStocktake() then the new open period pushed in rolloverPeriod()).
 function newSessionId() {
   return 'AUD-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
 }
@@ -11977,6 +12064,29 @@ function backfillAndSortSessions(c) {
   });
   arr.sort(compareSessions);
   return backfilled;
+}
+
+// STAGE 2 (r58) — a "closed" period is one no longer accepting counts: either
+// 'finalised' (reviewed; still the CURRENT period — reversible/re-runnable) or
+// 'rolledover' (closed AND succeeded by a newer period — locked history).
+function isClosedSession(s) {
+  return !!s && (s.status === 'finalised' || s.status === 'rolledover');
+}
+
+// STAGE 2 (r58) FIX 5 — deterministic CURRENT/active-period pick. Replaces the old
+// array-position "last element" heuristic. Order of preference:
+//   1. the OPEN session, if one exists (the period currently accepting counts);
+//   2. else the highest-seq session that is NOT 'rolledover' (the current finalised period);
+//   3. else the highest-seq session (only a lone rolledover period would land here).
+// A 'rolledover' period is history and is never auto-selected as current while any
+// open/finalised sibling exists. seq ordering comes from compareSessions (seq → openDate → id).
+function currentSession(c) {
+  const arr = (c && c.auditSessions) || [];
+  if (!arr.length) return null;
+  const open = arr.find(s => s && s.status === 'open');
+  if (open) return open;
+  const bySeqDesc = [...arr].sort((a, b) => compareSessions(b, a)); // highest seq first
+  return bySeqDesc.find(s => s && s.status !== 'rolledover') || bySeqDesc[0];
 }
 
 // Save an audit session
@@ -12214,7 +12324,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r57';
+const APP_VERSION = '2026-06-10-r58';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
