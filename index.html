@@ -10233,8 +10233,15 @@ function applyInvoiceToProducts(id) {
       const editedQty   = qtyInput   ? (parseFloat(qtyInput.value)   || item.qty   || 1) : (item.qty   || 1);
       const editedPrice = priceInput ? (parseFloat(priceInput.value) || item._incGST || 0) : (item._incGST || 0);
 
-      const isSplit   = casesplitEl?.checked && soldasEl?.value==='Cases';
+      // FIX (r57) — split fires on the CHECKBOX + a valid caseSize>1, NOT on soldAs.
+      // The checkbox and the "Sold as" dropdown are driven by different heuristics and
+      // disagree on first render (a case line renders checkbox-ticked but soldAs resolved
+      // to 'Bottles' from the matched product), so gating on soldAs==='Cases' silently
+      // no-oped the split (5 cases → 5 units). The caseQty>1 guard is MANDATORY: the
+      // checkbox is hardcoded-checked on every row incl. hidden plain-bottle lines
+      // (caseSize 1), and the guard neutralizes those so they don't split.
       const caseQty   = parseInt(casesizeEl?.value) || parseCaseSize(item.name) || 1;
+      const isSplit   = casesplitEl?.checked && caseQty > 1;
       const purchaseQty = isSplit ? editedQty * caseQty : editedQty;
       const unitCost  = isSplit ? editedPrice / caseQty : editedPrice;
 
@@ -10330,15 +10337,21 @@ function applyInvoiceToProducts(id) {
       // addDumpInvoiceToClient path and the session.purchases write (~10246) it must agree with.
       const srcRows = (storedInv.rows && storedInv.rows.length) ? storedInv.rows : (res?._invoiceData || []);
       const deliveryLines = srcRows.map((row, i) => {
-        const soldasEl   = document.getElementById(id+'-soldas-'+i);
-        const casesizeEl = document.getElementById(id+'-casesize-'+i);
-        const nameEl     = document.getElementById(id+'-name-'+i);
+        const soldasEl    = document.getElementById(id+'-soldas-'+i);
+        const casesizeEl  = document.getElementById(id+'-casesize-'+i);
+        const casesplitEl = document.getElementById(id+'-casesplit-'+i);
+        const nameEl      = document.getElementById(id+'-name-'+i);
         const lineName   = nameEl ? nameEl.value.trim() : (row._cleanName || row.name || '');
-        // Reviewed dropdown wins → raw AI unit → Bottles (same precedence as ~10246).
-        const reviewedUnit = soldasEl?.value || row.unit || 'Bottles';
         // Resolve units-per-case: review input → matched product → parse from name → prior stamp.
         const prod = (c.products || []).find(p => (p.n||p.name||'').toLowerCase() === (lineName||'').toLowerCase());
         const resolvedCase = parseInt(casesizeEl?.value) || (prod && prod.caseSize) || parseCaseSize(row.name || lineName) || row.caseSize || 0;
+        // FIX (r57) — when the split checkbox is ticked with a valid caseSize>1, stamp
+        // unit:'Cases' so compute-time expansion (~6116) fires rawQty×caseSize exactly
+        // once. Must agree with the session.purchases split gate (~10236) — both now key
+        // off the checkbox, not the soldAs dropdown (which disagrees on first render).
+        // qty stays RAW here so purchase history still reads "5 Cases".
+        const wantSplit    = casesplitEl?.checked && Number(resolvedCase) > 1;
+        const reviewedUnit = wantSplit ? 'Cases' : (soldasEl?.value || row.unit || 'Bottles');
         return { ...row, unit: reviewedUnit, caseSize: Number(resolvedCase) || 0 };
       });
 
@@ -12201,7 +12214,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r56';
+const APP_VERSION = '2026-06-10-r57';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
