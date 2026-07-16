@@ -2498,6 +2498,9 @@ function selectClientOnly(id) {
   document.getElementById('client-context').style.display='flex';
   document.getElementById('context-dot').style.background = activeClient.color;
   document.getElementById('context-name').textContent = activeClient.name;
+  // r60 — default the VIEW to this client's active/current period, so switching venues never
+  // leaves the display pinned to a previous client's period id.
+  viewedPeriodId = null;
   updateAuditPeriodCtx(activeClient);
   const badge = document.getElementById('variance-badge');
   badge.style.display = activeClient.varStatus==='alert'?'flex':'none';
@@ -2650,9 +2653,12 @@ function renderPage(page) {
     document.getElementById('dash-metrics').innerHTML=c.metrics.map(m=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);"><span style="font-size:13px;color:var(--text2);">${m.l}</span><span style="font-family:var(--font-mono);font-size:14px;color:${m.ok?'var(--green)':'var(--amber)'};">${m.v}</span></div>`).join('');
   }
   if(page==='purchases'){
-    // KPIs are scoped to the CURRENT period (r59) — "Invoices this period" /
-    // "Total purchases" reflect only invoices attributed to the working period.
-    const curDeliveries = currentDeliveries(c);
+    // KPIs are scoped to the VIEWED period (r60) — "Invoices this period" / "Total purchases"
+    // reflect only invoices attributed to the period the user is currently viewing (defaults to
+    // the active/current period). deliveriesForSession scopes to that period; with no session at
+    // all the period concept doesn't exist yet, so fall back to the full (legacy) list.
+    const _purView      = viewedSession(c);
+    const curDeliveries = _purView ? deliveriesForSession(c, _purView) : (c.deliveries || []);
     document.getElementById('pur-count').textContent = curDeliveries.length;
     const total = curDeliveries.reduce((s,d)=>s+(parseFloat((d.t||'0').replace(/[$,]/g,''))||0),0);
     document.getElementById('pur-total').textContent = '$'+total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -2691,11 +2697,12 @@ function renderPage(page) {
     }).join('') : `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text3);">No price changes detected this period.</td></tr>`;
     // Hide panel on page load
     document.getElementById('price-changes-panel').style.display='none';
-    // PURCHASE HISTORY (r59) — grouped by attributed period so period scoping
-    // ORGANISES history instead of hiding it. Current period first, then past
-    // (rolled-over/finalised) periods by seq desc, then an "Unattributed" bucket.
-    // idx stays the GLOBAL index into c.deliveries so editInvoice/deleteInvoice keep
-    // pointing at the right row. Before any period exists, render the flat legacy list.
+    // PURCHASE HISTORY (r60) — show ONLY the VIEWED period's invoices. The r59 render grouped
+    // by period but rendered EVERY group stacked, so the current-period page piled up prior
+    // periods' invoices (issue a). Now the page shows a single period; the top-bar dropdown is
+    // how the user moves to another period. idx stays the GLOBAL index into c.deliveries so
+    // editInvoice/deleteInvoice keep pointing at the right row. Before any period exists at all,
+    // render the flat legacy list.
     const purRow = (d, idx) => {
       const isManual = d.sc === 'chip-blue';
       const statusChip = isManual
@@ -2720,32 +2727,21 @@ function renderPage(page) {
       document.getElementById('purchases-body').innerHTML =
         (c.deliveries||[]).map((d,idx)=>purRow(d,idx)).join('') || purEmpty;
     } else {
-      const purCur = currentSession(c);
-      const purSessById = {};
-      (c.auditSessions||[]).forEach(s=>{ if(s&&s.id) purSessById[s.id]=s; });
-      const purGroups = {};
-      (c.deliveries||[]).forEach((d,idx)=>{
-        const pid = resolveDeliveryPeriod(c, d) || '__none__';
-        (purGroups[pid] = purGroups[pid] || []).push(purRow(d, idx));
-      });
-      const purOrder = [];
-      if(purCur && purGroups[purCur.id]) purOrder.push(purCur.id);
-      [...(c.auditSessions||[])].sort((a,b)=>compareSessions(b,a)).forEach(s=>{
-        if(s && s.id && s.id !== purCur?.id && purGroups[s.id]) purOrder.push(s.id);
-      });
-      if(purGroups['__none__']) purOrder.push('__none__');
-      const purHeaderLabel = pid => {
-        if(pid === '__none__') return 'Unattributed';
-        const sess = purSessById[pid];
-        const tag  = pid === purCur?.id ? ' · current'
-                   : (sess && sess.status === 'rolledover' ? ' · closed' : '');
-        return (formatSessionLabel(sess) || 'Period') + tag;
-      };
-      const purHtml = purOrder.map(pid =>
-        `<tr class="pur-period-row"><td colspan="7" style="background:var(--bg3);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);padding:8px 12px;">${purHeaderLabel(pid)} &nbsp;·&nbsp; ${purGroups[pid].length} invoice${purGroups[pid].length!==1?'s':''}</td></tr>`
-        + purGroups[pid].join('')
-      ).join('');
-      document.getElementById('purchases-body').innerHTML = purHtml || purEmpty;
+      // Show ONLY the VIEWED period's invoices (r60). idx stays the GLOBAL index into
+      // c.deliveries. resolveDeliveryPeriod attributes each delivery to a real period
+      // (periodId → ref-match → date → earliest), so every invoice belongs to exactly one
+      // period and appears once you view that period — nothing is lost, just no longer stacked.
+      const purView = viewedSession(c);
+      const purActive = currentSession(c);
+      const purRows = (c.deliveries||[])
+        .map((d,idx)=>({d,idx}))
+        .filter(x => purView && resolveDeliveryPeriod(c, x.d) === purView.id);
+      const purTag = !purView ? ''
+        : (purView.id === purActive?.id ? ' · current'
+          : (purView.status === 'rolledover' ? ' · closed' : ''));
+      const purHeader = `<tr class="pur-period-row"><td colspan="7" style="background:var(--bg3);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);padding:8px 12px;">${(formatSessionLabel(purView)||'Period')}${purTag} &nbsp;·&nbsp; ${purRows.length} invoice${purRows.length!==1?'s':''}</td></tr>`;
+      document.getElementById('purchases-body').innerHTML =
+        purRows.length ? (purHeader + purRows.map(x=>purRow(x.d, x.idx)).join('')) : purEmpty;
     }
 
     // Invoice archive — invoices previously uploaded, available for re-import
@@ -6548,9 +6544,10 @@ function renderParWidget(rows) {
 function renderVarBanner(client) {
   const el = document.getElementById('var-data-banner');
   if (!el) return;
-  // Reflect the CURRENT working period (deterministic pick), not the raw last array
-  // element — a rolled-over period is history and must not drive this banner (STAGE 2, r58).
-  const session = currentSession(client);
+  // r60 — reflect the VIEWED period (defaults to the current working period). Viewing a closed
+  // period shows that period's data banner; nothing pinned falls back to currentSession() exactly
+  // as before (STAGE 2, r58 — a rolled-over period is history, not the raw last array element).
+  const session = viewedSession(client);
 
   if (session && session.status === 'finalised') {
     const closing    = session.closing || {};
@@ -6712,8 +6709,11 @@ function renderVarTable() {
   // Render data source banner
   renderVarBanner(c);
 
-  // Try to compute from real session data; fall back to static varRows
-  const computed = computeVariances(c);
+  // r60 — compute for the VIEWED period (defaults to the active/current one). A closed/rolled-over
+  // viewed period reads its FROZEN sess.purchases snapshot (Stage 1 isLive=false branch); the
+  // active open period merges its own scoped currentDeliveries. Passing viewedSession() when
+  // nothing is pinned is identical to the old currentSession() default (no regression).
+  const computed = computeVariances(c, viewedSession(c));
   let rows = computed ? [...computed] : [];
 
   // If nothing at all — show empty state
@@ -11493,9 +11493,10 @@ function rolloverPeriod() {
   // so the period chain is walkable both ways without leaning solely on seq ordering.
   cur.nextId = newSess.id;
 
-  // 3) Make the new open period the ACTIVE/current one (clear any manual period pin so the
-  //    top-bar selector and computeVariances auto-pick land on the fresh period).
-  activeSessionIdx = -1;
+  // 3) Snap the VIEW to the new active period (r60). currentSession() now returns the fresh
+  //    open period, and clearing viewedPeriodId makes viewedSession() follow it, so the user
+  //    lands on the new period instead of being stranded on the just-closed one.
+  viewedPeriodId = null;
 
   // 4) Persist both sessions + the client.
   dbSaveSession(c, cur);
@@ -11511,22 +11512,42 @@ function rolloverPeriod() {
 }
 
 // ─── AUDIT PERIOD SELECTOR ────────────────────────
-let activeSessionIdx = -1; // -1 = latest
+// r60 — VIEWED vs ACTIVE period. viewedPeriodId is the id of the period the DISPLAY is
+// showing (variance table, purchases KPIs + history). It is DISTINCT from the ACTIVE/current
+// period — where counts, invoice imports, finalise and rollover always land (currentSession()).
+// null ⇒ the view FOLLOWS the active period (the default). Selecting a period in the top-bar
+// dropdown pins this id; rollover and client-switch reset it back to null so the user is never
+// stranded viewing a stale or other-client period. NOTHING in a write path reads viewedPeriodId.
+let viewedPeriodId = null;
+
+// The session the DISPLAY is currently showing. Resolves the pinned id, else defaults to the
+// active/current period. Also defaults back when the pinned id no longer matches a real session
+// (e.g. after a client switch before the reset runs, or a deleted period), so reads never break.
+function viewedSession(c) {
+  if (!c) return null;
+  if (viewedPeriodId) {
+    const m = (c.auditSessions || []).find(s => s && s.id === viewedPeriodId);
+    if (m) return m;
+  }
+  return currentSession(c);
+}
 
 function updateAuditPeriodCtx(c) {
   const ctx = document.getElementById('audit-period-ctx');
   if(!ctx) return;
-  // History = every CLOSED period (finalised + rolled-over), so rolled-over periods
-  // stay browsable in the period selector (STAGE 2, r58).
-  const sessions = (c?.auditSessions||[]).filter(isClosedSession);
-  if(!sessions.length) { ctx.style.display = 'none'; return; }
+  // The selector only appears once there's CLOSED history to browse (finalised + rolled-over);
+  // before that there is only the single active period and nothing to switch between (STAGE 2, r58).
+  const closed = (c?.auditSessions||[]).filter(isClosedSession);
+  if(!closed.length) { ctx.style.display = 'none'; return; }
   ctx.style.display = 'flex';
 
-  // Show current period label
-  const idx  = activeSessionIdx >= 0 ? activeSessionIdx : sessions.length - 1;
-  const sess = sessions[idx];
-  const label = formatSessionLabel(sess);
-  document.getElementById('audit-period-label').textContent = label;
+  // Label reflects the VIEWED period (r60). When viewing anything other than the active period,
+  // prefix an eye so it's obvious the display is pinned to history, not the live period.
+  const active = currentSession(c);
+  const vs     = viewedSession(c);
+  const viewingActive = !viewedPeriodId || (active && vs && vs.id === active.id);
+  const label  = formatSessionLabel(vs) || 'Current period';
+  document.getElementById('audit-period-label').textContent = viewingActive ? label : ('👁 ' + label);
 }
 
 function formatSessionLabel(sess) {
@@ -11550,58 +11571,74 @@ function toggleAuditPeriodDropdown(e) {
 
 function populateAuditPeriodDropdown() {
   const c = activeClient; if(!c) return;
-  // History dropdown lists every CLOSED period (finalised + rolled-over) — STAGE 2, r58.
-  const sessions = (c.auditSessions||[]).filter(isClosedSession);
   const list = document.getElementById('audit-period-list');
   if(!list) return;
 
-  if(!sessions.length) {
-    list.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:var(--text3);">No completed audits yet</div>';
+  // r60 — the dropdown SWITCHES what the display shows. Rows are id-based so a click pins the
+  // exact period regardless of array order. List the ACTIVE/current period first (📌 — where new
+  // counts/imports/finalise land), then every CLOSED period (finalised + rolled-over) by seq desc.
+  const active = currentSession(c);
+  const vs     = viewedSession(c);
+  const closed = (c.auditSessions||[]).filter(isClosedSession);
+  const rows   = [];
+  const seen   = new Set();
+  if(active && active.id) { rows.push(active); seen.add(active.id); }
+  [...closed].sort((a,b)=>compareSessions(b,a)).forEach(s=>{ if(s&&s.id&&!seen.has(s.id)){ rows.push(s); seen.add(s.id); } });
+
+  if(!rows.length) {
+    list.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:var(--text3);">No audit periods yet</div>';
     return;
   }
 
-  // Show most recent first
-  const reversed = [...sessions].reverse();
-  list.innerHTML = reversed.map((sess, ri) => {
-    const realIdx  = sessions.length - 1 - ri;
-    const isCurrent= realIdx === sessions.length - 1;
-    const isActive = activeSessionIdx === realIdx || (activeSessionIdx === -1 && isCurrent);
+  list.innerHTML = rows.map(sess => {
+    const isActive = active && sess.id === active.id;      // the LIVE period (write target)
+    const isViewed = vs && sess.id === vs.id;              // what the display is showing now
     const label    = formatSessionLabel(sess);
     const lines    = Object.keys(sess.closing||{}).length;
     const varRows  = sess.varRows || [];
     const totalVar = varRows.reduce((s,r)=>s+(parseFloat(r.varVal)||0),0);
     const varColor = totalVar < 0 ? 'var(--red)' : totalVar > 0 ? 'var(--green)' : 'var(--text3)';
+    const statusLbl= sess.status === 'open' ? 'open · counting'
+                   : sess.status === 'rolledover' ? 'closed history'
+                   : 'finalised';
 
-    return `<button onclick="switchAuditPeriod(${realIdx})"
-      style="width:100%;text-align:left;background:${isActive?'var(--bg3)':'none'};border:${isActive?'1px solid var(--border2)':'1px solid transparent'};border-radius:10px;padding:10px 12px;cursor:pointer;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;gap:10px;"
-      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='${isActive?'var(--bg3)':'none'}'">
+    return `<button onclick="switchAuditPeriod('${sess.id}')"
+      style="width:100%;text-align:left;background:${isViewed?'var(--bg3)':'none'};border:${isViewed?'1px solid var(--border2)':'1px solid transparent'};border-radius:10px;padding:10px 12px;cursor:pointer;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;gap:10px;"
+      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='${isViewed?'var(--bg3)':'none'}'">
       <div style="min-width:0;">
-        <div style="font-size:13px;font-weight:${isActive?'700':'500'};color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-          ${isCurrent?'📌 ':''}${label}
+        <div style="font-size:13px;font-weight:${isViewed?'700':'500'};color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          ${isActive?'📌 ':''}${label}
         </div>
-        <div style="font-size:11px;color:var(--text3);margin-top:1px;">${lines} products counted</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:1px;">${lines} products counted · ${statusLbl}</div>
       </div>
       <div style="text-align:right;flex-shrink:0;">
         ${totalVar !== 0 ? `<div style="font-size:12px;font-weight:600;color:${varColor};font-family:var(--font-mono);">${totalVar > 0 ? '+' : ''}$${Math.abs(totalVar).toFixed(0)}</div>` : ''}
-        ${isActive ? '<div style="font-size:10px;color:var(--accent);">✓ active</div>' : ''}
+        ${isViewed ? '<div style="font-size:10px;color:var(--accent);">✓ viewing</div>' : ''}
       </div>
     </button>`;
   }).join('') + `
     <div style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px;">
-      <button onclick="switchAuditPeriod(-1);document.getElementById('audit-period-dropdown').style.display='none'"
+      <button onclick="switchAuditPeriod(null)"
         style="width:100%;text-align:left;background:none;border:none;padding:8px 10px;color:var(--text3);font-family:var(--font-ui);font-size:12px;cursor:pointer;border-radius:8px;"
-        onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='none'">↩ Back to latest</button>
+        onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='none'">↩ Back to current period</button>
     </div>`;
 }
 
-function switchAuditPeriod(idx) {
-  activeSessionIdx = idx;
-  document.getElementById('audit-period-dropdown').style.display = 'none';
+// r60 — pin the VIEWED period (not the old unread activeSessionIdx) and re-render the
+// period-scoped pages so the selection actually changes what's on screen. id === null (or an
+// id that no longer resolves) ⇒ follow the ACTIVE/current period. This NEVER moves the write
+// target: imports, counts, finalise and rollover always use currentSession().
+function switchAuditPeriod(id) {
   const c = activeClient; if(!c) return;
+  viewedPeriodId = (id === null || id === undefined || id === '' || id === '__latest__') ? null : id;
+  const dd = document.getElementById('audit-period-dropdown');
+  if(dd) dd.style.display = 'none';
   updateAuditPeriodCtx(c);
-  // Refresh variance and other data-driven pages
+  // Refresh whichever period-scoped page is active so the newly-viewed period is shown.
+  // (Was renderDeliveries() — a function that does not exist, so switching on the Purchases
+  // page used to throw; the purchases page renders via renderPage('purchases').)
   if(document.getElementById('page-variances')?.classList.contains('active')) renderVarTable();
-  if(document.getElementById('page-purchases')?.classList.contains('active')) renderDeliveries();
+  if(document.getElementById('page-purchases')?.classList.contains('active')) renderPage('purchases');
 }
 
 // Close on outside click
@@ -12478,7 +12515,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r59';
+const APP_VERSION = '2026-06-10-r60';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
