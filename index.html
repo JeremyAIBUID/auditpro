@@ -6190,15 +6190,21 @@ function computeVariances(client, session = null) {
   // Merge strategy:
   // 1. Build from delivery lines where available (most accurate)
   // 2. Fall back to session.purchases for invoices whose delivery has empty lines
-  // 3. Only exclude session.purchases whose invoiceRef no longer exists in deliveries (true ghosts)
+  // 3. Exclude session.purchases whose invoiceRef is missing or no longer in deliveries (ghosts — r61)
   const activeInvoiceRefs = new Set((client.deliveries||[]).map(d=>d.r).filter(Boolean));
   const emptyLineRefs = new Set((client.deliveries||[]).filter(d=>!d.lines||!d.lines.length).map(d=>d.r).filter(Boolean));
 
   const fallbackSessionPurchases = {};
   Object.entries(sessionPurchases).forEach(([name, entry]) => {
     const ref = entry.invoiceRef || '';
-    // Keep if: no ref (manual), ref is active (valid invoice), or ref matches empty-lines delivery (fallback)
-    if (!ref || activeInvoiceRefs.has(ref)) {
+    // FIX (r61) — keep ONLY entries whose ref is backed by a delivery that still exists:
+    // an active delivery ref, incl. the empty-line deliveries this fallback exists for
+    // (emptyLineRefs — computed above but never wired until now). ''-ref entries are
+    // DROPPED: since r61 every import stamps the SAME ref on the delivery and its session
+    // purchases, so a no-ref entry is a legacy ghost whose invoice can't be matched by
+    // deleteInvoice or purgeGhostPurchases — the old `!ref ||` keep-clause made a deleted
+    // no-number invoice's purchases render in variance forever.
+    if (activeInvoiceRefs.has(ref) || emptyLineRefs.has(ref)) {
     // Expand cases into units for session purchases
     const entryUnit = (entry.unit||'').toLowerCase();
     const prod = prodMap[name] || {};
@@ -8673,6 +8679,15 @@ function saveEditedInvoice(idx) {
   const d = c.deliveries[idx];
   if(!d) return;
 
+  // FIX (r61) — closed periods are IMMUTABLE: editing an invoice that belongs to a
+  // finalised/rolled-over period would rewrite frozen history. Block the save.
+  const invPeriod = (c.auditSessions||[]).find(s => s && s.id === resolveDeliveryPeriod(c, d));
+  if(isClosedSession(invPeriod)) {
+    alert(`This invoice belongs to a locked period (${formatSessionLabel(invPeriod)}). Its numbers are frozen. To amend a closed period, reopen it first.`);
+    document.getElementById('invoice-edit-overlay')?.remove();
+    return;
+  }
+
   // Read all rows from DOM
   const container = document.getElementById('ei-lines');
   const rows = container ? Array.from(container.querySelectorAll('[id^="ei-row-"]')) : [];
@@ -8705,19 +8720,23 @@ function saveEditedInvoice(idx) {
   d.tEx = '$' + (total / 1.15).toFixed(2);
   d.gst = '$' + (total - total / 1.15).toFixed(2);
 
-  // Also update session.purchases so variance reflects the edited quantities
+  // Also update session.purchases so variance reflects the edited quantities —
+  // OPEN sessions only (r61): closed periods read their frozen snapshot and must never
+  // be retroactively edited. Only sessions actually changed are re-saved.
   ;(c.auditSessions||[]).forEach(sess => {
-    if(!sess.purchases) return;
+    if(isClosedSession(sess) || !sess.purchases) return;
+    let dirty = false;
     Object.keys(sess.purchases).forEach(name => {
       if(sess.purchases[name].invoiceRef === d.r) {
         const match = newLines.find(l => (l._cleanName||l.name||'').toLowerCase() === name.toLowerCase());
         if(match) {
           sess.purchases[name].qty = match.qty;
           sess.purchases[name].costPrice = match._incGST;
+          dirty = true;
         }
       }
     });
-    dbSaveSession(c, sess);
+    if(dirty) dbSaveSession(c, sess);
   });
 
   dbSaveClient(c);
@@ -8990,6 +9009,12 @@ function applyDumpEnrichment(enrichId, dumpId, clientId) {
   activeClient = c;
   applyInvoiceToProducts(enrichId);
   activeClient = prevClient;
+  // FIX (r61) — carry the ref applyInvoiceToProducts just resolved (incl. a generated
+  // AUTO- ref for a no-number invoice) onto the dump invoice, so addDumpInvoiceToClient
+  // archives and duplicate-checks against the SAME ref instead of minting a second,
+  // different random AUTO- ref (which created a mismatched duplicate delivery).
+  const enrichRes = document.getElementById(enrichId + '-results');
+  if(!invoice.invoiceRef && enrichRes && enrichRes._invoiceRef) invoice.invoiceRef = enrichRes._invoiceRef;
   addDumpInvoiceToClient(c, invoice, dumpId);
 }
 
@@ -9412,6 +9437,14 @@ function deleteInvoice(idx) {
   const c = activeClient; if(!c) return;
   const d = c.deliveries[idx];
   if(!d) return;
+  // FIX (r61) — closed periods are IMMUTABLE. Both delete branches remove the delivery,
+  // which would silently rewrite a finalised/rolled-over period's frozen history, so
+  // block the action entirely and point at the (upcoming) reopen flow instead.
+  const invPeriod = (c.auditSessions||[]).find(s => s && s.id === resolveDeliveryPeriod(c, d));
+  if(isClosedSession(invPeriod)) {
+    alert(`This invoice belongs to a locked period (${formatSessionLabel(invPeriod)}). Its numbers are frozen. To amend a closed period, reopen it first.`);
+    return;
+  }
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
   overlay.innerHTML = `
@@ -9440,13 +9473,18 @@ function deleteInvoice(idx) {
     // FIX 2/4 — capture the lines with caseSize preserved BEFORE mutating anything,
     // so it survives the delete → restore → re-import cycle.
     const restoredLines = preserveCaseSizes(d.lines, c);
-    // Clean session purchases that came from this invoice
+    // Clean session purchases that came from this invoice — OPEN sessions only (r61):
+    // closed periods are frozen history and are never touched by a delete (the guard at
+    // the top of deleteInvoice already blocked closed-period invoices). Persist each
+    // mutated session row (FIX 3) — the ap_audit_sessions row replaces the client copy
+    // on next load, so without dbSaveSession the removed entries resurrected on reload.
     (c.auditSessions||[]).forEach(sess => {
-      if(sess.purchases) {
-        Object.keys(sess.purchases).forEach(name => {
-          if(sess.purchases[name].invoiceRef === d.r) delete sess.purchases[name];
-        });
-      }
+      if(isClosedSession(sess) || !sess.purchases) return;
+      let dirty = false;
+      Object.keys(sess.purchases).forEach(name => {
+        if(sess.purchases[name].invoiceRef === d.r) { delete sess.purchases[name]; dirty = true; }
+      });
+      if(dirty) dbSaveSession(c, sess);
     });
     // FIX 1 — remove from BOTH deliveries and invoiceArchive before restoring
     c.deliveries.splice(idx, 1);
@@ -9462,15 +9500,17 @@ function deleteInvoice(idx) {
     overlay.remove();
     const d = c.deliveries[idx];
     if(!d) return;
-    // Remove purchases from ALL sessions that came from this invoice
+    // Remove purchases from OPEN sessions that came from this invoice (r61 — closed
+    // periods are frozen history; the guard at the top of deleteInvoice already blocked
+    // closed-period invoices). Persist each mutated session row (FIX 3) so the removal
+    // survives reload — ap_audit_sessions replaces the client copy at next dbLoadAll.
     (c.auditSessions||[]).forEach(sess => {
-      if(sess.purchases) {
-        Object.keys(sess.purchases).forEach(name => {
-          if(sess.purchases[name].invoiceRef === d.r) {
-            delete sess.purchases[name];
-          }
-        });
-      }
+      if(isClosedSession(sess) || !sess.purchases) return;
+      let dirty = false;
+      Object.keys(sess.purchases).forEach(name => {
+        if(sess.purchases[name].invoiceRef === d.r) { delete sess.purchases[name]; dirty = true; }
+      });
+      if(dirty) dbSaveSession(c, sess);
     });
     // Permanent delete — remove from history AND archive
     c.deliveries.splice(idx, 1);
@@ -10116,6 +10156,18 @@ function applyInvoiceToProducts(id) {
     return;
   }
 
+  // FIX (r61) — resolve THE invoice ref ONCE, up front, and use this same value for BOTH
+  // the session-purchase invoiceRef stamps AND the delivery's r below. Previously a
+  // no-number invoice stamped invoiceRef '' on its session purchases but r 'AUTO-…' on
+  // its delivery — deleteInvoice matches on d.r and purgeGhostPurchases skips ''-refs,
+  // so those entries could never be removed (immortal ghost purchases in variance). The
+  // unified ref also restores resolveDeliveryPeriod's ref-match signal for these
+  // invoices. Written back to res + the store so a re-import of the same invoice reuses
+  // the SAME AUTO ref (the duplicate check keeps working instead of minting a new ref).
+  const invRef = res._invoiceRef || (stored && stored.ref) || ('AUTO-' + Date.now());
+  res._invoiceRef = invRef;
+  if(stored && !stored.ref) stored.ref = invRef;
+
   if(!c.products) c.products = [];
   let added = 0, updated = 0;
 
@@ -10316,7 +10368,7 @@ function applyInvoiceToProducts(id) {
           unit:       isSplit ? (item.cat==='Beer'?'Bottles':'Units') : (soldasEl?.value||item.unit||'Bottles'),
           costPrice:  unitCost,
           supplier:   res._invoiceSupplier || '',
-          invoiceRef: res._invoiceRef || '',
+          invoiceRef: invRef, // r61 — SAME ref as the delivery's r (see top of function)
           originalName: item.name || '',
           caseSize:   caseQty,
         };
@@ -10419,7 +10471,7 @@ function applyInvoiceToProducts(id) {
       const delivery = {
         s: storedInv.supplier,
         d: storedInv.date || 'Unknown date',
-        r: storedInv.ref  || 'AUTO-'+Date.now(),
+        r: invRef, // r61 — unified with the session-purchase invoiceRef (see top of function)
         i: (storedInv.rows||[]).length,
         t: '$' + finalTotal.toFixed(2),
         st: 'Verified', sc: 'chip-green',
@@ -12303,6 +12355,10 @@ function purgeGhostPurchases() {
   clients.forEach(c => {
     const activeRefs = new Set((c.deliveries||[]).map(d=>d.r).filter(Boolean));
     (c.auditSessions||[]).forEach(sess => {
+      // FIX (r61) — closed periods are IMMUTABLE: their frozen purchase snapshots must
+      // reproduce historical variance regardless of the live delivery list, so the
+      // ghost purge only ever touches OPEN sessions.
+      if (isClosedSession(sess)) return;
       if (!sess.purchases) return;
       let sessionDirty = false;
       Object.keys(sess.purchases).forEach(name => {
@@ -12515,7 +12571,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r60';
+const APP_VERSION = '2026-06-10-r61';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
