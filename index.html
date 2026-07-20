@@ -2738,8 +2738,17 @@ function renderPage(page) {
         .filter(x => purView && resolveDeliveryPeriod(c, x.d) === purView.id);
       const purTag = !purView ? ''
         : (purView.id === purActive?.id ? ' · current'
-          : (purView.status === 'rolledover' ? ' · closed' : ''));
-      const purHeader = `<tr class="pur-period-row"><td colspan="7" style="background:var(--bg3);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);padding:8px 12px;">${(formatSessionLabel(purView)||'Period')}${purTag} &nbsp;·&nbsp; ${purRows.length} invoice${purRows.length!==1?'s':''}</td></tr>`;
+          : (purView.status === 'rolledover' ? ' · closed'
+            : (purView.status === 'reopened' ? ' · reopened' : '')));
+      // STAGE 3 (r62) — surface reopen/re-close where invoice editing happens (the locked-
+      // period alerts point the user here). Reopen shows only on the eligible period.
+      const purAction = !purView ? ''
+        : purView.status === 'reopened'
+          ? ` &nbsp; <button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;text-transform:none;letter-spacing:normal;" onclick="recloseReopenedPeriod()">🔒 Re-close &amp; lock</button>`
+          : (purView.status === 'rolledover' && eligibleReopenSession(c)?.id === purView.id)
+            ? ` &nbsp; <button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;text-transform:none;letter-spacing:normal;" onclick="reopenPeriod('${purView.id}')">🔓 Reopen this period</button>`
+            : '';
+      const purHeader = `<tr class="pur-period-row"><td colspan="7" style="background:var(--bg3);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);padding:8px 12px;">${(formatSessionLabel(purView)||'Period')}${purTag} &nbsp;·&nbsp; ${purRows.length} invoice${purRows.length!==1?'s':''}${purAction}</td></tr>`;
       document.getElementById('purchases-body').innerHTML =
         purRows.length ? (purHeader + purRows.map(x=>purRow(x.d, x.idx)).join('')) : purEmpty;
     }
@@ -6576,6 +6585,34 @@ function renderVarBanner(client) {
         </div>
         <span style="font-size:11px;padding:3px 10px;border-radius:20px;background:rgba(91,227,180,0.15);color:var(--green);font-weight:600;">✓ Real counts · weight-based conversions applied</span>
       </div>`;
+  } else if (session && session.status === 'reopened') {
+    // STAGE 3 (r62) — reopened for amendment: this period recomputes LIVE from its own
+    // scoped deliveries until it is re-closed. Re-close is surfaced right here.
+    el.innerHTML = `
+      <div style="background:rgba(240,192,64,0.07);border:1px solid rgba(240,192,64,0.25);border-radius:10px;padding:11px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--amber);flex-shrink:0;"></div>
+          <span style="font-size:13px;font-weight:600;color:var(--text);">🔓 Reopened for amendment — ${formatSessionLabel(session)}</span>
+          <span style="font-size:12px;color:var(--text3);">recomputing live; re-close to lock. New invoices &amp; counts still go to the current period.</span>
+        </div>
+        <button class="btn btn-primary" style="font-size:12px;padding:7px 14px;" onclick="recloseReopenedPeriod()">🔒 Re-close &amp; lock</button>
+      </div>`;
+  } else if (session && session.status === 'rolledover') {
+    // STAGE 3 (r62) — closed history gets its own banner (it used to fall into the
+    // misleading amber "Demo data" branch) + the reopen entry point when this period is
+    // the eligible one (most-recent rolled-over, nothing else already reopened).
+    const canReopen = eligibleReopenSession(client)?.id === session.id;
+    el.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:11px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--text3);flex-shrink:0;"></div>
+          <span style="font-size:13px;font-weight:600;color:var(--text);">Closed history — ${formatSessionLabel(session)}</span>
+          <span style="font-size:12px;color:var(--text3);">numbers are frozen${session.reclosedAt ? ' · re-closed ' + session.reclosedAt : ''}</span>
+        </div>
+        ${canReopen
+          ? `<button class="btn btn-secondary" style="font-size:12px;padding:7px 14px;" onclick="reopenPeriod('${session.id}')">🔓 Reopen this period</button>`
+          : `<span style="font-size:11px;padding:3px 10px;border-radius:20px;background:var(--bg3);color:var(--text3);">🔒 locked</span>`}
+      </div>`;
   } else {
     el.innerHTML = `
       <div style="background:rgba(240,192,64,0.07);border:1px solid rgba(240,192,64,0.2);border-radius:10px;padding:11px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;">
@@ -9445,6 +9482,11 @@ function deleteInvoice(idx) {
     alert(`This invoice belongs to a locked period (${formatSessionLabel(invPeriod)}). Its numbers are frozen. To amend a closed period, reopen it first.`);
     return;
   }
+  // STAGE 3 (r62) — for a REOPENED period, hide "Send back to review bay": re-importing
+  // runs applyInvoiceToProducts, which attaches purchases to currentSession() and stamps
+  // the ACTIVE period's periodId — silently migrating the invoice out of the reopened
+  // period. Edit-in-place and permanent delete stay available.
+  const invReopened = invPeriod && invPeriod.status === 'reopened';
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
   overlay.innerHTML = `
@@ -9455,9 +9497,9 @@ function deleteInvoice(idx) {
         ${d.t} · ${d.i} items
       </div>
       <div style="display:flex;flex-direction:column;gap:8px;">
-        <button id="del-inv-rearchive" style="padding:10px;border-radius:10px;background:rgba(200,240,100,0.08);border:1px solid rgba(200,240,100,0.2);color:var(--accent);font-family:var(--font-ui);font-size:13px;font-weight:600;cursor:pointer;text-align:left;">
+        ${invReopened ? `<div style="font-size:11px;color:var(--text3);line-height:1.5;">This invoice belongs to a reopened period — re-importing would land it in the current period, so send-back is unavailable. Edit it in place, or delete it permanently.</div>` : `<button id="del-inv-rearchive" style="padding:10px;border-radius:10px;background:rgba(200,240,100,0.08);border:1px solid rgba(200,240,100,0.2);color:var(--accent);font-family:var(--font-ui);font-size:13px;font-weight:600;cursor:pointer;text-align:left;">
           ↩ Send back to review bay<br><span style="font-size:11px;font-weight:400;color:var(--text3);">Re-review and re-import when ready</span>
-        </button>
+        </button>`}
         <button id="del-inv-confirm" style="padding:10px;border-radius:10px;background:rgba(240,80,80,0.15);border:1px solid rgba(240,80,80,0.3);color:var(--red);font-family:var(--font-ui);font-size:13px;font-weight:600;cursor:pointer;text-align:left;">
           🗑 Delete permanently<br><span style="font-size:11px;font-weight:400;color:var(--text3);">Removes from history and archive</span>
         </button>
@@ -9466,7 +9508,8 @@ function deleteInvoice(idx) {
     </div>`;
   document.body.appendChild(overlay);
   overlay.querySelector('#del-inv-cancel').onclick  = () => overlay.remove();
-  overlay.querySelector('#del-inv-rearchive').onclick = () => {
+  const rearchiveBtn = overlay.querySelector('#del-inv-rearchive');
+  if(rearchiveBtn) rearchiveBtn.onclick = () => {
     overlay.remove();
     const d = c.deliveries[idx];
     if(!d) return;
@@ -11101,6 +11144,33 @@ function showStocktakeReview() {
   openModal('finaliseModal');
 }
 
+// STAGE 3 (r62) — freeze a session's variance snapshot. Extracted verbatim from the
+// inline finalise block so re-closing a reopened period can reuse it against a NON-current
+// session. MUST be called while the session still computes LIVE (status 'open' or
+// 'reopened') — and computeVariances(c, sess) gets the session EXPLICITLY so the freeze
+// targets exactly the session being closed, never a currentSession() guess.
+function freezeSessionSnapshot(c, sess) {
+  const vrows = computeVariances(c, sess) || [];
+  let evSum = 0, vvSum = 0;
+  vrows.forEach(r => { evSum += (r.expectedNum || 0) * (r.costPrice || 0); vvSum += (r.costImpact || 0); });
+  sess.overallVariancePct = evSum > 0 ? (vvSum / evSum) * 100 : 0;
+  // STAGE 1 (r55) FIX 3 — FREEZE the resolved purchases this period actually used.
+  // computeVariances ran while the session still computed live, so it merged the period's
+  // scoped deliveries; storing that resolved set back onto sess.purchases makes the
+  // now-closed period immutable — every future recompute reads this snapshot
+  // (computeVariances' isLive=false branch) instead of live deliveries, so a later
+  // invoice edit can't move a locked period. Deep-cloned so the frozen copy shares no
+  // objects with the live delivery data.
+  if (vrows._resolvedPurchases) {
+    sess.purchases = JSON.parse(JSON.stringify(vrows._resolvedPurchases));
+  }
+  // STAGE 1 (r55) FIX 4 — persist the variance rows. The legacy readers (insights
+  // ~2889/~3376, finalise summary ~11201, period list ~11337) sum r.varVal and label
+  // r.product off sess.varRows, which was NEVER written before r55 (so they silently
+  // read []). Rows already carry the product/varVal aliases (see rows.push).
+  sess.varRows = JSON.parse(JSON.stringify(vrows));
+}
+
 function finaliseStocktake(){
   closeModal('finaliseModal');
   const c = activeClient; if(!c) return;
@@ -11193,29 +11263,11 @@ function finaliseStocktake(){
   }
 
   // Snapshot this period's overall variance % while the session is still the
-  // working session (computeVariances targets the open session + current
-  // deliveries), so the Reports trend chart gets an accurate historical point.
-  // Mirrors calculateReportData()'s value-weighted total.variancePct.
+  // working session (sess is 'open' here, so the freeze computes live), so the
+  // Reports trend chart gets an accurate historical point. Extracted to
+  // freezeSessionSnapshot (r62) so the re-close path can reuse it.
   try {
-    const vrows = computeVariances(c) || [];
-    let evSum = 0, vvSum = 0;
-    vrows.forEach(r => { evSum += (r.expectedNum || 0) * (r.costPrice || 0); vvSum += (r.costImpact || 0); });
-    sess.overallVariancePct = evSum > 0 ? (vvSum / evSum) * 100 : 0;
-    // STAGE 1 (r55) FIX 3 — FREEZE the resolved purchases this period actually used.
-    // computeVariances ran while sess was still 'open' (status flips to 'finalised'
-    // below), so it merged the LIVE deliveries; storing that resolved set back onto
-    // sess.purchases makes the now-closed period immutable — every future recompute
-    // reads this snapshot (computeVariances' isLive=false branch) instead of live
-    // deliveries, so a later invoice edit can't move a locked period. Deep-cloned so
-    // the frozen copy shares no objects with the live delivery data.
-    if (vrows._resolvedPurchases) {
-      sess.purchases = JSON.parse(JSON.stringify(vrows._resolvedPurchases));
-    }
-    // STAGE 1 (r55) FIX 4 — persist the variance rows. The legacy readers (insights
-    // ~2889/~3376, finalise summary ~11201, period list ~11337) sum r.varVal and label
-    // r.product off sess.varRows, which was NEVER written before r55 (so they silently
-    // read []). Rows already carry the product/varVal aliases (see rows.push).
-    sess.varRows = JSON.parse(JSON.stringify(vrows));
+    freezeSessionSnapshot(c, sess);
   } catch (e) { /* non-fatal — trend falls back to a best-effort recompute */ }
   sess.status = 'finalised';
 
@@ -11509,6 +11561,13 @@ function rolloverPeriod() {
     alert('The current period is already closed. Nothing to roll over.');
     return;
   }
+  // STAGE 3 (r62) — a reopened period must be re-closed before the chain moves on,
+  // otherwise this rollover would strand a 'reopened' orphan mid-history.
+  const reopenedSess = (c.auditSessions||[]).find(s => s && s.status === 'reopened');
+  if(reopenedSess) {
+    alert(`A past period (${formatSessionLabel(reopenedSess)}) is reopened for amendment. Re-close it before rolling this period over.`);
+    return;
+  }
 
   // Guard — this step is one-way (the closed period becomes locked history).
   const ok = confirm('This closes the current period and starts a new one with opening stock carried over from this period’s closing count. The closed period is locked. Continue?');
@@ -11563,6 +11622,101 @@ function rolloverPeriod() {
   navigate('stocktake');
 }
 
+// ─── STAGE 3 (r62) — REOPEN A CLOSED PERIOD ──────
+// The sanctioned way to amend locked history. 'reopened' sits deliberately OUTSIDE
+// isClosedSession(), which is what re-enables the r61 invoice guards (deleteInvoice /
+// saveEditedInvoice / purgeGhostPurchases) and computeVariances' live branch for that
+// period — while every OTHER closed period stays locked. A reopened period is NEVER
+// the active period: currentSession() keeps preferring the newer open/finalised period
+// (always higher seq — only a rolled-over period is reopenable, and rolled-over implies
+// a newer successor exists), so new imports/counts/sales are unaffected.
+// Amendment scope for Stage 3 is invoice edit/delete only.
+
+// The one session eligible for reopening: the MOST-RECENT (highest-seq) 'rolledover'
+// period — and only while nothing else is already reopened. Deeper history is reached
+// by walking backwards one period at a time (re-close July, then June becomes eligible).
+function eligibleReopenSession(c) {
+  const arr = (c && c.auditSessions) || [];
+  if (arr.some(s => s && s.status === 'reopened')) return null;
+  const rolled = arr.filter(s => s && s.status === 'rolledover').sort(compareSessions);
+  return rolled.length ? rolled[rolled.length - 1] : null;
+}
+
+function reopenPeriod(sessionId) {
+  const c = activeClient; if(!c) return;
+  const sess = (c.auditSessions||[]).find(s => s && s.id === sessionId);
+  if(!sess) return;
+
+  // Eligibility guards live HERE, not just on button state — reopen rewrites audit history.
+  const already = (c.auditSessions||[]).find(s => s && s.status === 'reopened');
+  if(already) {
+    alert(`Re-close ${formatSessionLabel(already)} before reopening another.`);
+    return;
+  }
+  if(sess.status !== 'rolledover') {
+    alert('Only a closed (rolled-over) period can be reopened.');
+    return;
+  }
+  const rolled = (c.auditSessions||[]).filter(s => s && s.status === 'rolledover').sort(compareSessions);
+  const mostRecent = rolled[rolled.length - 1];
+  if(!mostRecent || mostRecent.id !== sess.id) {
+    alert(`Only the most-recent closed period (${formatSessionLabel(mostRecent)}) can be reopened. To amend an older period, reopen and re-close one period at a time, walking backwards.`);
+    return;
+  }
+
+  const label = formatSessionLabel(sess);
+  const ok = confirm(`Reopen ${label} for amendment?\n\nThis period's variance was locked on ${sess.closeDate || '—'}. Reopening lets you edit or delete its invoices, and its variance will recompute live. New invoices, counts and sales still go to the current period.\n\nWhen you're done, re-close it to lock the amended numbers into audit history. Reopening a period you have already reported on changes recorded audit results.`);
+  if(!ok) return;
+
+  // One-shot backup of the frozen state — enables a future "cancel reopen" restore;
+  // deleted at re-close. The frozen fields themselves stay IN PLACE: the live branch
+  // (isLive=true for 'reopened') recomputes from the period's scoped deliveries and only
+  // falls back to sess.purchases for empty-line invoices, exactly like an open period.
+  sess._preReopen = JSON.parse(JSON.stringify({
+    purchases:          sess.purchases || {},
+    varRows:            sess.varRows || [],
+    overallVariancePct: sess.overallVariancePct || 0,
+    status:             sess.status,
+  }));
+  sess.status = 'reopened';
+
+  dbSaveSession(c, sess);
+  dbSaveClient(c);
+  showPersistToast(`🔓 ${label} reopened — invoice edits unlocked. Re-close to lock the amended numbers.`);
+  // Pin the view to what was just reopened + refresh the period-scoped pages.
+  switchAuditPeriod(sess.id);
+}
+
+// Re-close the (single) reopened period: recompute + re-freeze its snapshot, then
+// restore 'rolledover' — NOT 'finalised': it has a successor and must never become
+// rollover- or currentSession-eligible again. prevId/nextId stay untouched so Stage 4's
+// forward cascade can walk the chain; reclosedAt marks where the cascade must pick up.
+function recloseReopenedPeriod() {
+  const c = activeClient; if(!c) return;
+  const sess = (c.auditSessions||[]).find(s => s && s.status === 'reopened');
+  if(!sess) { alert('No reopened period to re-close.'); return; }
+
+  const label = formatSessionLabel(sess);
+  const ok = confirm(`Lock ${label} with the amended numbers?\n\nIts variance snapshot will be recalculated and frozen.`);
+  if(!ok) return;
+
+  // Freeze WHILE the status is still 'reopened' so computeVariances takes the live
+  // branch (scoped deliveries reflecting the amendments), THEN flip the status —
+  // mirrors finaliseStocktake's keep-open-until-snapshot ordering.
+  try {
+    freezeSessionSnapshot(c, sess);
+  } catch (e) { console.error('[AuditPro] re-close snapshot failed:', e); }
+  sess.status = 'rolledover';
+  delete sess._preReopen;
+  sess.reclosedAt = new Date().toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'});
+
+  dbSaveSession(c, sess);
+  dbSaveClient(c);
+  showPersistToast(`🔒 ${label} re-closed — amended numbers locked into history.`);
+  // Keep the view pinned on the just-locked period + refresh the period-scoped pages.
+  switchAuditPeriod(sess.id);
+}
+
 // ─── AUDIT PERIOD SELECTOR ────────────────────────
 // r60 — VIEWED vs ACTIVE period. viewedPeriodId is the id of the period the DISPLAY is
 // showing (variance table, purchases KPIs + history). It is DISTINCT from the ACTIVE/current
@@ -11587,9 +11741,11 @@ function viewedSession(c) {
 function updateAuditPeriodCtx(c) {
   const ctx = document.getElementById('audit-period-ctx');
   if(!ctx) return;
-  // The selector only appears once there's CLOSED history to browse (finalised + rolled-over);
-  // before that there is only the single active period and nothing to switch between (STAGE 2, r58).
-  const closed = (c?.auditSessions||[]).filter(isClosedSession);
+  // The selector only appears once there's CLOSED history to browse (finalised + rolled-over).
+  // A 'reopened' period counts as history here too (STAGE 3, r62) — otherwise reopening the
+  // ONLY closed period would hide the selector and strand the user with no way to view or
+  // re-close it.
+  const closed = (c?.auditSessions||[]).filter(s => isClosedSession(s) || (s && s.status === 'reopened'));
   if(!closed.length) { ctx.style.display = 'none'; return; }
   ctx.style.display = 'flex';
 
@@ -11631,7 +11787,9 @@ function populateAuditPeriodDropdown() {
   // counts/imports/finalise land), then every CLOSED period (finalised + rolled-over) by seq desc.
   const active = currentSession(c);
   const vs     = viewedSession(c);
-  const closed = (c.auditSessions||[]).filter(isClosedSession);
+  // 'reopened' is neither active nor isClosedSession — include it explicitly (STAGE 3, r62)
+  // or the reopened period would vanish from this list entirely.
+  const closed = (c.auditSessions||[]).filter(s => isClosedSession(s) || (s && s.status === 'reopened'));
   const rows   = [];
   const seen   = new Set();
   if(active && active.id) { rows.push(active); seen.add(active.id); }
@@ -11652,6 +11810,7 @@ function populateAuditPeriodDropdown() {
     const varColor = totalVar < 0 ? 'var(--red)' : totalVar > 0 ? 'var(--green)' : 'var(--text3)';
     const statusLbl= sess.status === 'open' ? 'open · counting'
                    : sess.status === 'rolledover' ? 'closed history'
+                   : sess.status === 'reopened' ? '🔓 reopened — amendable'
                    : 'finalised';
 
     return `<button onclick="switchAuditPeriod('${sess.id}')"
@@ -12571,7 +12730,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r61';
+const APP_VERSION = '2026-06-10-r62';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
