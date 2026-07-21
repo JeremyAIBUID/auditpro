@@ -11812,19 +11812,34 @@ function reopenPeriod(sessionId) {
   switchAuditPeriod(sess.id);
 }
 
-// Re-close the (single) reopened period: recompute + re-freeze its snapshot, then
-// restore 'rolledover' — NOT 'finalised': it has a successor and must never become
-// rollover- or currentSession-eligible again. prevId/nextId stay untouched so Stage 4's
-// forward cascade can walk the chain; reclosedAt marks where the cascade must pick up.
+// Re-close the OLDEST reopened period: recompute + re-freeze its snapshot, restore
+// 'rolledover' — NOT 'finalised': it has a successor and must never become rollover- or
+// currentSession-eligible again — then CASCADE its corrected closing forward exactly ONE
+// hop (STAGE 4 PART C, r65). prevId/nextId stay untouched; reclosedAt marks the re-close.
 function recloseReopenedPeriod() {
   const c = activeClient; if(!c) return;
-  // STAGE 4 (r64) — re-close is enforced OLDEST-FIRST so the (future) forward cascade stays
-  // correct by construction: lock the oldest reopened period only, never a newer one.
+  // STAGE 4 (r64) — re-close is enforced OLDEST-FIRST so the forward cascade stays correct
+  // by construction: lock the oldest reopened period only, never a newer one.
   const sess = oldestReopenedSession(c);
   if(!sess) { alert('No reopened period to re-close.'); return; }
+  const arr = c.auditSessions || [];
 
-  const label = formatSessionLabel(sess);
-  const ok = confirm(`Lock ${label} with the amended numbers?\n\nIts variance snapshot will be recalculated and frozen.`);
+  // STAGE 4 PART C (r65) — resolve the successor NOW (before the confirm) so the prompt can
+  // name it and warn its opening + variance will change. Prefer the explicit nextId forward
+  // link (r58); FALL BACK to the immediate seq-successor (lowest-seq session after this one)
+  // for legacy pre-r58 chains that lack nextId, or a stale nextId that no longer resolves.
+  let succ = sess.nextId ? arr.find(s => s && s.id === sess.nextId) : null;
+  if(!succ) {
+    succ = arr
+      .filter(s => s && s.id !== sess.id && compareSessions(s, sess) > 0)
+      .sort(compareSessions)[0] || null;
+  }
+
+  const label     = formatSessionLabel(sess);
+  const succLabel = succ ? formatSessionLabel(succ) : '';
+  const ok = confirm(succ
+    ? `Lock ${label} with the amended numbers?\n\nIts variance snapshot will be recalculated and frozen. ${succLabel}'s opening stock will be updated from ${label}'s corrected closing, and ${succLabel}'s variance will be recomputed.`
+    : `Lock ${label} with the amended numbers?\n\nIts variance snapshot will be recalculated and frozen.`);
   if(!ok) return;
 
   // Freeze WHILE the status is still 'reopened' so computeVariances takes the live
@@ -11837,9 +11852,32 @@ function recloseReopenedPeriod() {
   delete sess._preReopen;
   sess.reclosedAt = new Date().toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'});
 
+  // STAGE 4 PART C (r65) — CASCADE exactly ONE hop forward. The successor INHERITS this
+  // period's (re-frozen) closing as its opening — the rollover chain-link, refreshed. Its
+  // variance then recomputes; re-freeze ONLY if the successor is itself a frozen (closed)
+  // period. We NEVER walk past one hop (deeper periods update as the user unwinds the block
+  // oldest-first) and NEVER touch succ.closing — that is a real physical count.
+  //   • 'finalised' / 'rolledover' → frozen: re-freeze. In the frozen branch
+  //     _resolvedPurchases === succ.purchases, so this holds purchases constant while
+  //     recomputing variance from the NEW opening + unchanged closing (exactly correct).
+  //   • 'open' (the active period) → nothing frozen; the next render recomputes live.
+  //   • 'reopened' (next in the block, still amendable) → recomputes live; its snapshot is
+  //     written at ITS OWN re-close turn. This is why oldest-first is correct by construction.
+  // NO-OP INVARIANT (until Part B ships): closings can't change, so succ.opening already
+  // equals this closing and the recompute leaves succ's variance numerically identical.
+  if(succ) {
+    succ.opening = JSON.parse(JSON.stringify(sess.closing || {}));
+    if(isClosedSession(succ)) {
+      try {
+        freezeSessionSnapshot(c, succ);
+      } catch (e) { console.error('[AuditPro] cascade snapshot failed:', e); }
+    }
+    dbSaveSession(c, succ);
+  }
+
   dbSaveSession(c, sess);
   dbSaveClient(c);
-  showPersistToast(`🔒 ${label} re-closed — amended numbers locked into history.`);
+  showPersistToast(`🔒 ${label} re-closed — amended numbers locked into history.${succ ? ` ${succLabel}'s opening updated.` : ''}`);
   // Keep the view pinned on the just-locked period + refresh the period-scoped pages.
   switchAuditPeriod(sess.id);
 }
@@ -12859,7 +12897,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r64';
+const APP_VERSION = '2026-06-10-r65';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
