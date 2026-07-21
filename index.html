@@ -2750,9 +2750,14 @@ function renderPage(page) {
             : (purView.status === 'reopened' ? ' · reopened' : '')));
       // STAGE 3 (r62) — surface reopen/re-close where invoice editing happens (the locked-
       // period alerts point the user here). Reopen shows only on the eligible period.
+      // STAGE 4 (r64) — re-close is oldest-first: on a reopened period, the button shows only
+      // when it is the oldest reopened; otherwise a waiting note points at the oldest.
+      const purOldestReopened = oldestReopenedSession(c);
       const purAction = !purView ? ''
         : purView.status === 'reopened'
-          ? ` &nbsp; <button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;text-transform:none;letter-spacing:normal;" onclick="recloseReopenedPeriod()">🔒 Re-close &amp; lock</button>`
+          ? (purOldestReopened && purOldestReopened.id === purView.id
+              ? ` &nbsp; <button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;text-transform:none;letter-spacing:normal;" onclick="recloseReopenedPeriod()">🔒 Re-close &amp; lock</button>`
+              : ` &nbsp; <span style="font-size:10px;color:var(--text3);text-transform:none;letter-spacing:normal;">Re-close ${formatSessionLabel(purOldestReopened)} first (oldest-first)</span>`)
           : (purView.status === 'rolledover' && eligibleReopenSession(c)?.id === purView.id)
             ? ` &nbsp; <button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;text-transform:none;letter-spacing:normal;" onclick="reopenPeriod('${purView.id}')">🔓 Reopen this period</button>`
             : '';
@@ -6596,6 +6601,13 @@ function renderVarBanner(client) {
   } else if (session && session.status === 'reopened') {
     // STAGE 3 (r62) — reopened for amendment: this period recomputes LIVE from its own
     // scoped deliveries until it is re-closed. Re-close is surfaced right here.
+    // STAGE 4 (r64) — re-close is oldest-first: the button shows only on the OLDEST reopened
+    // period; a newer reopened period in the block shows a waiting message instead.
+    const oldest   = oldestReopenedSession(client);
+    const isOldest = oldest && oldest.id === session.id;
+    const reAction = isOldest
+      ? `<button class="btn btn-primary" style="font-size:12px;padding:7px 14px;" onclick="recloseReopenedPeriod()">🔒 Re-close &amp; lock</button>`
+      : `<span style="font-size:11px;color:var(--text3);max-width:320px;text-align:right;line-height:1.4;">Re-close ${formatSessionLabel(oldest)} first — reopened periods lock oldest-first so corrections cascade forward correctly.</span>`;
     el.innerHTML = `
       <div style="background:rgba(240,192,64,0.07);border:1px solid rgba(240,192,64,0.25);border-radius:10px;padding:11px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -6603,7 +6615,7 @@ function renderVarBanner(client) {
           <span style="font-size:13px;font-weight:600;color:var(--text);">🔓 Reopened for amendment — ${formatSessionLabel(session)}</span>
           <span style="font-size:12px;color:var(--text3);">recomputing live; re-close to lock. New invoices &amp; counts still go to the current period.</span>
         </div>
-        <button class="btn btn-primary" style="font-size:12px;padding:7px 14px;" onclick="recloseReopenedPeriod()">🔒 Re-close &amp; lock</button>
+        ${reAction}
       </div>`;
   } else if (session && session.status === 'rolledover') {
     // STAGE 3 (r62) — closed history gets its own banner (it used to fall into the
@@ -11455,9 +11467,14 @@ function renderFinalisePage() {
 
       let actionHtml = '';
       if (viewed.status === 'reopened') {
-        actionHtml = `
+        // STAGE 4 (r64) — oldest-first lock: only the oldest reopened period gets the button.
+        const oldest   = oldestReopenedSession(c);
+        const isOldest = oldest && oldest.id === viewed.id;
+        actionHtml = isOldest
+          ? `
           <button class="btn btn-primary" style="width:100%;padding:14px;font-size:14px;margin-top:14px;" onclick="recloseReopenedPeriod()">🔒 Re-close &amp; lock</button>
-          <div style="font-size:12px;color:var(--text3);text-align:center;margin-top:8px;">Recomputes and freezes the amended numbers, then locks this period back into history. New invoices, counts and sales still land in the current period.</div>`;
+          <div style="font-size:12px;color:var(--text3);text-align:center;margin-top:8px;">Recomputes and freezes the amended numbers, then locks this period back into history. New invoices, counts and sales still land in the current period.</div>`
+          : `<div style="font-size:12px;color:var(--text3);text-align:center;margin-top:14px;">🔒 Re-close ${formatSessionLabel(oldest)} first — reopened periods lock oldest-first so corrections cascade forward correctly.</div>`;
       } else if (viewed.status === 'rolledover') {
         const eligible   = eligibleReopenSession(c);
         const canReopen  = eligible?.id === viewed.id;
@@ -11466,10 +11483,15 @@ function renderFinalisePage() {
             <button style="width:100%;padding:14px;font-size:14px;font-weight:700;border-radius:10px;background:rgba(240,80,80,0.08);border:1px solid rgba(240,80,80,0.4);color:var(--red);font-family:var(--font-ui);cursor:pointer;margin-top:14px;" onclick="reopenPeriod('${viewed.id}')">🔓 Reopen this period</button>
             <div style="font-size:12px;color:var(--text3);text-align:center;margin-top:8px;">Unlocks invoice edit/delete for this period and recomputes its variance live. Reopening a period you've already reported on changes recorded audit results — re-close when done to lock the amended numbers back in.</div>`;
         } else {
-          const already = (c.auditSessions||[]).find(s => s && s.status === 'reopened');
-          const why = already
-            ? `Re-close ${formatSessionLabel(already)} before reopening another period.`
-            : `Reopen is only available for the most recent closed period${eligible ? ' (' + formatSessionLabel(eligible) + ')' : ''}.`;
+          // STAGE 4 (r64) — this rolled-over period isn't the next one eligible to reopen.
+          // Either a contiguous reopened block is open (finish it oldest-first to step
+          // deeper), or a newer closed period must be reopened first.
+          const oldestReopened = oldestReopenedSession(c);
+          const why = oldestReopened
+            ? `Re-close ${formatSessionLabel(oldestReopened)} first (reopened periods lock oldest-first), then you can step further back.`
+            : (eligible
+                ? `Reopen ${formatSessionLabel(eligible)} first — reopened periods form a contiguous block back from the newest closed period.`
+                : `This period is locked history.`);
           actionHtml = `<div style="font-size:12px;color:var(--text3);text-align:center;margin-top:14px;">🔒 Locked — ${why}</div>`;
         }
       }
@@ -11625,11 +11647,15 @@ function rolloverPeriod() {
     alert('The current period is already closed. Nothing to roll over.');
     return;
   }
-  // STAGE 3 (r62) — a reopened period must be re-closed before the chain moves on,
-  // otherwise this rollover would strand a 'reopened' orphan mid-history.
-  const reopenedSess = (c.auditSessions||[]).find(s => s && s.status === 'reopened');
-  if(reopenedSess) {
-    alert(`A past period (${formatSessionLabel(reopenedSess)}) is reopened for amendment. Re-close it before rolling this period over.`);
+  // STAGE 3 (r62) / STAGE 4 (r64) — any reopened period(s) must be re-closed before the
+  // chain moves on, otherwise rollover would strand a 'reopened' orphan mid-history.
+  // Re-close is oldest-first, so point the user at the oldest reopened period.
+  const reopenedAll = (c.auditSessions||[]).filter(s => s && s.status === 'reopened').sort(compareSessions);
+  if(reopenedAll.length) {
+    const oldest = reopenedAll[0];
+    const more   = reopenedAll.length - 1;
+    const extra  = more > 0 ? ` (and ${more} more reopened period${more !== 1 ? 's' : ''})` : '';
+    alert(`A past period (${formatSessionLabel(oldest)})${extra} is reopened for amendment. Re-close ${reopenedAll.length > 1 ? 'them oldest-first' : 'it'} before rolling this period over.`);
     return;
   }
 
@@ -11696,14 +11722,50 @@ function rolloverPeriod() {
 // a newer successor exists), so new imports/counts/sales are unaffected.
 // Amendment scope for Stage 3 is invoice edit/delete only.
 
-// The one session eligible for reopening: the MOST-RECENT (highest-seq) 'rolledover'
-// period — and only while nothing else is already reopened. Deeper history is reached
-// by walking backwards one period at a time (re-close July, then June becomes eligible).
+// STAGE 4 (r64) — the ONE session eligible for reopening next, advancing a CONTIGUOUS
+// block backwards from the newest closed period (no holes, unlimited depth):
+//   • nothing reopened      → the MOST-RECENT (highest-seq) 'rolledover' period;
+//   • some already reopened → the immediate PREDECESSOR of the OLDEST reopened period —
+//     i.e. the highest-seq 'rolledover' period whose seq is BELOW the oldest reopened's.
+// Driven by seq ordering (compareSessions). prevId is only a defensive cross-check;
+// legacy chains may lack prevId/nextId so eligibility must never depend on them.
+// Returns null when the reopened block already reaches the start of history.
 function eligibleReopenSession(c) {
   const arr = (c && c.auditSessions) || [];
-  if (arr.some(s => s && s.status === 'reopened')) return null;
   const rolled = arr.filter(s => s && s.status === 'rolledover').sort(compareSessions);
-  return rolled.length ? rolled[rolled.length - 1] : null;
+  if (!rolled.length) return null;
+
+  const reopened = arr.filter(s => s && s.status === 'reopened').sort(compareSessions);
+  if (!reopened.length) {
+    // Nothing reopened yet — the newest closed period is the entry point (unchanged).
+    return rolled[rolled.length - 1];
+  }
+
+  // Step one period deeper: the highest-seq 'rolledover' period below the OLDEST reopened.
+  const oldestReopened = reopened[0];
+  let pick = null;
+  rolled.forEach(s => { if (compareSessions(s, oldestReopened) < 0) pick = s; }); // ascending → last kept = highest below
+  if (!pick) return null; // block already reaches the start of history — nothing older to reopen
+
+  // Defensive cross-check only: if the oldest reopened carries a prevId that resolves to a
+  // 'rolledover' session, it SHOULD equal the seq-derived pick. Trust seq regardless.
+  if (oldestReopened.prevId) {
+    const byPrev = arr.find(s => s && s.id === oldestReopened.prevId && s.status === 'rolledover');
+    if (byPrev && byPrev.id !== pick.id) {
+      console.warn('[AuditPro] eligibleReopenSession: prevId vs seq predecessor mismatch — trusting seq.', { prevId: byPrev.id, seqPick: pick.id });
+    }
+  }
+  return pick;
+}
+
+// STAGE 4 (r64) — re-close is enforced OLDEST-FIRST so the (future) forward cascade stays
+// correct by construction: only the oldest reopened period may lock. Returns the oldest
+// (lowest-seq) 'reopened' session, or null when none are reopened.
+function oldestReopenedSession(c) {
+  const reopened = ((c && c.auditSessions) || [])
+    .filter(s => s && s.status === 'reopened')
+    .sort(compareSessions);
+  return reopened.length ? reopened[0] : null;
 }
 
 function reopenPeriod(sessionId) {
@@ -11711,20 +11773,19 @@ function reopenPeriod(sessionId) {
   const sess = (c.auditSessions||[]).find(s => s && s.id === sessionId);
   if(!sess) return;
 
-  // Eligibility guards live HERE, not just on button state — reopen rewrites audit history.
-  const already = (c.auditSessions||[]).find(s => s && s.status === 'reopened');
-  if(already) {
-    alert(`Re-close ${formatSessionLabel(already)} before reopening another.`);
-    return;
-  }
-  if(sess.status !== 'rolledover') {
-    alert('Only a closed (rolled-over) period can be reopened.');
-    return;
-  }
-  const rolled = (c.auditSessions||[]).filter(s => s && s.status === 'rolledover').sort(compareSessions);
-  const mostRecent = rolled[rolled.length - 1];
-  if(!mostRecent || mostRecent.id !== sess.id) {
-    alert(`Only the most-recent closed period (${formatSessionLabel(mostRecent)}) can be reopened. To amend an older period, reopen and re-close one period at a time, walking backwards.`);
+  // STAGE 4 (r64) — ONE eligibility guard. eligibleReopenSession() returns the single
+  // period that may be reopened next (newest closed, or the immediate predecessor of the
+  // reopened block), so contiguity is guaranteed by construction: a non-adjacent period can
+  // never match. Guards live HERE, not just on button state — reopen rewrites audit history.
+  const eligible = eligibleReopenSession(c);
+  if(!eligible || eligible.id !== sessionId) {
+    if(sess.status !== 'rolledover') {
+      alert('Only a closed (rolled-over) period can be reopened.');
+    } else if(eligible) {
+      alert(`Only ${formatSessionLabel(eligible)} can be reopened next.\n\nReopened periods form a contiguous block back from the newest closed period. To reach an older period, re-close the oldest reopened period to step one further back.`);
+    } else {
+      alert('There is no closed period available to reopen right now.');
+    }
     return;
   }
 
@@ -11757,7 +11818,9 @@ function reopenPeriod(sessionId) {
 // forward cascade can walk the chain; reclosedAt marks where the cascade must pick up.
 function recloseReopenedPeriod() {
   const c = activeClient; if(!c) return;
-  const sess = (c.auditSessions||[]).find(s => s && s.status === 'reopened');
+  // STAGE 4 (r64) — re-close is enforced OLDEST-FIRST so the (future) forward cascade stays
+  // correct by construction: lock the oldest reopened period only, never a newer one.
+  const sess = oldestReopenedSession(c);
   if(!sess) { alert('No reopened period to re-close.'); return; }
 
   const label = formatSessionLabel(sess);
@@ -12796,7 +12859,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r63';
+const APP_VERSION = '2026-06-10-r64';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
