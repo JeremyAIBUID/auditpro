@@ -1795,6 +1795,30 @@
   </div>
 </div>
 
+<!-- AMEND CLOSING MODAL (STAGE 4 PART B, r66) — edit one plain-unit closing count on a REOPENED period -->
+<div class="modal-overlay" id="amendClosingModal">
+  <div class="modal" style="width:420px;">
+    <div class="modal-title">✏️ Amend closing count</div>
+    <p style="font-size:13px;color:var(--text2);margin-top:-10px;margin-bottom:14px;" id="amend-close-sub">—</p>
+    <div class="form-group"><label>Product</label>
+      <div id="amend-close-prod" style="font-size:14px;font-weight:600;color:var(--text);padding:4px 0 2px;">—</div>
+    </div>
+    <div style="display:flex;gap:14px;">
+      <div class="form-group" style="flex:1;"><label>Current closing</label>
+        <div id="amend-close-current" style="font-family:var(--font-mono);font-size:14px;color:var(--text2);padding:9px 0;">—</div>
+      </div>
+      <div class="form-group" style="flex:1;"><label>Corrected qty (<span id="amend-close-unit">units</span>)</label>
+        <input type="number" id="amend-close-qty" min="0" step="any" placeholder="0" onkeydown="if(event.key==='Enter')saveAmendClosing()">
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--text3);line-height:1.5;margin-bottom:6px;">The amendment is logged on this period's audit trail. Variance recomputes immediately, and the correction carries into the next period's opening stock when you re-close.</div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('amendClosingModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAmendClosing()">✓ Save amendment</button>
+    </div>
+  </div>
+</div>
+
 <!-- RECHECK MODAL -->
 <!-- AI QUESTIONS PANEL (slide-in from right) -->
 <div id="ai-questions-panel" style="position:fixed;top:0;right:-480px;width:460px;height:100vh;background:var(--bg2);border-left:1px solid var(--border2);z-index:200;display:flex;flex-direction:column;transition:right 0.35s cubic-bezier(.4,0,.2,1);box-shadow:-8px 0 32px rgba(0,0,0,0.4);">
@@ -6779,6 +6803,11 @@ function renderVarTable() {
   const computed = computeVariances(c, viewedSession(c));
   let rows = computed ? [...computed] : [];
 
+  // STAGE 4 PART B (r66) — closing counts are directly amendable ONLY while the viewed
+  // period is 'reopened' (plain-unit entries; weighed products show a not-yet note).
+  const _vtSess      = viewedSession(c);
+  const _vtAmendable = !!(_vtSess && _vtSess.status === 'reopened');
+
   // If nothing at all — show empty state
   if (!rows.length) {
     document.getElementById('var-body').innerHTML = `<tr><td colspan="16" style="text-align:center;padding:48px;color:var(--text3);">No variance data yet. Complete a stocktake to generate results.</td></tr>`;
@@ -7006,11 +7035,17 @@ function renderVarTable() {
             <div class="weigh-pop-row"><span style="color:var(--text2);">Fraction of bottle</span><span style="font-family:var(--font-mono);color:var(--text);">${frac} btl</span></div>
             <div class="weigh-pop-row"><span style="color:var(--text2);">Expected</span><span style="font-family:var(--font-mono);color:var(--text2);">${fmtMl(wd.expectedMl)}</span></div>
             <div class="weigh-pop-row" style="border:none;padding-top:8px;margin-top:4px;border-top:1px solid var(--border);"><span style="color:var(--text2);">Variance</span><span style="font-family:var(--font-mono);color:${vCol};">${vLbl}</span></div>
-            ${perVessel}${errRow}
+            ${perVessel}${errRow}${_vtAmendable ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);line-height:1.4;">✏️ Weighed products can’t be amended here yet — the per-vessel weight trail must be preserved.</div>` : ''}
           </div>
         </td>`;
       } else {
-        actualCell = `<td class="td-mono">${r.a}</td>`;
+        // STAGE 4 PART B (r66) — on a reopened period, plain-unit closings get an amend
+        // trigger (small ✏️ opening the amend-closing modal; the cell itself stays
+        // read-only). Weighed cells above keep their popover click untouched.
+        const amendBtn = _vtAmendable
+          ? ` <button title="Amend closing count" onclick="openAmendClosing('${r.p.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 2px;opacity:0.65;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.65">✏️</button>`
+          : '';
+        actualCell = `<td class="td-mono">${r.a}${amendBtn}</td>`;
       }
 
       // col order: Product | Prev.closing | Purchases | Actual | On hand cost | Sales(ml) | Expected | Var.vol | Cost impact | Var% | Days | Par | Status | GP% | Ideal | Gap
@@ -11882,6 +11917,105 @@ function recloseReopenedPeriod() {
   switchAuditPeriod(sess.id);
 }
 
+// ─── STAGE 4 PART B (r66) — AMEND A CLOSING COUNT ON A REOPENED PERIOD ──────
+// The last lifecycle piece: a direct edit of one product's closing figure while the
+// period is 'reopened'. This is what turns the r65 cascade from a no-op into real
+// forward propagation (re-close copies the corrected closing into the successor's
+// opening). SCOPE: plain-unit entries ({qty, unit}) ONLY — weighed entries (weights[]/
+// netWeightG/method 'weight') are refused so their per-vessel audit trail can never be
+// silently destroyed by an ambiguous back-solve. The write keeps the exact entry shape
+// countToUnits already reads, so no downstream reader changes.
+
+let _amendClosingTarget = null; // { sessionId, product } while the modal is open
+
+function openAmendClosing(productName) {
+  const c = activeClient; if(!c) return;
+  const sess = viewedSession(c);
+  // Amendable ONLY while the viewed period is reopened (the affordance is also hidden
+  // otherwise, but never trust button state alone).
+  if(!sess || sess.status !== 'reopened') {
+    alert('Closing counts can only be amended while the period is reopened.');
+    return;
+  }
+  const entry = (sess.closing || {})[productName];
+  if(entry && isWeighedEntry(entry)) {
+    alert('Weighed products can’t be amended here yet — their per-vessel weight trail must be preserved. Amend the invoice side, or recount on the scales.');
+    return;
+  }
+  const prod = (c.products || []).find(p => (p.n||p.name) === productName) || {};
+  // Base display unit. A missing entry (product skipped in the count) is amendable too —
+  // it shows 0 and saves as a fresh {qty, unit}. NEVER default the unit to 'Cases':
+  // countToUnits multiplies a 'cases' label by caseSize, so a base label is required
+  // (same fallback finaliseStocktake uses when expanding case counts).
+  const unit = (entry && entry.unit)
+    || ((prod.soldAs && prod.soldAs !== 'Cases') ? prod.soldAs : 'Bottles');
+  const curQty = entry ? (parseFloat(entry.qty) || 0) : 0;
+  _amendClosingTarget = { sessionId: sess.id, product: productName };
+  document.getElementById('amend-close-prod').textContent    = productName;
+  document.getElementById('amend-close-sub').textContent     = `${formatSessionLabel(sess)} — reopened period`;
+  document.getElementById('amend-close-current').textContent = entry ? `${curQty} ${unit}` : 'not counted';
+  document.getElementById('amend-close-unit').textContent    = unit;
+  const inp = document.getElementById('amend-close-qty');
+  inp.value = curQty;
+  openModal('amendClosingModal');
+  inp.focus(); inp.select();
+}
+
+function saveAmendClosing() {
+  const c = activeClient; if(!c || !_amendClosingTarget) return;
+  const { sessionId, product } = _amendClosingTarget;
+  const sess = (c.auditSessions || []).find(s => s && s.id === sessionId);
+  // GUARD — re-check at WRITE time, not just when the modal opened: the period may have
+  // been re-closed (or the client switched) while the modal sat open. Any status other
+  // than 'reopened' refuses the mutation outright.
+  if(!sess || sess.status !== 'reopened') {
+    alert('This period is no longer reopened — amendment cancelled.');
+    closeModal('amendClosingModal');
+    _amendClosingTarget = null;
+    return;
+  }
+  const existing = (sess.closing || {})[product];
+  if(existing && isWeighedEntry(existing)) {
+    // Shouldn't be reachable (openAmendClosing refuses weighed) — but a sync could have
+    // replaced the entry while the modal was open. Never overwrite a weight trail.
+    alert('This product now has a weighed count and can’t be amended here.');
+    closeModal('amendClosingModal');
+    _amendClosingTarget = null;
+    return;
+  }
+  const qty = parseFloat(document.getElementById('amend-close-qty').value);
+  if(!isFinite(qty) || qty < 0) { alert('Enter a valid non-negative quantity.'); return; }
+
+  const prod = (c.products || []).find(p => (p.n||p.name) === product) || {};
+  const unit = (existing && existing.unit)
+    || ((prod.soldAs && prod.soldAs !== 'Cases') ? prod.soldAs : 'Bottles');
+  const oldEntry = existing ? JSON.parse(JSON.stringify(existing)) : null;
+  const oldUnits = countToUnits(oldEntry, prod);
+
+  // Write back in the SAME shape countToUnits reads ({qty, unit}); other fields on an
+  // existing plain entry (e.g. method) are preserved untouched.
+  if(!sess.closing) sess.closing = {};
+  if(existing) existing.qty = qty;
+  else sess.closing[product] = { qty, unit };
+  const newEntry = JSON.parse(JSON.stringify(sess.closing[product]));
+  const newUnits = countToUnits(newEntry, prod);
+
+  // AUDIT TRAIL — on the SESSION (not the client) so it travels with the period into
+  // frozen history. oldEntry keeps the full pre-edit entry: nothing is silently lost.
+  if(!Array.isArray(sess.amendments)) sess.amendments = [];
+  sess.amendments.push({ product, oldUnits, newUnits, oldEntry, newEntry, ts: new Date().toISOString() });
+
+  dbSaveSession(c, sess);
+  dbSaveClient(c);
+  closeModal('amendClosingModal');
+  _amendClosingTarget = null;
+  const fq = v => (Math.round(v * 100) / 100).toString();
+  showPersistToast(`✏️ ${product} closing amended: ${fq(oldUnits)} → ${fq(newUnits)} ${unit}. Variance updated.`);
+  // 'reopened' sits outside isClosedSession(), so computeVariances takes the LIVE branch
+  // and reads sess.closing fresh — the amended figure + recomputed variance show now.
+  renderVarTable();
+}
+
 // ─── AUDIT PERIOD SELECTOR ────────────────────────
 // r60 — VIEWED vs ACTIVE period. viewedPeriodId is the id of the period the DISPLAY is
 // showing (variance table, purchases KPIs + history). It is DISTINCT from the ACTIVE/current
@@ -12897,7 +13031,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r65';
+const APP_VERSION = '2026-06-10-r66';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
