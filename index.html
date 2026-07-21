@@ -1577,6 +1577,14 @@
         <!-- Status banner -->
         <div id="fin-page-banner" style="margin-bottom:20px;"></div>
 
+        <!-- Period lifecycle (r63) — single home for reopen/re-close, mirrors the variance-
+             page banner's states but reflects the VIEWED period (top-bar selector) so browsing
+             history here shows that period's status + available action. -->
+        <div class="card" style="margin-bottom:16px;" id="fin-lifecycle-card">
+          <div class="card-header"><span class="card-title">🔁 Period lifecycle</span></div>
+          <div class="card-body" id="fin-lifecycle-body"></div>
+        </div>
+
         <!-- Checklist -->
         <div class="card" style="margin-bottom:16px;">
           <div class="card-header"><span class="card-title">✅ Pre-finalise checklist</span></div>
@@ -11426,6 +11434,57 @@ function renderFinalisePage() {
     }
   }
 
+  // ── Period lifecycle (r63) — reflects the VIEWED period, not necessarily the active
+  // one, so browsing history via the top-bar selector shows that period's status here.
+  // Reopen/re-close reuse eligibleReopenSession()/reopenPeriod()/recloseReopenedPeriod()
+  // verbatim (same functions the variance-page banner calls) — no guard logic duplicated.
+  const lifeBody = document.getElementById('fin-lifecycle-body');
+  if (lifeBody) {
+    const viewed = viewedSession(c);
+    if (!viewed) {
+      lifeBody.innerHTML = `<div style="font-size:13px;color:var(--text3);">No audit period yet — complete a stocktake to start one.</div>`;
+    } else {
+      const activeSess = currentSession(c);
+      const isActive   = activeSess && viewed.id === activeSess.id;
+      const statusMeta = {
+        open:       { label: 'Open · counting',       color: 'var(--accent)' },
+        finalised:  { label: 'Finalised',              color: 'var(--green)' },
+        rolledover: { label: 'Closed history',          color: 'var(--text3)' },
+        reopened:   { label: '🔓 Reopened — amendable', color: 'var(--amber)' },
+      }[viewed.status] || { label: viewed.status || '—', color: 'var(--text3)' };
+
+      let actionHtml = '';
+      if (viewed.status === 'reopened') {
+        actionHtml = `
+          <button class="btn btn-primary" style="width:100%;padding:14px;font-size:14px;margin-top:14px;" onclick="recloseReopenedPeriod()">🔒 Re-close &amp; lock</button>
+          <div style="font-size:12px;color:var(--text3);text-align:center;margin-top:8px;">Recomputes and freezes the amended numbers, then locks this period back into history. New invoices, counts and sales still land in the current period.</div>`;
+      } else if (viewed.status === 'rolledover') {
+        const eligible   = eligibleReopenSession(c);
+        const canReopen  = eligible?.id === viewed.id;
+        if (canReopen) {
+          actionHtml = `
+            <button style="width:100%;padding:14px;font-size:14px;font-weight:700;border-radius:10px;background:rgba(240,80,80,0.08);border:1px solid rgba(240,80,80,0.4);color:var(--red);font-family:var(--font-ui);cursor:pointer;margin-top:14px;" onclick="reopenPeriod('${viewed.id}')">🔓 Reopen this period</button>
+            <div style="font-size:12px;color:var(--text3);text-align:center;margin-top:8px;">Unlocks invoice edit/delete for this period and recomputes its variance live. Reopening a period you've already reported on changes recorded audit results — re-close when done to lock the amended numbers back in.</div>`;
+        } else {
+          const already = (c.auditSessions||[]).find(s => s && s.status === 'reopened');
+          const why = already
+            ? `Re-close ${formatSessionLabel(already)} before reopening another period.`
+            : `Reopen is only available for the most recent closed period${eligible ? ' (' + formatSessionLabel(eligible) + ')' : ''}.`;
+          actionHtml = `<div style="font-size:12px;color:var(--text3);text-align:center;margin-top:14px;">🔒 Locked — ${why}</div>`;
+        }
+      }
+
+      lifeBody.innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div style="width:8px;height:8px;border-radius:50%;background:${statusMeta.color};flex-shrink:0;"></div>
+          <span style="font-size:13px;font-weight:600;color:var(--text);">${formatSessionLabel(viewed)}</span>
+          <span style="font-size:11px;padding:2px 9px;border-radius:20px;background:var(--bg3);color:${statusMeta.color};font-weight:600;">${statusMeta.label}</span>
+          ${isActive ? `<span style="font-size:11px;color:var(--text3);">· active period</span>` : ''}
+        </div>
+        ${actionHtml}`;
+    }
+  }
+
   // Checklist
   const desktopRows = [];
   document.querySelectorAll('#stocktake-body tr').forEach(tr => { const r=readCountRow(tr); if(r) desktopRows.push(r); });
@@ -11496,10 +11555,13 @@ function renderFinalisePage() {
   if(actionArea) actionArea.style.display = 'block';
   if(doneArea)   doneArea.style.display   = 'none';
 
-  // Rollover is only valid FROM a finalised current period. Enable/disable + explain why.
+  // Rollover is only valid FROM a finalised current period, AND blocked while any period
+  // is reopened (r63 — rolloverPeriod() already enforces this with an alert; surface it as
+  // a disabled state + explanation here too, instead of letting the click silently bounce).
   const rollBtn  = document.getElementById('fin-rollover-btn');
   const rollHint = document.getElementById('fin-rollover-hint');
-  const canRoll  = curStatus === 'finalised';
+  const reopenedBlocking = (c.auditSessions||[]).find(s => s && s.status === 'reopened');
+  const canRoll  = curStatus === 'finalised' && !reopenedBlocking;
   if(rollBtn) {
     rollBtn.disabled      = !canRoll;
     rollBtn.style.opacity = canRoll ? '1' : '0.45';
@@ -11508,9 +11570,11 @@ function renderFinalisePage() {
   if(rollHint) {
     rollHint.textContent = canRoll
       ? 'Locks this period as history and opens a fresh count with opening carried over from this closing count.'
-      : (curStatus === 'open'
-          ? 'Finalise & run variance first — then this period can be closed and rolled over.'
-          : 'Complete and finalise a stocktake before you can roll over.');
+      : reopenedBlocking
+        ? `Re-close ${formatSessionLabel(reopenedBlocking)} before rolling over.`
+        : (curStatus === 'open'
+            ? 'Finalise & run variance first — then this period can be closed and rolled over.'
+            : 'Complete and finalise a stocktake before you can roll over.');
   }
 
   // Green dot on nav
@@ -11850,6 +11914,8 @@ function switchAuditPeriod(id) {
   // page used to throw; the purchases page renders via renderPage('purchases').)
   if(document.getElementById('page-variances')?.classList.contains('active')) renderVarTable();
   if(document.getElementById('page-purchases')?.classList.contains('active')) renderPage('purchases');
+  // r63 — the Finalise page now also reflects the viewed period (lifecycle card).
+  if(document.getElementById('page-finalise')?.classList.contains('active')) renderFinalisePage();
 }
 
 // Close on outside click
@@ -12730,7 +12796,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r62';
+const APP_VERSION = '2026-06-10-r63';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
