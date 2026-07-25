@@ -319,6 +319,18 @@
   body.pdf-export-mode #fullrpt-preview-wrap{ background:#ffffff !important;padding:0 !important;overflow:visible !important; }
   body.pdf-export-mode .rpt-page{ border-bottom:none !important; }
   body.pdf-export-mode [data-noexport]{ display:none !important; }
+  /* FIX A4 (r67) — variance-table PDF export: same live-DOM light-theme override
+     trick as the full report, scoped to the temporary #varpdf-shell clone. Also
+     remaps red/green/amber to print-safe tones — the dark-theme neons wash out
+     on a white page. */
+  body.pdf-export-mode #varpdf-shell,
+  body.pdf-export-mode #varpdf-shell *{
+    --bg:#ffffff;--bg2:#ffffff;--bg3:#f3f5f8;--bg4:#eef1f5;
+    --text:#1a1a1a;--text2:#3a3f47;--text3:#6b7078;
+    --border:#d6dae0;--border2:#c9ced6;--accent:#378ADD;
+    --red:#b42318;--green:#0a6c44;--amber:#8a6d00;
+  }
+  body.pdf-export-mode #varpdf-shell{ background:#ffffff !important;color:#111 !important; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -1096,6 +1108,7 @@
         <button class="var-filter" onclick="setVarFilter('gp',this)">📉 GP below target</button>
         <button onclick="purgeGhostPurchases();renderVarTable();showPersistToast('✓ Ghost purchases cleared');" style="margin-left:8px;padding:4px 10px;font-size:11px;border-radius:6px;background:rgba(240,80,80,0.12);border:1px solid rgba(240,80,80,0.25);color:var(--red);cursor:pointer;font-family:var(--font-ui);">🗑 Clear ghosts</button>
         <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+          <button class="btn btn-secondary" style="font-size:12px;padding:6px 12px;" onclick="downloadVariancePDF()">⬇ Variances PDF</button>
           <span style="font-size:12px;color:var(--text3);">Sort by:</span>
           <select id="var-sort" style="padding:5px 10px;font-size:12px;width:160px;" onchange="renderVarTable()">
             <option value="severity">Severity</option>
@@ -1118,7 +1131,7 @@
                 <th title="Total purchased volume — click for invoice detail">+ Purchases</th>
                 <th title="Actual counted stock">Actual</th>
                 <th title="Value of stock on hand at cost price">On hand cost</th>
-                <th title="Click to see sales breakdown in ml">Sales (ml) ↗</th>
+                <th title="Click for sales breakdown — units for packaged products, volume for poured">Sales ↗</th>
                 <th>Expected</th>
                 <th title="Variance volume in ml or L">Var. vol.</th>
                 <th title="Estimated cost of variance (+ gain / − loss)">Cost impact</th>
@@ -1333,6 +1346,7 @@
               <button class="btn btn-primary" onclick="generateFullReport()">📊 Generate report</button>
               <button class="btn btn-secondary" id="fullrpt-export-btn" style="display:none;" onclick="exportReportPDF()">⬇ Export PDF</button>
               <button class="btn btn-secondary" id="fullrpt-regen-btn" style="display:none;" onclick="regenerateReportAIComments()">↻ Regenerate AI comments</button>
+              <button class="btn btn-secondary" onclick="downloadVariancePDF()">⬇ Variances PDF</button>
               <span id="fullrpt-status" style="font-size:12px;color:var(--text3);"></span>
             </div>
           </div>
@@ -4719,6 +4733,118 @@ async function exportReportPDF() {
   }
 }
 
+// ─── FIX A4 (r67) — variance-table-only PDF ─────────────────────────────────
+// Reuses exportReportPDF's PROVEN capture pattern: a clone attached to the LIVE
+// DOM (CSS custom properties don't resolve on a detached node — detached clones
+// exported blank), pdf-export-mode light-theme overrides, html2canvas capture at
+// scale 2, then jsPDF page slicing. The variance table contains no <canvas> or
+// SVG, so no redraw step is needed. Pages are cut on <tr> boundaries so a row is
+// never split. Works from BOTH the variance page and the report page: every
+// .page div stays in the DOM (display:none when inactive) and renderVarTable()
+// writes straight into #var-body regardless of which page is showing, always for
+// the VIEWED period (computeVariances(c, viewedSession(c))).
+async function downloadVariancePDF() {
+  const c = activeClient;
+  if (!c) { alert('Select a client first.'); return; }
+  if (!DB._ready) { alert('Data still loading from the database — try again in a moment.'); return; }
+  if (!window.jspdf || typeof html2canvas === 'undefined') { alert('PDF library still loading — try again in a moment.'); return; }
+
+  // Rebuild the table fresh so the capture matches current data even if the
+  // variance page was never visited this session.
+  renderVarTable();
+  const table = document.getElementById('var-table');
+  const body  = document.getElementById('var-body');
+  if (!table || !body || !body.querySelector('td')) { alert('No variance data to export.'); return; }
+  if (body.children.length === 1 && /No variance data|Loading data/i.test(body.textContent || '')) {
+    alert('No variance data yet — complete a stocktake to generate results.'); return;
+  }
+
+  const sess     = viewedSession(c);
+  const period   = formatSessionLabel(sess);
+  const today    = new Date().toISOString().slice(0, 10);
+  const safe     = s => String(s || '').replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+  const filename = `${safe(c.name) || 'Venue'}_variances_${safe(period) || 'period'}_${today}.pdf`;
+
+  console.log('[AuditPro] Variance PDF — downloadVariancePDF() fired (build ' + APP_VERSION + ')');
+  showPersistToast('⏳ Building variances PDF…');
+  document.body.classList.add('pdf-export-mode');
+
+  // Shell = title header + deep clone of the live table, pinned ON-SCREEN
+  // (off-screen clones captured blank) and appended to <body> so the
+  // #varpdf-shell CSS-variable overrides resolve against the live cascade.
+  const shell = document.createElement('div');
+  shell.id = 'varpdf-shell';
+  shell.style.cssText = 'position:fixed;top:0;left:0;width:1400px;z-index:9999;background:#ffffff;padding:24px;';
+  shell.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;">
+      <div style="font-size:20px;font-weight:700;color:#1a1a1a;font-family:var(--font-ui);">${(c.name || 'Venue')} — Variance report</div>
+      <div style="font-size:12px;color:#6b7078;font-family:var(--font-mono);">${period} · ${today}</div>
+    </div>`;
+  const tclone = table.cloneNode(true);
+  // Strip interactive leftovers: hidden popovers and the reopened-period amend
+  // ✏️ buttons — none of them belong in a client-facing PDF.
+  tclone.querySelectorAll('.pur-popover,.sales-popover,.weigh-popover,button').forEach(n => n.remove());
+  tclone.style.width = '100%';
+  shell.appendChild(tclone);
+
+  try {
+    document.body.appendChild(shell);
+
+    // Let the shell lay out and paint before capture (0-height capture guard).
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    const canvas = await html2canvas(shell, { scale: 2, useCORS: true, logging: false });
+    const { jsPDF } = window.jspdf;
+    // Landscape A4 — the variance table is 16 columns wide; portrait would be
+    // unreadably small at this width.
+    const pdf = new jsPDF('l', 'mm', 'a4');
+    const pageW = 297, pageH = 210, margin = 8;
+    const usableW = pageW - margin * 2;
+    const usableH = pageH - margin * 2;
+    const pxPerMm = canvas.width / usableW;
+    const pageHpx = usableH * pxPerMm;
+
+    // Row-boundary break candidates (canvas px) so a page never cuts through a
+    // <tr>. getBoundingClientRect deltas are used because the rows' offsetTop is
+    // relative to the table, not the shell.
+    const scaleFactor = canvas.width / (shell.offsetWidth || 1400);
+    const shellTop = shell.getBoundingClientRect().top;
+    const rowPts = Array.from(new Set(
+      Array.from(tclone.querySelectorAll('tr'))
+        .map(tr => Math.round((tr.getBoundingClientRect().top - shellTop) * scaleFactor))
+        .filter(p => p > 0 && p < canvas.height)
+    )).sort((a, b) => a - b);
+
+    let y = 0, firstPage = true;
+    while (y < canvas.height) {
+      let end = Math.min(y + pageHpx, canvas.height);
+      if (end < canvas.height) {
+        // Pull the cut back to the last row boundary on this page. The 40% floor
+        // guards against a degenerate near-empty page if boundaries are sparse.
+        const cut = rowPts.filter(p => p > y + pageHpx * 0.4 && p <= end).pop();
+        if (cut) end = cut;
+      }
+      const srcH = Math.max(1, Math.round(end - y));
+      if (!firstPage) pdf.addPage();
+      firstPage = false;
+      const slice = document.createElement('canvas');
+      slice.width  = canvas.width;
+      slice.height = srcH;
+      slice.getContext('2d').drawImage(canvas, 0, y, canvas.width, srcH, 0, 0, canvas.width, srcH);
+      pdf.addImage(slice.toDataURL('image/jpeg', 0.95), 'JPEG', margin, margin, usableW, srcH / pxPerMm);
+      y += srcH;
+    }
+    pdf.save(filename);
+    showPersistToast('✓ Variances PDF exported');
+  } catch (e) {
+    console.error('Variance PDF export error:', e);
+    alert('Variance PDF export failed: ' + e.message);
+  } finally {
+    if (shell.parentNode) shell.parentNode.removeChild(shell);
+    document.body.classList.remove('pdf-export-mode');
+  }
+}
+
 // ─── Save report record ──────────────────────────
 function saveReportRecord(meta, filename) {
   const c = activeClient; if (!c) return;
@@ -6445,20 +6571,15 @@ function computeVariances(client, session = null) {
     const purDetail = purEntry && purUnits > 0
       ? (purEntry.lines && purEntry.lines.length
           ? purEntry.lines.map(l => ({
-              qty:    l.qty + ' ' + (l.unit || 'btl'),
+              qty:    l.qty + ' ' + (l.unit || unitLabel(prod, l.qty)),
               date:   l.date || '—',
               sup:    l.sup  || 'See invoices',
               inv:    l.inv  || '—',
               invIdx: l.invIdx != null ? l.invIdx : -1,
             }))
-          : [{ qty: purUnits + ' ' + (purEntry.unit || 'btl'), date: session?.openDate || '—', sup: purEntry.supplier || 'See invoices', inv: purEntry.invoiceRef || '—', invIdx: -1 }]
+          : [{ qty: purUnits + ' ' + (purEntry.unit || unitLabel(prod, purUnits)), date: session?.openDate || '—', sup: purEntry.supplier || 'See invoices', inv: purEntry.invoiceRef || '—', invIdx: -1 }]
         )
       : [];
-
-    // ── Sales ml for display ──────────────────────────
-    const salesMlDisplay = salesMl >= 1000
-      ? (salesMl/1000).toFixed(2).replace(/\.?0+$/, '')+'L'
-      : Math.round(salesMl)+'ml';
 
     rows.push({
       p:           name,
@@ -6471,13 +6592,11 @@ function computeVariances(client, session = null) {
       unitVol,
       tareG:       prod.tareG || 0,
       costPrice,
-      prevClose:   openUnits.toFixed(2) + ' btl',
+      prevClose:   openUnits.toFixed(2) + ' ' + unitLabel(prod, openUnits),
       purchaseVol: purUnits > 0
         ? (['Bottles','Cans'].includes(prod.soldAs) || cat === 'RTD')
           ? purUnits % 1 === 0 ? purUnits + ' units' : purUnits.toFixed(1) + ' units'
-          : (purUnits * unitVol >= 1000
-            ? ((purUnits * unitVol)/1000).toFixed(1)+'L'
-            : Math.round(purUnits * unitVol)+'ml')
+          : fmtVol(purUnits * unitVol)
         : '—',
       purchases:   purDetail,
       sales: hasSales ? {
@@ -6670,7 +6789,37 @@ function renderVarBanner(client) {
   }
 }
 
+// FIX A3 (r67) — magnitude-aware display formatters. Neutral: no sign, no colour
+// (the signed red/green variance treatment lives in fmtVolSigned/varVol). Display
+// only — never feeds back into stored values or the variance math.
 function fmtVol(ml) {
+  const v = Number(ml) || 0;
+  return Math.abs(v) >= 1000
+    ? (v/1000).toFixed(2).replace(/\.?0+$/,'') + 'L'
+    : Math.round(v) + 'ml';
+}
+function fmtWeight(g) {
+  const v = Number(g) || 0;
+  return Math.abs(v) >= 1000
+    ? (v/1000).toFixed(2).replace(/\.?0+$/,'') + 'Kg'
+    : Math.round(v) + 'g';
+}
+
+// FIX A1 (r67) — quantity unit label derived from the product instead of a
+// hardcoded 'btl'. Accepts a catalogue product OR a variance row — both carry
+// cat/subcat/soldAs. Display only.
+function unitLabel(p, qty) {
+  const soldAs = p?.soldAs || '';
+  const cat    = p?.cat    || '';
+  const subcat = p?.subcat || '';
+  const plural = Math.abs(parseFloat(qty)) > 1;
+  if (soldAs === 'Kegs' || /draught|keg/i.test(subcat)) return plural ? 'kegs' : 'keg';
+  if (soldAs === 'Cans' || cat === 'RTD')               return plural ? 'cans' : 'can';
+  if (soldAs === 'Litres')                              return 'L';
+  return plural ? 'btls' : 'btl';
+}
+
+function fmtVolSigned(ml) {
   if(ml === 0) return '<span style="color:var(--text3);font-size:12px;">—</span>';
   const sign  = ml > 0 ? '−' : '+';
   const color = ml > 0 ? 'var(--red)' : 'var(--green)';
@@ -6956,14 +7105,27 @@ function renderVarTable() {
       // reconstructs true ml uniformly for every category.  (r32)
       const s = r.sales;
       const salesMl    = s ? Math.round((r.salesUnits || 0) * (r.unitVol || 0)) : 0;
-      const salesMlLbl = salesMl >= 1000 ? `${(salesMl/1000).toFixed(2).replace(/\.?0+$/,'')}L` : `${salesMl}ml`;
+      // FIX A2 (r67) — packaged products (bottled beer/cans/RTD/soft drinks) sell
+      // whole units, so the cell shows a UNIT count; poured products (spirits/wine/
+      // draught) keep volume, auto-scaled ml→L by fmtVol. If unitVol is missing or
+      // zero the unit figure would be garbage — fall back to volume, never divide
+      // by zero. The popover keeps the raw volume row for both kinds.
+      const salesVolLbl = fmtVol(salesMl);
+      let salesCellLbl  = salesVolLbl;
+      if (s && !isPouredProduct(r)) {
+        const uv = Number(r.unitVol);
+        if (isFinite(uv) && uv > 0) {
+          const u = salesMl / uv;
+          salesCellLbl = (u % 1 === 0 ? u : +u.toFixed(1)) + ' units';
+        }
+      }
       const salesPopId = `spop-${cat.replace(/\s/g,'')}-${idx}`;
       const salesCell  = s ? `
         <td class="sales-cell" onclick="toggleSalesPopover('${salesPopId}',event)">
-          <span class="sales-vol">${salesMlLbl}</span>
+          <span class="sales-vol">${salesCellLbl}</span>
           <div class="sales-popover" id="${salesPopId}">
             <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:8px;">${r.p} — sales</div>
-            <div class="sales-pop-row"><span style="color:var(--text2);">Volume sold</span><span style="font-family:var(--font-mono);color:var(--accent);">${salesMlLbl}</span></div>
+            <div class="sales-pop-row"><span style="color:var(--text2);">Volume sold</span><span style="font-family:var(--font-mono);color:var(--accent);">${salesVolLbl}</span></div>
             <div class="sales-pop-row"><span style="color:var(--text2);">Qty sold</span><span style="font-family:var(--font-mono);color:var(--text2);">${s.qty} ${s.unit}</span></div>
             <div class="sales-pop-row"><span style="color:var(--text2);">Revenue</span><span style="font-family:var(--font-mono);color:var(--green);">$${s.rev.toFixed(2)}</span></div>
             <div class="sales-pop-row"><span style="color:var(--text2);">Avg sell price</span><span style="font-family:var(--font-mono);color:var(--text);">$${(s.rev/s.qty).toFixed(2)}</span></div>
@@ -7011,29 +7173,29 @@ function renderVarTable() {
         const wd     = r.weighDetail;
         const wpopId = `wpop-${cat.replace(/\s/g,'')}-${idx}`;
         const frac   = (parseFloat(r.a) || 0).toFixed(2);
+        const fracU  = unitLabel(r, frac);
         const vCol   = wd.varMl > 0 ? 'var(--green)' : wd.varMl < 0 ? 'var(--red)' : 'var(--text3)';
-        const vLbl   = (wd.varMl > 0 ? '+' : '') + wd.varMl + 'ml';
-        const fmtMl  = ml => Math.abs(ml) >= 1000 ? (ml/1000).toFixed(2).replace(/\.?0+$/,'')+'L' : Math.round(ml)+'ml';
+        const vLbl   = (wd.varMl > 0 ? '+' : wd.varMl < 0 ? '−' : '') + fmtVol(Math.abs(wd.varMl));
         const errRow = r.weighError
           ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:var(--amber);line-height:1.4;">⚠ Missing density or bottle volume on the product card — weight conversion skipped.</div>`
           : '';
         const perVessel = wd.vessels > 1
           ? `<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border);font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:2px;">${wd.vessels} vessels</div>` +
-            wd.weights.map((g,i)=>`<div class="weigh-pop-row"><span style="color:var(--text2);">Vessel ${i+1}</span><span style="font-family:var(--font-mono);color:var(--text2);">net ${Math.round(g)}g · gross ${Math.round((parseFloat(g)||0)+wd.tareG)}g</span></div>`).join('')
+            wd.weights.map((g,i)=>`<div class="weigh-pop-row"><span style="color:var(--text2);">Vessel ${i+1}</span><span style="font-family:var(--font-mono);color:var(--text2);">net ${fmtWeight(g)} · gross ${fmtWeight((parseFloat(g)||0)+wd.tareG)}</span></div>`).join('')
           : '';
         actualCell = `
         <td class="weigh-cell" onclick="toggleWeighPopover('${wpopId}',event)">
-          <span class="weigh-frac">${frac} btl</span>
+          <span class="weigh-frac">${frac} ${fracU}</span>
           <div class="weigh-popover" id="${wpopId}">
             <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:8px;">${r.p} — weighed count</div>
-            <div class="weigh-pop-row"><span style="color:var(--text2);">Counted</span><span style="font-family:var(--font-mono);color:var(--accent);">${fmtMl(wd.countedMl)} · ${frac} btl</span></div>
-            <div class="weigh-pop-row"><span style="color:var(--text2);">Gross captured</span><span style="font-family:var(--font-mono);color:var(--text2);">${Math.round(wd.grossG)}g</span></div>
-            <div class="weigh-pop-row"><span style="color:var(--text2);">Tare (empty)</span><span style="font-family:var(--font-mono);color:var(--text2);">${Math.round(wd.tareG)}g</span></div>
-            <div class="weigh-pop-row"><span style="color:var(--text2);">Net liquid</span><span style="font-family:var(--font-mono);color:var(--text2);">${Math.round(wd.netG)}g · ${fmtMl(wd.netMl)}</span></div>
+            <div class="weigh-pop-row"><span style="color:var(--text2);">Counted</span><span style="font-family:var(--font-mono);color:var(--accent);">${fmtVol(wd.countedMl)} · ${frac} ${fracU}</span></div>
+            <div class="weigh-pop-row"><span style="color:var(--text2);">Gross captured</span><span style="font-family:var(--font-mono);color:var(--text2);">${fmtWeight(wd.grossG)}</span></div>
+            <div class="weigh-pop-row"><span style="color:var(--text2);">Tare (empty)</span><span style="font-family:var(--font-mono);color:var(--text2);">${fmtWeight(wd.tareG)}</span></div>
+            <div class="weigh-pop-row"><span style="color:var(--text2);">Net liquid</span><span style="font-family:var(--font-mono);color:var(--text2);">${fmtWeight(wd.netG)} · ${fmtVol(wd.netMl)}</span></div>
             <div class="weigh-pop-row"><span style="color:var(--text2);">Density used</span><span style="font-family:var(--font-mono);color:var(--text2);">${wd.density} g/ml</span></div>
-            <div class="weigh-pop-row"><span style="color:var(--text2);">Bottle volume</span><span style="font-family:var(--font-mono);color:var(--text2);">${wd.unitVol}ml</span></div>
-            <div class="weigh-pop-row"><span style="color:var(--text2);">Fraction of bottle</span><span style="font-family:var(--font-mono);color:var(--text);">${frac} btl</span></div>
-            <div class="weigh-pop-row"><span style="color:var(--text2);">Expected</span><span style="font-family:var(--font-mono);color:var(--text2);">${fmtMl(wd.expectedMl)}</span></div>
+            <div class="weigh-pop-row"><span style="color:var(--text2);">Bottle volume</span><span style="font-family:var(--font-mono);color:var(--text2);">${fmtVol(wd.unitVol)}</span></div>
+            <div class="weigh-pop-row"><span style="color:var(--text2);">Fraction of vessel</span><span style="font-family:var(--font-mono);color:var(--text);">${frac} ${fracU}</span></div>
+            <div class="weigh-pop-row"><span style="color:var(--text2);">Expected</span><span style="font-family:var(--font-mono);color:var(--text2);">${fmtVol(wd.expectedMl)}</span></div>
             <div class="weigh-pop-row" style="border:none;padding-top:8px;margin-top:4px;border-top:1px solid var(--border);"><span style="color:var(--text2);">Variance</span><span style="font-family:var(--font-mono);color:${vCol};">${vLbl}</span></div>
             ${perVessel}${errRow}${_vtAmendable ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);line-height:1.4;">✏️ Weighed products can’t be amended here yet — the per-vessel weight trail must be preserved.</div>` : ''}
           </div>
@@ -7098,7 +7260,7 @@ function renderVarTable() {
       <td class="td-total"><span style="font-family:var(--font-mono);color:var(--text);">${isFinite(catOnHand)?'$'+catOnHand.toFixed(2):'—'}</span></td>
       <td class="td-total">${catSalesQty>0?`<span style="font-family:var(--font-mono);">${catSalesQty} sold</span>`:'—'}</td>
       <td class="td-total"><span style="font-family:var(--font-mono);">${catExpected.toFixed(2)}</span></td>
-      <td class="td-total">${catVarVolMl===0?'—':fmtVol(catVarVolMl)}</td>
+      <td class="td-total">${catVarVolMl===0?'—':fmtVolSigned(catVarVolMl)}</td>
       <td>${fmtCost(catCostImpact)}</td>
       <td style="border-right:1px solid var(--border);"><span class="var-pill ${catVarPctCol}">${catVarPct}</span></td>
       <td>—</td>
@@ -7125,7 +7287,7 @@ function renderVarTable() {
     <td style="${P}font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text);">${isFinite(grandOnHand)?'$'+grandOnHand.toFixed(2):'—'}</td>
     <td style="${P}"><span style="font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--text);">${grandSalesQty} sold</span></td>
     <td style="${P}font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--text);">${grandExpected.toFixed(2)}</td>
-    <td style="${P}">${fmtVol(grandVarVolMl)}</td>
+    <td style="${P}">${fmtVolSigned(grandVarVolMl)}</td>
     <td style="${P}">${fmtCost(grandCostImpact)}</td>
     <td style="${P}border-right:1px solid var(--border);"><span class="var-pill ${grandVarPctCol}" style="font-size:12px;">${grandVarPct}</span></td>
     <td style="${P}color:var(--text3);">—</td>
@@ -13031,7 +13193,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r66';
+const APP_VERSION = '2026-06-10-r67';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
