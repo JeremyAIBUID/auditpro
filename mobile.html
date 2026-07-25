@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r53';
+const APP_VERSION = '3.8-2026-06-10-r68';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -93,8 +93,18 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .count-stat-val{font-family:var(--font-mono);font-size:20px;font-weight:500;color:var(--accent);}
 .count-stat-label{font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-top:2px;}
 
-/* INPUT PANEL */
-.input-panel{background:var(--bg2);border-top:1px solid var(--border);padding:14px 16px calc(var(--safe-bot) + 14px);flex-shrink:0;}
+/* INPUT PANEL — scrollable so the numpad + confirm button can never overflow past the
+   viewport on short phones (flex-shrink:1 + min-height:0 lets the screen bound it). */
+.input-panel{background:var(--bg2);border-top:1px solid var(--border);padding:14px 16px calc(var(--safe-bot) + 14px);flex-shrink:1;min-height:0;max-height:85vh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;}
+.input-panel::-webkit-scrollbar{display:none;}
+/* Pinned confirm — the add buttons stick to the bottom of the panel while it scrolls.
+   The bg2 shadow ring masks content scrolling behind the rounded corners. */
+#scan-add-btn,#search-add-btn{position:sticky;bottom:var(--safe-bot);z-index:5;box-shadow:0 0 0 10px var(--bg2),0 -12px 18px rgba(0,0,0,0.45);}
+/* Short screens — trim the numpad so less scrolling is needed; keep ≥44px tap targets */
+@media (max-height:700px){
+  #scan-numpad,#search-numpad{gap:4px !important;}
+  #scan-numpad button,#search-numpad button{padding:6px !important;min-height:44px;}
+}
 .method-tabs{display:flex;gap:6px;margin-bottom:14px;}
 .method-tab{flex:1;padding:9px 4px;border-radius:10px;font-size:11px;font-weight:600;cursor:pointer;color:var(--text3);border:1px solid var(--border2);background:var(--bg3);font-family:var(--font-ui);text-align:center;transition:all 0.15s;}
 .method-tab.active{background:rgba(200,240,100,0.12);color:var(--accent);border-color:rgba(200,240,100,0.3);}
@@ -137,7 +147,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .tare-btn{flex:1;padding:10px;border-radius:10px;font-size:13px;font-weight:600;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);cursor:pointer;font-family:var(--font-ui);}
 .tare-btn:active{background:var(--bg4);}
 /* WEIGH CONFIRM BAR — pinned outside the scrollable weigh panel so it is always reachable */
-#weight-pinned-bar{padding-top:8px;border-top:1px solid var(--border);margin-top:4px;}
+#weight-pinned-bar{padding-top:8px;border-top:1px solid var(--border);margin-top:4px;position:sticky;bottom:var(--safe-bot);background:var(--bg2);z-index:5;}
 #weight-net-pinned{text-align:center;font-family:var(--font-mono);font-size:14px;color:var(--green);min-height:22px;margin-bottom:8px;line-height:1.45;}
 #weight-add-btn.weigh-stable{box-shadow:0 0 0 2px var(--green),0 0 14px rgba(91,227,180,0.55);}
 
