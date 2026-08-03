@@ -205,6 +205,9 @@
   /* Category total row */
   .cat-total-row td{background:var(--bg3)!important;border-top:1px solid var(--border2)!important;font-size:12px;font-weight:600;color:var(--text2);padding:8px 14px;}
   .cat-total-row .td-total{font-family:var(--font-mono);font-size:12px;color:var(--text);}
+  /* r70 — lighter indented subtotal variant for subcategory sub-groups */
+  .subcat-total-row td{background:var(--bg2)!important;border-top:1px solid var(--border)!important;font-size:11px;font-weight:600;color:var(--text3);padding:6px 14px;}
+  .subcat-total-row .td-total{font-family:var(--font-mono);font-size:11px;color:var(--text2);}
   /* Cost impact */
   .cost-pos{font-family:var(--font-mono);font-size:12px;color:var(--green);}
   .cost-neg{font-family:var(--font-mono);font-size:12px;color:var(--red);}
@@ -6006,6 +6009,12 @@ function varSection(r) {
   return cat;
 }
 
+// r70 — variance-table sections that break down into subcategory sub-groups,
+// each with its own sub-header + sub-subtotal row. Keyed on the SECTION name
+// emitted by varSection(), NOT raw p.cat. Display-only: flat sections run the
+// exact same render loop as one anonymous bucket, minus the sub rows.
+const SUBCAT_BREAKDOWN_CATS = new Set(['Spirits']);
+
 function varVol(r) {
   // variance in units = expected - actual (negative = loss)
   const diff = parseFloat(r.e) - parseFloat(r.a);
@@ -7057,7 +7066,49 @@ function renderVarTable() {
 
     let catVarVolMl=0, catCostImpact=0, catSalesRev=0, catSalesQty=0, catExpected=0, catActual=0, catGPSum=0;
 
-    grouped[cat].forEach((r, idx) => {
+    // r70 — partition the section into subcat buckets when it's listed in
+    // SUBCAT_BREAKDOWN_CATS; every other section runs through the same loop as
+    // a single anonymous bucket with the sub-header/sub-subtotal rows skipped.
+    // Bucket order mirrors the products page: SUBCAT_ORDER index first, then
+    // unlisted subcats alphabetically; blank subcat folds to 'Other'.
+    let buckets;
+    if (SUBCAT_BREAKDOWN_CATS.has(cat)) {
+      const bySub = {};
+      grouped[cat].forEach(r => {
+        const sc = r.subcat || 'Other';
+        if (!bySub[sc]) bySub[sc] = [];
+        bySub[sc].push(r);
+      });
+      const scOrder = SUBCAT_ORDER[cat] || [];
+      buckets = Object.entries(bySub).sort(([a],[b]) => {
+        const ai = scOrder.indexOf(a), bi = scOrder.indexOf(b);
+        if (ai === -1 && bi === -1) return a.localeCompare(b);
+        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+      });
+    } else {
+      buckets = [[null, grouped[cat]]];
+    }
+
+    // ONE running row counter across buckets — pop-/spop-/wpop- popover IDs are
+    // keyed ${cat}-${idx} and must stay unique within the section.
+    let rowIdx = 0;
+
+    buckets.forEach(([sub, bucketRows]) => {
+      const showSub = sub !== null;
+      if (showSub) {
+        const scIcon = SUBCAT_ICONS[sub] || '';
+        html += `<tr>
+          <td colspan="16" style="padding:5px 14px 4px 34px;background:var(--bg2);border-bottom:1px solid var(--border);">
+            <span style="font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;padding:2px 8px;border-radius:20px;background:${cc.bg};color:${cc.text};opacity:0.85;">${scIcon ? scIcon + ' ' : ''}${sub}</span>
+            <span style="font-size:10px;color:var(--text3);margin-left:6px;">${bucketRows.length} product${bucketRows.length!==1?'s':''}</span>
+          </td>
+        </tr>`;
+      }
+
+      let subVarVolMl=0, subCostImpact=0, subSalesRev=0, subSalesQty=0, subExpected=0, subActual=0, subGPSum=0;
+
+    bucketRows.forEach(r => {
+      const idx = rowIdx++;
       const st   = stockStatusLabel(r);
       const gpC  = gpColor(r.actualGP, r.idealGP);
       const gpGap = r.actualGP - r.idealGP;
@@ -7077,12 +7128,12 @@ function renderVarTable() {
       // missing/'—' price can never NaN-poison a category or grand total.
       const varUnits   = (parseFloat(r.e)||0) - (parseFloat(r.a)||0);
       const costImpact = varUnits * (Number(r.costPrice) || 0);
-      catExpected     += parseFloat(r.e)||0;
-      catActual       += parseFloat(r.a)||0;
-      catCostImpact   += (Number(costImpact) || 0);
-      catVarVolMl     += Math.round(varUnits * (r.unitVol || 750));
-      catGPSum        += r.actualGP;
-      if(r.sales){ catSalesQty += r.sales.qty; catSalesRev += r.sales.rev; }
+      catExpected     += parseFloat(r.e)||0;                        subExpected   += parseFloat(r.e)||0;
+      catActual       += parseFloat(r.a)||0;                        subActual     += parseFloat(r.a)||0;
+      catCostImpact   += (Number(costImpact) || 0);                 subCostImpact += (Number(costImpact) || 0);
+      catVarVolMl     += Math.round(varUnits * (r.unitVol || 750)); subVarVolMl   += Math.round(varUnits * (r.unitVol || 750));
+      catGPSum        += r.actualGP;                                subGPSum      += r.actualGP;
+      if(r.sales){ catSalesQty += r.sales.qty; catSalesRev += r.sales.rev; subSalesQty += r.sales.qty; subSalesRev += r.sales.rev; }
 
       const costHtml = !isFinite(costImpact) || costImpact === 0
         ? `<span style="font-family:var(--font-mono);font-size:12px;color:var(--text3);">—</span>`
@@ -7234,6 +7285,36 @@ function renderVarTable() {
         <td><span style="font-family:var(--font-mono);font-size:12px;color:var(--text3);">${r.idealGP}%</span></td>
         <td>${gpGapHtml}</td>
       </tr>`;
+    });
+
+      // ── Subcat subtotal row (broken-down sections only) ── clone of the
+      // cat-total-row template in a lighter indented variant. cat* accumulators
+      // already summed every row across buckets, so the category total below is
+      // exactly Σ subcat subtotals and grand totals are untouched.
+      if (showSub) {
+        const subVarPct    = subExpected > 0 ? ((subActual-subExpected)/subExpected*100).toFixed(1)+'%' : '—';
+        const subVarPctCol = parseFloat(subVarPct) < -5 ? 'var-alert' : parseFloat(subVarPct) < -2 ? 'var-warn' : 'var-ok';
+        const subOnHand    = bucketRows.reduce((s,r)=>s+(Number(r.a)||0)*(Number(r.costPrice)||0),0);
+        const subAvgGP     = Math.round(subGPSum / bucketRows.length);
+        const subGpCol     = subAvgGP>=72?'var(--green)':subAvgGP>=65?'var(--amber)':'var(--red)';
+
+        html += `<tr class="subcat-total-row">
+          <td style="border-right:1px solid var(--border);padding-left:34px;">${sub} subtotal</td>
+          <td>—</td><td>—</td>
+          <td class="td-total"><span style="font-family:var(--font-mono);">${subActual.toFixed(2)}</span></td>
+          <td class="td-total"><span style="font-family:var(--font-mono);">${isFinite(subOnHand)?'$'+subOnHand.toFixed(2):'—'}</span></td>
+          <td class="td-total">${subSalesQty>0?`<span style="font-family:var(--font-mono);">${subSalesQty} sold</span>`:'—'}</td>
+          <td class="td-total"><span style="font-family:var(--font-mono);">${subExpected.toFixed(2)}</span></td>
+          <td class="td-total">${subVarVolMl===0?'—':fmtVolSigned(subVarVolMl)}</td>
+          <td>${fmtCost(subCostImpact)}</td>
+          <td style="border-right:1px solid var(--border);"><span class="var-pill ${subVarPctCol}">${subVarPct}</span></td>
+          <td>—</td>
+          <td style="border-right:1px solid var(--border);">—</td>
+          <td class="td-mono" style="color:var(--green);">${subSalesRev>0?'$'+subSalesRev.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2}):'—'}</td>
+          <td><span style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:${subGpCol};">${subAvgGP}%</span></td>
+          <td>—</td><td>—</td>
+        </tr>`;
+      }
     });
 
     // Add to grand totals
@@ -13193,7 +13274,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r69';
+const APP_VERSION = '2026-06-10-r70';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
