@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r69';
+const APP_VERSION = '3.8-2026-06-10-r71';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -499,6 +499,9 @@ select.inp-m{cursor:pointer;}
         <select class="unit-select" id="search-unit"><option>Bottles</option><option>Cans</option><option>Cases</option><option>Kegs</option><option>Kg</option><option>Litres</option></select>
         <button class="qty-btn" onclick="adjustSearchQty(1)">+</button>
       </div>
+      <!-- r71 — divert an already-selected product to the scale without re-searching.
+           Shown by selectSearchProduct only when the product is weighable (tareG > 0). -->
+      <button id="search-weigh-btn" onclick="armWeighFromSelection()" style="display:none;width:100%;min-height:44px;padding:12px;margin-bottom:10px;border-radius:12px;border:1px solid rgba(200,240,100,0.35);background:rgba(200,240,100,0.10);color:var(--accent);font-family:var(--font-ui);font-size:14px;font-weight:700;cursor:pointer;touch-action:manipulation;">⚖️ Weigh this instead</button>
       <!-- Number pad -->
       <div id="search-numpad" style="display:none;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">
         <button onclick="numpadPress('search','1')" style="padding:10px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:16px;font-weight:700;cursor:pointer;touch-action:manipulation;">1</button>
@@ -997,6 +1000,11 @@ let currentMethod  = 'scan';
 let scannedProduct = null;
 let searchProduct  = null;
 let weightProduct  = null;
+// Where the weigh panel was armed from — 'scan' | 'search' | null (r71). Read by
+// addWeightItem so a search-originated weigh returns to Search instead of Scan.
+// Reset by selectWeightProduct/clearWeightProduct so the manual #weight-search
+// fallback can never inherit a stale origin.
+let _weighOrigin   = null;
 let scaleReading   = 0;
 let taredWeight    = 0;
 let scaleConnected = false;
@@ -2663,7 +2671,13 @@ function searchProducts(q) {
   // somewhere in the name (order-independent). Fixes "Ste Li" → "Steinlager Light"
   // and the spacebar-collapses-results bug. (p.name||'') guards nameless products (r42).
   const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const matches = PRODUCTS.filter(p => { const name=(p.name||'').toLowerCase(); return tokens.every(t=>name.includes(t)); });
+  // r71 — carry each match's INDEX into PRODUCTS so rows dispatch by index, not by name.
+  // (Names were interpolated into a quoted onclick attribute, so a name containing a
+  // double quote broke the row.) matches[] holds {p,i} — i is the real PRODUCTS index,
+  // which slice(0,5) positions are not.
+  const matches = PRODUCTS
+    .map((p, i) => ({ p, i }))
+    .filter(({p}) => { const name=(p.name||'').toLowerCase(); return tokens.every(t=>name.includes(t)); });
 
   res.classList.add('visible');
 
@@ -2680,28 +2694,61 @@ function searchProducts(q) {
     return;
   }
 
-  res.innerHTML = matches.slice(0,5).map(p=>`
-    <div class="search-item" onclick="selectSearchProduct('${p.name.replace(/'/g,"\\'")}')">
+  // r71 — TWO actions per row. Tapping the row body still arms the qty pad (the Count
+  // path, unchanged). Weighable products (tareG > 0 — the same predicate weightSearch
+  // uses) also get a ⚖️ button that arms the weigh panel directly, so a weighed bottle
+  // no longer costs a second search in #weight-search.
+  res.innerHTML = matches.slice(0,5).map(({p,i})=>`
+    <div class="search-item" onclick="selectSearchProduct(${i})">
       <div>
         <div class="search-item-name">${p.name}</div>
         <div class="search-item-cat">${p.cat} · ${p.vol}ml${p.lastCount ? ' · <span style="color:var(--text3)">last: '+p.lastCount.qty+' '+p.lastCount.unit+'</span>' : ''}</div>
       </div>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="color:var(--text3)"><path d="M9 18l6-6-6-6"/></svg>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+        ${(parseFloat(p.tareG)||0) > 0
+          ? `<button onclick="event.stopPropagation();armWeighAt(${i})" title="Weigh this product" style="min-width:44px;min-height:44px;padding:0 10px;border-radius:10px;border:1px solid rgba(200,240,100,0.35);background:rgba(200,240,100,0.12);color:var(--accent);font-size:17px;line-height:1;cursor:pointer;touch-action:manipulation;">⚖️</button>`
+          : ''}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="color:var(--text3)"><path d="M9 18l6-6-6-6"/></svg>
+      </div>
     </div>`).join('') + createRow;
 }
 
-function selectSearchProduct(name) {
-  searchProduct = PRODUCTS.find(p=>p.name===name);
-  document.getElementById('search-field').value = name;
+// Row-level ⚖️ dispatch — resolve the PRODUCTS index, then hand off to the shared bridge.
+function armWeighAt(idx) { armWeigh(PRODUCTS[idx], 'search'); }
+
+// "Weigh this instead" beside the qty row — divert an already-selected product to the
+// scale without re-searching.
+function armWeighFromSelection() { armWeigh(searchProduct, 'search'); }
+
+// r71 — takes an INDEX into PRODUCTS, not a name (see the row template above).
+function selectSearchProduct(idx) {
+  const prod = PRODUCTS[idx];
+  if(!prod) return;
+  searchProduct = prod;
+  document.getElementById('search-field').value = prod.name;
   document.getElementById('search-results').classList.remove('visible');
   document.getElementById('search-fracs').style.display = 'flex';
   document.getElementById('search-qty-row').style.display = 'flex';
   document.getElementById('search-numpad').style.display = 'grid';
   document.getElementById('search-add-btn').style.display = 'block';
   document.getElementById('search-qty').value = '1';
+  // Offer the scale as an alternative to the qty pad — weighable products only.
+  const wBtn = document.getElementById('search-weigh-btn');
+  if(wBtn) wBtn.style.display = (parseFloat(prod.tareG)||0) > 0 ? 'block' : 'none';
   applyDefaultUnit('search-unit', searchProduct);
   applyCaseOption('search-unit', searchProduct);
   _numpadFresh = true; // first keypress replaces the 1
+}
+
+// Drop any armed Search selection and hide its qty pad.
+// setMethod only HIDES panels, it never clears them — so without this an armed product
+// survives a trip to the weigh tab and sits one tap from adding a DUPLICATE line
+// (addItem always pushes a new entry). Called on add, and whenever Search hands a
+// product over to the scale (r71).
+function clearSearchArm() {
+  searchProduct = null;
+  ['search-fracs','search-qty-row','search-numpad','search-add-btn','search-weigh-btn']
+    .forEach(id => { const el = document.getElementById(id); if(el) el.style.display = 'none'; });
 }
 
 function addSearchItem() {
@@ -2710,12 +2757,8 @@ function addSearchItem() {
   const unit = document.getElementById('search-unit').value;
   playBeep('add');
   addItem(searchProduct, qty, unit, 'search');
-  searchProduct = null;
+  clearSearchArm();
   document.getElementById('search-field').value = '';
-  document.getElementById('search-fracs').style.display = 'none';
-  document.getElementById('search-qty-row').style.display = 'none';
-  document.getElementById('search-numpad').style.display = 'none';
-  document.getElementById('search-add-btn').style.display = 'none';
 }
 
 // ─── WEIGHT METHOD ───────────────────────────────
@@ -2775,6 +2818,10 @@ function autoAcceptWeight() {
 }
 
 function selectWeightProduct(name) {
+  // Any direct selection (the manual #weight-search fallback) clears the origin, so a
+  // stale 'search' can't survive into the next weigh. armWeigh re-stamps it after this
+  // call returns (r71).
+  _weighOrigin  = null;
   weightProduct = PRODUCTS.find(p=>p.name===name);
   document.getElementById('weight-search').value = name;
   document.getElementById('weight-results').classList.remove('visible');
@@ -2802,6 +2849,7 @@ function selectWeightProduct(name) {
 
 function clearWeightProduct() {
   weightProduct = null;
+  _weighOrigin  = null; // nothing armed → no origin to return to (r71)
   document.getElementById('weight-search').value = '';
   document.getElementById('weight-product-info').style.display = 'none';
   document.getElementById('scale-net').style.display = 'none';
@@ -2897,13 +2945,24 @@ function addWeightItem() {
   }
 
   const handoff = handoffMode;
+  const origin  = _weighOrigin; // captured before clearWeightProduct() nulls it (r71)
   setTimeout(() => {
     if(btn) {
       btn.textContent = '✓ Confirm weight';
       btn.style.background = handoff ? 'var(--bg3)' : 'var(--accent)';
       btn.disabled = false;
     }
-    if(handoff) {
+    if(origin === 'search') {
+      // Search → weigh → confirm → back to Search, field cleared and focused, ready for
+      // the next product. Checked before handoff: 'search' is only ever set by a
+      // deliberate ⚖️ tap in the search panel, so no scan-originated path is affected.
+      clearWeightProduct();
+      setMethod('search', document.getElementById('tab-search'));
+      const sf = document.getElementById('search-field');
+      if(sf) { sf.value = ''; sf.focus(); }
+      const sr = document.getElementById('search-results');
+      if(sr) sr.classList.remove('visible');
+    } else if(handoff) {
       // Scan → weigh → confirm → back to scan, ready for the next bottle
       clearWeightProduct();
       setMethod('scan', document.getElementById('tab-scan'));
@@ -3379,18 +3438,29 @@ function toggleHandoff() {
   }
 }
 
-// Called from processBarcode when handoff is active
-function handoffScanToWeigh(product) {
+// The ONE bridge into the weigh panel (r71 — was handoffScanToWeigh, scan-only).
+// Called from processBarcode when handoff is active, and from the Search panel's ⚖️
+// buttons. `origin` ('scan' | 'search') is remembered so addWeightItem returns the user
+// to the panel they came from after Confirm.
+function armWeigh(product, origin) {
+  if (!product) return;
+  const org = origin || 'scan';
   if (!product.tareG) {
-    // No tare weight — can't weigh, fall back to normal scan flow
+    // No tare weight — can't weigh. Scan keeps its original fallback into the normal
+    // scan result; Search stays put (its ⚖️ button is only rendered for tareG > 0, so
+    // this is a backstop).
     toast('No tare weight for ' + product.name + ' — add it in products');
-    showScanResult(product);
+    if (org === 'scan') showScanResult(product);
     return;
   }
+  // Coming from Search, drop the armed selection so the qty pad can't be tapped later
+  // and silently add a duplicate line on top of the weighed one.
+  if (org === 'search') clearSearchArm();
   // Switch to weigh tab and pre-load the product. Commit is manual via Confirm (r20).
   // Only selectWeightProduct's (visual-only) watcher runs — no second timer, no double-log.
   setMethod('weight', document.getElementById('tab-weight'));
-  selectWeightProduct(product.name);
+  selectWeightProduct(product.name); // clears _weighOrigin …
+  _weighOrigin = org;                // … so stamp it after
   toast('⚖️ Place ' + product.name + ' on scale, then tap Confirm', true);
 }
 
@@ -3418,7 +3488,7 @@ processBarcode = function(barcode) {
 
   // 1. Handoff mode (scan → weigh → scan)
   if (handoffMode) {
-    if (product) { handoffScanToWeigh(product); return; }
+    if (product) { armWeigh(product, 'scan'); return; }
     // Unknown barcode in handoff mode — exit handoff and offer creation
     toggleHandoff();
     showUnknownBarcode(barcode);
