@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r71';
+const APP_VERSION = '3.8-2026-06-10-r72';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -460,6 +460,10 @@ select.inp-m{cursor:pointer;}
         <select class="unit-select" id="scan-unit"><option>Bottles</option><option>Cans</option><option>Cases</option><option>Kegs</option><option>Kg</option><option>Litres</option></select>
         <button class="qty-btn" onclick="adjustQty(1)">+</button>
       </div>
+      <!-- r72 — divert a scanned product to the scale without re-searching (mirrors the
+           Search panel's #search-weigh-btn). Shown by showScanResult only when the
+           product is weighable (tareG > 0). -->
+      <button id="scan-weigh-btn" onclick="armWeighFromScan()" style="display:none;width:100%;min-height:44px;padding:12px;margin-bottom:10px;border-radius:12px;border:1px solid rgba(200,240,100,0.35);background:rgba(200,240,100,0.10);color:var(--accent);font-family:var(--font-ui);font-size:14px;font-weight:700;cursor:pointer;touch-action:manipulation;">⚖️ Weigh this instead</button>
       <!-- Number pad for quick entry -->
       <div id="scan-numpad" style="display:none;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">
         <button onclick="numpadPress('scan','1')" style="padding:10px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-size:16px;font-weight:700;cursor:pointer;touch-action:manipulation;">1</button>
@@ -2188,6 +2192,8 @@ function showUnknownBarcode(barcode) {
   document.getElementById('scan-qty-row').style.display = 'none';
   document.getElementById('scan-numpad').style.display  = 'none';
   document.getElementById('scan-add-btn').style.display = 'none';
+  const _swb = document.getElementById('scan-weigh-btn'); // r72 — an unknown barcode has
+  if(_swb) _swb.style.display = 'none';                   // no product to weigh
   document.getElementById('scan-create-btn').style.display = 'block';
 
   // Scroll create button into view
@@ -2448,6 +2454,13 @@ function showScanResult(product) {
   addBtn.style.fontSize   = '';
   addBtn.style.padding    = '';
   addBtn.onclick = addScannedItem;
+  // r72 — offer the scale alongside the qty pad, weighable products only (same tareG
+  // predicate as the Search row ⚖️). No handoff special-case is needed: in handoff mode
+  // a weighable scan is routed straight to armWeigh and never reaches this card, and the
+  // only way a product DOES land here in handoff mode is armWeigh's no-tare fallback —
+  // which this predicate already hides the button for.
+  const swBtn = document.getElementById('scan-weigh-btn');
+  if(swBtn) swBtn.style.display = (parseFloat(product.tareG)||0) > 0 ? 'block' : 'none';
   document.getElementById('scan-qty').value = '1';
   applyDefaultUnit('scan-unit', product);
   applyCaseOption('scan-unit', product);
@@ -2661,7 +2674,25 @@ function addScannedItem() {
   document.getElementById('scan-fracs').style.display = 'none';
   document.getElementById('scan-qty-row').style.display = 'none';
   document.getElementById('scan-add-btn').style.display = 'none';
+  const _swb2 = document.getElementById('scan-weigh-btn'); // r72 — the card is gone; don't
+  if(_swb2) _swb2.style.display = 'none';                  // leave its ⚖️ floating
 }
+
+// r72 — the scan-side twin of clearSearchArm. Drop the scanned product and hide its
+// result card + qty pad. setMethod only HIDES panels, it never clears them, so without
+// this a scanned product armed for counting survives the trip to the weigh tab and sits
+// one tap from adding a DUPLICATE line on top of the weighed one (addItem always pushes
+// a new entry). Called whenever Scan hands a product over to the scale.
+function clearScanArm() {
+  scannedProduct = null;
+  const card = document.getElementById('scan-result');
+  if(card) card.classList.remove('visible');
+  ['scan-fracs','scan-qty-row','scan-numpad','scan-add-btn','scan-weigh-btn']
+    .forEach(id => { const el = document.getElementById(id); if(el) el.style.display = 'none'; });
+}
+
+// "Weigh this instead" on the scan result card — divert the scanned product to the scale.
+function armWeighFromScan() { armWeigh(scannedProduct, 'scan'); }
 
 // ─── SEARCH METHOD ───────────────────────────────
 function searchProducts(q) {
@@ -2962,8 +2993,11 @@ function addWeightItem() {
       if(sf) { sf.value = ''; sf.focus(); }
       const sr = document.getElementById('search-results');
       if(sr) sr.classList.remove('visible');
-    } else if(handoff) {
-      // Scan → weigh → confirm → back to scan, ready for the next bottle
+    } else if(origin === 'scan' || handoff) {
+      // Scan → weigh → confirm → back to scan, ready for the next bottle. Covers both
+      // handoff mode and a per-item ⚖️ tap on the scan result card (r72) — the card was
+      // already cleared by clearScanArm when the weigh was armed, so the panel comes back
+      // empty with the scanner live.
       clearWeightProduct();
       setMethod('scan', document.getElementById('tab-scan'));
       activateScanInput();
@@ -3453,9 +3487,12 @@ function armWeigh(product, origin) {
     if (org === 'scan') showScanResult(product);
     return;
   }
-  // Coming from Search, drop the armed selection so the qty pad can't be tapped later
-  // and silently add a duplicate line on top of the weighed one.
+  // Drop the armed selection on whichever panel we came from, so its qty pad can't be
+  // tapped later and silently add a duplicate line on top of the weighed one. (r72 —
+  // Scan gets the same treatment Search got in r71; this also covers handoff mode, where
+  // a card armed before the toggle was flipped would otherwise linger.)
   if (org === 'search') clearSearchArm();
+  else                  clearScanArm();
   // Switch to weigh tab and pre-load the product. Commit is manual via Confirm (r20).
   // Only selectWeightProduct's (visual-only) watcher runs — no second timer, no double-log.
   setMethod('weight', document.getElementById('tab-weight'));
