@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r72';
+const APP_VERSION = '3.8-2026-06-10-r74';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -447,6 +447,10 @@ select.inp-m{cursor:pointer;}
         <div class="last-count-badge" id="scan-last-count" style="display:none;">
           🕐 Last count: <span id="scan-last-qty">—</span>
         </div>
+        <!-- r74 — shown by setScanCaseBadge() when the code scanned was the product's
+             CASE barcode, so a case scan is obvious at a glance and can't be mistaken
+             for a single-unit scan. -->
+        <div id="scan-case-badge" style="display:none;margin-top:6px;padding:4px 9px;border-radius:8px;background:rgba(200,240,100,0.14);border:1px solid rgba(200,240,100,0.4);color:var(--accent);font-family:var(--font-ui);font-size:12px;font-weight:700;letter-spacing:0.5px;">📦 CASE</div>
       </div>
       <div class="fraction-row" id="scan-fracs" style="display:none;">
         <button class="frac-btn" onclick="setScanQty(1)">1</button>
@@ -2153,12 +2157,26 @@ function unionBarcodes(...prods) {
   return [...new Set(out.filter(Boolean))];
 }
 
+// ─── CASE vs UNIT SCAN (r74) ─────────────────────
+// productBarcodes() folds barcodes[] + barcode + caseBarcode into ONE flat set, so a case
+// code DOES match a product — but the match alone can't say WHICH field hit, so scanning a
+// case added 1 bottle instead of a case of N (a silent undercount straight into variance).
+// This is the discriminator. It MUST test caseBarcode explicitly and FIRST:
+// pushProductToSupabase's unionBarcodes flattens the case code INTO barcodes[], so an
+// "is it in barcodes[]?" test reads true for BOTH kinds. No caseBarcode ⇒ always 'unit'.
+function barcodeMatchKind(p, scannedCode) {
+  if(!p) return 'unit';
+  const cb = normalizeBarcode(p.caseBarcode);
+  if(cb && cb === normalizeBarcode(scannedCode)) return 'case';
+  return 'unit';
+}
+
 function processBarcode(barcode) {
   // Loose match — r44: match against ANY of the product's barcodes, normalised
   const bc = normalizeBarcode(barcode);
   const product = PRODUCTS.find(p => productBarcodes(p).includes(bc));
   if (product) {
-    showScanResult(product);
+    showScanResult(product, barcodeMatchKind(product, bc)); // r74 — carry the kind through
   } else {
     showUnknownBarcode(barcode);
   }
@@ -2182,6 +2200,7 @@ function showUnknownBarcode(barcode) {
   document.getElementById('scan-result-name').textContent = '⚠ Unknown barcode';
   document.getElementById('scan-result-info').textContent = barcode + ' — not in catalogue';
   document.getElementById('scan-last-count').style.display = 'none';
+  setScanCaseBadge(0); // r74 — no product, no case badge
 
   const result = document.getElementById('scan-result');
   result.style.background  = 'rgba(240,80,80,0.07)';
@@ -2424,7 +2443,18 @@ function applyCaseOption(selectId, product) {
   }
 }
 
-function showScanResult(product) {
+// r74 — paint (or clear) the "this was a case barcode" badge on the scan result card.
+function setScanCaseBadge(caseSize) {
+  const el = document.getElementById('scan-case-badge');
+  if(!el) return;
+  const cs = parseFloat(caseSize) || 0;
+  if(cs > 0) { el.textContent = '📦 CASE ×' + cs; el.style.display = 'inline-block'; }
+  else       { el.style.display = 'none'; }
+}
+
+// `kind` ('unit' | 'case') comes from barcodeMatchKind — which of the product's codes was
+// actually scanned. Defaults to 'unit' so every legacy call site behaves exactly as before.
+function showScanResult(product, kind) {
   scannedProduct = product;
   _numpadFresh = true; // next numpad press replaces the default 1
   playBeep('add');
@@ -2464,6 +2494,22 @@ function showScanResult(product) {
   document.getElementById('scan-qty').value = '1';
   applyDefaultUnit('scan-unit', product);
   applyCaseOption('scan-unit', product);
+  // r74 — a CASE barcode PRESELECTS Cases. applyCaseOption only ENABLES + labels the
+  // option, it never selects it, so a case scan silently landed on the base unit and
+  // booked 1 bottle. qty stays 1: one case = caseSize units and countToUnits does that
+  // expansion downstream — pre-multiplying here would double-count it.
+  // HARD GUARD: a case scan with no usable caseSize must NOT select Cases. applyCaseOption
+  // would snap it back anyway, and if it ever stuck, countToUnits' `caseSize || 12`
+  // fallback would silently inflate that line 12×. Fall back to the base unit and warn.
+  const _cs      = parseFloat(product.caseSize) || 0;
+  const _isCase  = kind === 'case' && _cs > 0;
+  const _caseWarn= kind === 'case' && _cs <= 0;
+  if(_isCase) {
+    const sel = document.getElementById('scan-unit');
+    const opt = sel && [...sel.options].find(o => o.value === 'Cases');
+    if(sel && opt && !opt.disabled) sel.value = 'Cases';
+  }
+  setScanCaseBadge(_isCase ? _cs : 0);
   // Guarantee the qty pad is actually on-screen no matter what fed the scan (camera or
   // plug-in scanner) or which tab was active. Mirror showUnknownBarcode: force the scan
   // tab visible, stop any live camera (its feed sits above the pad and would cover it),
@@ -2473,7 +2519,9 @@ function showScanResult(product) {
   const _camZone = document.getElementById('cam-scan-zone');
   if(_camZone) _camZone.style.display = 'none';
   setTimeout(() => document.getElementById('scan-result')?.scrollIntoView({ behavior:'smooth', block:'center' }), 100);
-  toast('Scanned: ' + product.name, true);
+  // One toast only — the case warning must not be overwritten by the generic "Scanned:".
+  if(_caseWarn) toast('⚠ Case barcode — no case size set for ' + product.name + '. Counting single units — set the case size in products.');
+  else          toast((_isCase ? '📦 CASE ×' + _cs + ' · ' : 'Scanned: ') + product.name, true);
 }
 
 // Keep demo trigger for testing without hardware
@@ -2676,6 +2724,7 @@ function addScannedItem() {
   document.getElementById('scan-add-btn').style.display = 'none';
   const _swb2 = document.getElementById('scan-weigh-btn'); // r72 — the card is gone; don't
   if(_swb2) _swb2.style.display = 'none';                  // leave its ⚖️ floating
+  setScanCaseBadge(0);                                     // r74 — and don't leave the case badge
 }
 
 // r72 — the scan-side twin of clearSearchArm. Drop the scanned product and hide its
@@ -2687,7 +2736,7 @@ function clearScanArm() {
   scannedProduct = null;
   const card = document.getElementById('scan-result');
   if(card) card.classList.remove('visible');
-  ['scan-fracs','scan-qty-row','scan-numpad','scan-add-btn','scan-weigh-btn']
+  ['scan-fracs','scan-qty-row','scan-numpad','scan-add-btn','scan-weigh-btn','scan-case-badge']
     .forEach(id => { const el = document.getElementById(id); if(el) el.style.display = 'none'; });
 }
 
@@ -3534,7 +3583,18 @@ processBarcode = function(barcode) {
 
   // 2. Fast count mode (scan → add 1 → ready)
   if (fastMode && product) {
-    addItem(product, 1, 'Bottles', 'scan');
+    // r74 — was hardcoded addItem(product,1,'Bottles','scan'), which ignored soldAs
+    // entirely (already wrong for cans and kegs) and would book a scanned CASE as one
+    // bottle. Route through the same default-unit logic the result card uses, and use
+    // Cases when the code scanned was the CASE barcode — but only when caseSize is
+    // usable, or countToUnits' `caseSize || 12` fallback would inflate the line 12×.
+    const kind = barcodeMatchKind(product, bc);
+    const cs   = parseFloat(product.caseSize) || 0;
+    const warn = kind === 'case' && cs <= 0;
+    const unit = (kind === 'case' && cs > 0) ? 'Cases' : defaultCountUnit(product);
+    addItem(product, 1, unit, 'scan');
+    // addItem toasts on success, so the warning has to land AFTER it or it's overwritten.
+    if (warn) toast('⚠ Case barcode — no case size for ' + product.name + '. Added 1 ' + unit + ' — set the case size in products.');
     const zone = document.getElementById('scan-zone-tap');
     if (zone) {
       zone.style.borderColor = 'rgba(91,227,180,0.6)';
