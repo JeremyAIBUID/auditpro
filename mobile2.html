@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r74';
+const APP_VERSION = '3.8-2026-06-10-r75';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -486,10 +486,27 @@ select.inp-m{cursor:pointer;}
       <button class="btn btn-primary" id="scan-add-btn" style="display:none;">✓ Add to count</button>
       <!-- Permanent create product button - shown only for unknown barcodes -->
       <button id="scan-create-btn" onclick="createProductFromScan()" style="display:none;width:100%;padding:18px;background:var(--accent);border:none;border-radius:14px;color:#0d0f12;font-family:var(--font-ui);font-size:17px;font-weight:700;cursor:pointer;touch-action:manipulation;margin-top:8px;">+ Create new product for this barcode</button>
+      <!-- r75 — the SECOND outcome for an unknown code. Creating was the only option, so
+           scanning a case in the store room forced a duplicate product. Tapping this
+           reveals the two kinds of link; both hand over to the Search panel as picker. -->
+      <button id="scan-link-btn" onclick="startBarcodeLink()" style="display:none;width:100%;min-height:44px;padding:15px;background:var(--bg3);border:1px solid var(--border2);border-radius:14px;color:var(--text);font-family:var(--font-ui);font-size:15px;font-weight:700;cursor:pointer;touch-action:manipulation;margin-top:8px;">🔗 Link to an existing product</button>
+      <div id="scan-link-kinds" style="display:none;margin-top:8px;">
+        <button onclick="beginBarcodeLink('case')" style="width:100%;min-height:44px;padding:14px;margin-bottom:8px;border-radius:12px;border:1px solid rgba(200,240,100,0.35);background:rgba(200,240,100,0.10);color:var(--accent);font-family:var(--font-ui);font-size:14px;font-weight:700;text-align:left;cursor:pointer;touch-action:manipulation;">📦 Case of an existing product</button>
+        <button onclick="beginBarcodeLink('unit')" style="width:100%;min-height:44px;padding:14px;margin-bottom:8px;border-radius:12px;border:1px solid rgba(200,240,100,0.35);background:rgba(200,240,100,0.10);color:var(--accent);font-family:var(--font-ui);font-size:14px;font-weight:700;text-align:left;cursor:pointer;touch-action:manipulation;">🏷 Another barcode for an existing product</button>
+        <button onclick="hideLinkKinds()" style="width:100%;min-height:44px;padding:11px;border-radius:12px;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);font-family:var(--font-ui);font-size:13px;font-weight:600;cursor:pointer;touch-action:manipulation;">Cancel</button>
+      </div>
     </div>
 
     <!-- SEARCH METHOD -->
     <div id="method-search" style="display:none;">
+      <!-- r75 — link-mode banner. Visible only while an unknown barcode is waiting to be
+           attached to a product; for as long as it shows, rows in #search-results
+           dispatch to linkBarcodeToProduct instead of arming the qty pad. -->
+      <div id="link-mode-banner" style="display:none;margin-bottom:10px;padding:11px 12px;border-radius:12px;background:rgba(200,240,100,0.10);border:1px solid rgba(200,240,100,0.35);">
+        <div id="link-mode-kind" style="color:var(--accent);font-family:var(--font-ui);font-size:13px;font-weight:700;"></div>
+        <div style="color:var(--text2);font-family:var(--font-mono);font-size:12px;margin-top:4px;word-break:break-all;"><span id="link-mode-code"></span> — tap the product it belongs to</div>
+        <button onclick="cancelBarcodeLink()" style="width:100%;min-height:44px;margin-top:9px;padding:10px;border-radius:10px;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);font-family:var(--font-ui);font-size:13px;font-weight:600;cursor:pointer;touch-action:manipulation;">✕ Cancel link</button>
+      </div>
       <div class="search-input-wrap">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
         <input class="search-field" id="search-field" type="text" placeholder="Search products…" oninput="searchProducts(this.value)" autocomplete="off">
@@ -1571,6 +1588,11 @@ function setMethod(method, btn) {
   // Don't leave the camera running when we leave the scan tab — a stray decode would
   // otherwise fire a result into a now-hidden panel.
   if(method !== 'scan') stopCamera();
+  // r75 — a pending barcode link lives on the Search panel. Walking away abandons it, so
+  // an ordinary search later can't silently dispatch its rows into linkBarcodeToProduct.
+  // (Every internal caller clears _pendingLink before navigating, so this never fires on
+  // the link's own success or cancel path.)
+  if(method !== 'search' && _pendingLink) { clearLinkMode(); toast('Link cancelled'); }
 }
 
 // ─── SCAN METHOD ─────────────────────────────────
@@ -2188,10 +2210,12 @@ function createProductFromScan() {
   if(_pendingUnknownBarcode) openProductFormWithBarcode(_pendingUnknownBarcode);
 }
 
-function showUnknownBarcode(barcode) {
+// `silent` (r75) suppresses the beep when the card is being REDRAWN rather than freshly
+// scanned — cancelling a link returns here and shouldn't sound like a new failed scan.
+function showUnknownBarcode(barcode, silent) {
   stopCamera();
   _pendingUnknownBarcode = barcode;
-  playBeep('unknown');
+  if(!silent) playBeep('unknown');
 
   // Hide camera zone so button is visible
   const camZone = document.getElementById('cam-scan-zone');
@@ -2214,10 +2238,155 @@ function showUnknownBarcode(barcode) {
   const _swb = document.getElementById('scan-weigh-btn'); // r72 — an unknown barcode has
   if(_swb) _swb.style.display = 'none';                   // no product to weigh
   document.getElementById('scan-create-btn').style.display = 'block';
+  const _slb = document.getElementById('scan-link-btn');   // r75 — the alternative to
+  if(_slb) _slb.style.display = 'block';                   // creating a duplicate product
+  hideLinkKinds();
 
   // Scroll create button into view
   setTimeout(() => document.getElementById('scan-create-btn')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200);
-  toast('Unknown — tap button to create product', false);
+  toast('Unknown — create it, or link it to an existing product', false);
+}
+
+// ─── LINK AN UNKNOWN BARCODE TO AN EXISTING PRODUCT (r75) ─────────────────────────
+// Until r75 an unknown code had exactly one outcome: create a new product — so scanning
+// a case in the store room forced a DUPLICATE catalogue entry. The code can now be
+// attached to a product that already exists, either as its CASE barcode (r74 then reads
+// it back as 📦 CASE ×N) or as one more UNIT barcode (r43/r44's barcodes[]).
+// The product picker is the EXISTING Search panel — searchProducts grows a link-mode
+// branch rather than a second search UI, so r42's token matching comes along for free.
+let _pendingLink = null; // {code, kind:'case'|'unit'} while a link is in progress
+
+function startBarcodeLink() {
+  if(!_pendingUnknownBarcode) return;
+  const kinds = document.getElementById('scan-link-kinds');
+  if(!kinds) return;
+  kinds.style.display = 'block';
+  setTimeout(() => kinds.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
+}
+
+function hideLinkKinds() {
+  const kinds = document.getElementById('scan-link-kinds');
+  if(kinds) kinds.style.display = 'none';
+}
+
+// Arm link mode and hand over to the Search panel as the product picker.
+function beginBarcodeLink(kind) {
+  const code = normalizeBarcode(_pendingUnknownBarcode);
+  if(!code) { toast('⚠ No barcode to link'); return; }
+  _pendingLink = { code, kind: kind === 'case' ? 'case' : 'unit' };
+  hideLinkKinds();
+  // Nothing may stay armed behind the picker on either panel — an armed product sits one
+  // tap from adding a line we never intended (the r71/r72 duplicate-line footgun).
+  clearScanArm();
+  clearSearchArm();
+  const _scb = document.getElementById('scan-create-btn');
+  if(_scb) _scb.style.display = 'none';
+  setMethod('search', document.getElementById('tab-search'));
+  paintLinkBanner();
+  const f = document.getElementById('search-field');
+  if(f) { f.value = ''; f.focus(); }
+  const res = document.getElementById('search-results');
+  if(res) { res.innerHTML = ''; res.classList.remove('visible'); }
+  toast('🔗 Search for the product this barcode belongs to');
+}
+
+function paintLinkBanner() {
+  const el = document.getElementById('link-mode-banner');
+  if(!el) return;
+  if(!_pendingLink) { el.style.display = 'none'; return; }
+  const kindEl = document.getElementById('link-mode-kind');
+  const codeEl = document.getElementById('link-mode-code');
+  if(kindEl) kindEl.textContent = _pendingLink.kind === 'case'
+    ? '📦 Linking as a CASE barcode'
+    : '🏷 Linking as an extra UNIT barcode';
+  // textContent, not innerHTML — a keyboard-wedge scanner can emit arbitrary characters.
+  if(codeEl) codeEl.textContent = _pendingLink.code;
+  el.style.display = 'block';
+}
+
+// Drop link mode without navigating anywhere.
+function clearLinkMode() {
+  _pendingLink = null;
+  const el = document.getElementById('link-mode-banner');
+  if(el) el.style.display = 'none';
+  const f = document.getElementById('search-field');
+  if(f) f.value = '';
+  const res = document.getElementById('search-results');
+  if(res) { res.innerHTML = ''; res.classList.remove('visible'); }
+}
+
+// Explicit Cancel — back to the scan card, unknown code still on offer.
+function cancelBarcodeLink() {
+  const code = _pendingUnknownBarcode;
+  clearLinkMode();                                             // before setMethod, or its
+  setMethod('scan', document.getElementById('tab-scan'));      // own guard toasts as well
+  if(code) showUnknownBarcode(code, true);
+  toast('Link cancelled');
+}
+
+// The link itself. The ONLY write path mobile has is pushProductToSupabase, which GETs the
+// client row, findIndex()es by NAME and spreads {...cur, ...prod} — so it must be handed a
+// MINIMAL patch: n/name are REQUIRED (a miss appends a duplicate product instead of
+// updating one) and nothing else beyond the fields being changed. Its only field guard
+// covers costPrice/density/soldAs, so pushing the whole local product object would blank
+// every field the phone doesn't model (idealGP, costHistory, supplier, par, sales…).
+async function linkBarcodeToProduct(idx) {
+  if(!_pendingLink) return;
+  const prod = PRODUCTS[idx];
+  if(!prod) return;
+  const code = _pendingLink.code;
+  const kind = _pendingLink.kind;
+  const name = prod.n || prod.name || '';
+  if(!name) { toast('⚠ That product has no name — cannot link'); return; }
+
+  // The code arrived from an unmatched scan, but link mode can outlive that scan — re-check
+  // that no other product already claims it rather than creating a second claimant.
+  const owner = PRODUCTS.find(p => p !== prod && productBarcodes(p).includes(code));
+  if(owner) { toast('⚠ ' + code + ' already belongs to ' + (owner.name || owner.n)); return; }
+
+  let patch;
+  if(kind === 'case') {
+    // A case barcode with no case size is worse than no link: r74 warns on every future
+    // scan, and countToUnits'/desktop's `caseSize || 12` fallback would inflate a line 12×.
+    // So capture the size here and refuse to store the code without one.
+    let cs = parseFloat(prod.caseSize) || 0;
+    if(!(cs > 0)) {
+      const ans = prompt('How many units in ONE case of ' + name + '?', '');
+      if(ans === null) return;                    // prompt cancelled — stay in link mode
+      cs = parseFloat(ans) || 0;
+      if(!(cs > 0) || cs !== Math.round(cs) || cs > 500) {
+        toast('⚠ Enter a whole case size (e.g. 24) — nothing linked');
+        return;
+      }
+    }
+    if(prod.caseBarcode && normalizeBarcode(prod.caseBarcode) !== code &&
+       !confirm(name + ' already has case barcode ' + prod.caseBarcode + '.\n\nReplace it with ' + code + '?')) return;
+    prod.caseBarcode = code;
+    prod.caseSize    = cs;
+    patch = { n: name, name: name, caseBarcode: code, caseSize: cs };
+  } else {
+    // UNION, never overwrite — r43/r44 mean the product may already carry several codes
+    // and none of them may be lost. (productBarcodes folds caseBarcode in too, which is
+    // exactly what pushProductToSupabase's own union does; barcodeMatchKind still tests
+    // caseBarcode FIRST, so a case code stays a case code.)
+    const merged = unionBarcodes(prod, { barcodes: [code] });
+    prod.barcodes = merged;
+    if(!prod.barcode) prod.barcode = merged[0];
+    patch = { n: name, name: name, barcodes: merged };
+  }
+
+  saveToStorage();   // the phone reflects it immediately, before the round trip
+  clearLinkMode();
+  // NOTE: this writes the venue row only. Mobile has no ap_master_products writer at all
+  // (desktop's addToMasterCatalogue has no mobile twin), so case codes/sizes linked here
+  // do not reach master — a known gap, deliberately not opened up in r75.
+  await pushProductToSupabase(patch);
+
+  // Prove it resolved: re-run the code through the ORIGINAL resolver, not the fast/handoff
+  // wrapper — this is a confirmation of the link, not a real scan, and fast mode would
+  // silently book a count line off the back of it.
+  setMethod('scan', document.getElementById('tab-scan'));
+  _origProcessBarcode(code);
 }
 
 function openProductFormWithName(name) {
@@ -2476,6 +2645,9 @@ function showScanResult(product, kind) {
   document.getElementById('scan-qty-row').style.display = 'flex';
   document.getElementById('scan-numpad').style.display = 'grid';
   document.getElementById('scan-create-btn').style.display = 'none';
+  const _slb2 = document.getElementById('scan-link-btn'); // r75 — a matched product needs
+  if(_slb2) _slb2.style.display = 'none';                 // no link offer
+  hideLinkKinds();
   const addBtn = document.getElementById('scan-add-btn');
   addBtn.style.display = 'block';
   addBtn.textContent   = '✓ Add to count';
@@ -2736,7 +2908,8 @@ function clearScanArm() {
   scannedProduct = null;
   const card = document.getElementById('scan-result');
   if(card) card.classList.remove('visible');
-  ['scan-fracs','scan-qty-row','scan-numpad','scan-add-btn','scan-weigh-btn','scan-case-badge']
+  ['scan-fracs','scan-qty-row','scan-numpad','scan-add-btn','scan-weigh-btn','scan-case-badge',
+   'scan-link-btn','scan-link-kinds'] // r75 — the unknown-barcode link offer goes too
     .forEach(id => { const el = document.getElementById(id); if(el) el.style.display = 'none'; });
 }
 
@@ -2760,6 +2933,26 @@ function searchProducts(q) {
     .filter(({p}) => { const name=(p.name||'').toLowerCase(); return tokens.every(t=>name.includes(t)); });
 
   res.classList.add('visible');
+
+  // r75 — LINK MODE. This same search doubles as the picker for "link this unknown barcode
+  // to an existing product": rows dispatch to linkBarcodeToProduct instead of arming the
+  // qty pad. The ⚖️ shortcut is withheld (it would strand the pending link on the weigh
+  // tab) and so is the Create row — creating is the branch the user just declined.
+  if(_pendingLink) {
+    if(!matches.length) {
+      res.innerHTML = `<div class="search-item" style="color:var(--text3);">No product matches that search</div>`;
+      return;
+    }
+    res.innerHTML = matches.slice(0,5).map(({p,i})=>`
+      <div class="search-item" onclick="linkBarcodeToProduct(${i})">
+        <div>
+          <div class="search-item-name">${p.name}</div>
+          <div class="search-item-cat">${p.cat} · ${p.vol}ml${p.caseSize ? ' · case ×'+p.caseSize : ''}</div>
+        </div>
+        <div style="flex-shrink:0;color:var(--accent);font-size:15px;">🔗</div>
+      </div>`).join('');
+    return;
+  }
 
   const createRow = `<div class="search-item" style="border-top:1px solid var(--border2);" onclick="openProductFormWithName('${q.replace(/'/g, "\\'")}')">
       <div>
