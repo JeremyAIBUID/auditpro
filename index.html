@@ -2214,6 +2214,9 @@
       </div>
       <button onclick="closeModal('invoiceReviewModal')" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;line-height:1;flex-shrink:0;">×</button>
     </div>
+    <!-- r78 — import warnings. Pinned OUTSIDE #irm-body so it stays visible while the
+         row list scrolls. Populated (and CLEARED) on every openInvoiceReviewModal call. -->
+    <div id="irm-warnings" style="flex-shrink:0;margin-top:10px;"></div>
     <div id="irm-body" style="overflow-y:auto;flex:1;padding-right:4px;margin:12px 0;"></div>
     <div class="modal-actions" style="flex-shrink:0;">
       <button class="btn btn-secondary" onclick="closeModal('invoiceReviewModal')">Cancel</button>
@@ -9122,21 +9125,30 @@ function saveEditedInvoice(idx) {
   // Re-render variance immediately if on that page
   if(document.getElementById('page-variances')?.classList.contains('active')) renderVarTable();
 }
-// Returns the matching delivery if duplicate, null otherwise
+// Returns the matching delivery if duplicate, null otherwise.
+// invoiceDate is deliberately NOT part of the test — a re-extraction that reads the date
+// differently must not turn a duplicate into a non-duplicate. The param is kept because
+// all 7 call sites pass it and a date-aware variant may want it later.
 function isDuplicateInvoice(client, invoiceRef, invoiceDate, supplier) {
   if(!client || !client.deliveries) return null;
 
   const norm = s => (s||'').trim().toLowerCase().replace(/\s+/g,' ');
   const nRef      = norm(invoiceRef);
-  const nDate     = norm(invoiceDate);
   const nSupplier = norm(supplier);
+  if(!nRef) return null;   // no reference = nothing to compare (fingerprint handles those)
 
   return client.deliveries.find(d => {
-    const dRef      = norm(d.r);
+    if(!d || norm(d.r) !== nRef) return false;
     const dSupplier = norm(d.s);
-    // Only flag duplicate if BOTH ref AND supplier match
-    return nRef && dRef && nRef === dRef &&
-           nSupplier && dSupplier && dSupplier.includes(nSupplier.split(' ')[0]);
+    // r78 FIX 6a — a MISSING supplier on either side no longer rescues a ref match. The
+    // old `nSupplier && dSupplier &&` made a blank supplier mean "not a duplicate", so a
+    // ref-only match with an unread supplier name sailed straight through the guard.
+    // The refs agreeing is the stronger signal; absent a second opinion, trust it.
+    if(!nSupplier || !dSupplier) return true;
+    // r78 FIX 6b — SYMMETRIC supplier test. The old test was one-way
+    // (`stored.includes(incoming.firstWord)`), so "Lion" vs "Lion Beverages NZ" answered
+    // differently depending on which extraction ran first. sameSupplier tests both ways.
+    return sameSupplier(supplier, d.s);
   }) || null;
 }
 
@@ -9209,6 +9221,206 @@ function findInvoiceByFingerprint(client, supplier, date, total, excludeRef) {
     if (!sameInvoiceDate(date, d.d)) return false;
     return Math.abs(invoiceTotalValue(d.t) - wantTotal) <= 0.02;
   }) || null;
+}
+
+// ─── IMPORT WARNINGS (r78) ───────────────────────────────────────────────────
+// Surface, BEFORE the commit, the two things that silently go wrong on import:
+//   (A) the invoice's date belongs to a different period than the one it will land in;
+//   (B) this invoice appears to already be in purchase history.
+// r77 made import idempotent, so these are INFORMATIONAL/CONFIRMATORY, not the last line
+// of defence. Nothing here is unconditionally fatal: every rule has a legitimate
+// exception (two suppliers reusing "12345", a late invoice, two identical same-day
+// deliveries), so the strongest level is still overridable.
+//
+// The design constraint that matters most: DO NOT CRY WOLF. A banner that fires on a
+// normal invoice is a banner nobody reads, at which point the real duplicate sails
+// through too. The common case MUST come back 'ok' with no messages at all.
+//
+// Levels, weakest → strongest:
+//   ok    — no banner, no prompt.
+//   note  — grey line, no friction. Just "here is where this is going".
+//   warn  — amber banner. Import still proceeds without a prompt.
+//   block — red banner AND a confirm() at the commit point. Still overridable.
+const INVOICE_WARN_RANK = { ok: 0, note: 1, warn: 2, block: 3 };
+
+// Display name for a period. `label` is the human month ("July 2026") — what a user
+// actually recognises; formatSessionLabel's date range is the legacy-session fallback.
+function periodDisplayName(sess) {
+  if (!sess) return 'this period';
+  return sess.label || formatSessionLabel(sess) || 'this period';
+}
+function periodDisplayNameWithStatus(sess) {
+  if (!sess) return 'an earlier period';
+  const word = sess.status === 'rolledover' ? ' (closed)'
+             : sess.status === 'finalised'  ? ' (finalised)'
+             : sess.status === 'reopened'   ? ' (reopened)'
+             : '';
+  return periodDisplayName(sess) + word;
+}
+
+// The period the DATE ALONE would pick — the same walk resolveDeliveryPeriod's date
+// branch performs (latest period opened on/before the invoice date, else the earliest).
+// Used ONLY to name that period in a warning; attribution itself is untouched.
+function sessionForInvoiceDate(c, ts) {
+  const ordered = [...((c && c.auditSessions) || [])].sort(compareSessions);
+  if (!ordered.length || ts == null) return null;
+  let pick = null;
+  for (const s of ordered) {
+    const od = parseFlexDate(s.openDate);
+    if (od != null && od <= ts) pick = s;
+  }
+  return pick || ordered[0];
+}
+
+function invoiceDateLabel(ts) {
+  return new Date(ts).toLocaleDateString('en-NZ', { day:'numeric', month:'short', year:'numeric' });
+}
+
+// Which delivery in purchase history is this invoice? Returns { match, kind } where kind is
+// 'ref' (ref + supplier agree), 'ref-other-supplier' (ref agrees, supplier does not) or
+// 'fingerprint' (no usable ref; supplier + calendar day + total agree).
+// Reuses the r77 helpers throughout rather than restating their logic.
+// The invoiceArchive is deliberately NOT scanned: archived invoices are meant to be
+// re-imported, and reimportArchivedInvoice clears the archive AND the delivery first, so
+// including it would fire a warning on the app's own supported workflow.
+function findInvoiceTwin(client, ref, date, supplier, total, itemCount) {
+  const deliveries = (client && client.deliveries) || [];
+  const norm = s => String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' ');
+  const nRef = norm(ref);
+
+  // A synthetic ref ('AUTO-…'/'MANUAL-…') is minted fresh per import and can never
+  // meaningfully collide — skip the ref test entirely and go straight to the fingerprint.
+  if (nRef && !isSyntheticRef(ref)) {
+    const refHits = deliveries.filter(d => d && norm(d.r) === nRef);
+    if (refHits.length) {
+      const agreed = isDuplicateInvoice(client, ref, date, supplier);
+      if (agreed) return { match: agreed, kind: 'ref' };
+      return { match: refHits[0], kind: 'ref-other-supplier' };
+    }
+    return { match: null, kind: null };
+  }
+
+  const fp = findInvoiceByFingerprint(client, supplier, date, total, ref);
+  if (!fp) return { match: null, kind: null };
+  // Item count is a TIEBREAK, never a requirement — a re-extraction can legitimately split
+  // or merge a line. It only matters when several deliveries share supplier + day + total.
+  let best = fp;
+  const want = Number(itemCount);
+  if (Number.isFinite(want) && want > 0 && Number(fp.i) !== want) {
+    const better = deliveries.find(d =>
+      d && d !== fp && Number(d.i) === want && !(ref && d.r === ref) &&
+      sameSupplier(supplier, d.s) && sameInvoiceDate(date, d.d) &&
+      Math.abs(invoiceTotalValue(d.t) - invoiceTotalValue(total)) <= 0.02);
+    if (better) best = better;
+  }
+  return { match: best, kind: 'fingerprint' };
+}
+
+// One-line description of an existing delivery, incl. THE PERIOD IT LANDED IN. "Already
+// imported" is unactionable without knowing where it went, so the period is never omitted.
+function describeExistingInvoice(client, d) {
+  if (!d) return '';
+  const sess = ((client && client.auditSessions) || []).find(s => s && s.id === resolveDeliveryPeriod(client, d));
+  const bits = [d.s || 'Unknown supplier', d.d || 'no date', d.r || 'no number', d.t || '$—'];
+  if (Number(d.i) > 0) bits.push(`${d.i} item${Number(d.i) === 1 ? '' : 's'}`);
+  return `${bits.join(' · ')} — booked to ${sess ? periodDisplayNameWithStatus(sess) : 'an unresolved period'}`;
+}
+
+// PURE. Takes what an invoice claims about itself, returns what the user should be told.
+// Touches no DOM and mutates nothing, so every surface (review modal, quick-import card,
+// commit guard, manual entry) can call it and get the same answer.
+//   info = { ref, date, supplier, total, itemCount, surface }
+//   surface: 'manual' for the manual-entry path (which pushes a second delivery rather
+//            than restating one), anything else for the AI/import paths.
+// Messages STACK — a duplicate that is also mis-dated returns both lines.
+function validateInvoiceImport(client, info) {
+  const out = { level: 'ok', messages: [], twin: null, twinKind: null };
+  if (!client) return out;
+  const i = info || {};
+  const add = (level, text) => {
+    out.messages.push({ level, text });
+    if (INVOICE_WARN_RANK[level] > INVOICE_WARN_RANK[out.level]) out.level = level;
+  };
+
+  const target     = currentSession(client);          // WRITES always land on the active period
+  const targetName = periodDisplayName(target);
+  const isManual   = i.surface === 'manual';
+
+  // ── (B) DUPLICATE ──────────────────────────────────────────────────────────
+  const { match: twin, kind } = findInvoiceTwin(client, i.ref, i.date, i.supplier, i.total, i.itemCount);
+  out.twin = twin; out.twinKind = kind;
+  if (twin && kind === 'ref') {
+    add('block', `Invoice ${i.ref} is already in purchase history: ${describeExistingInvoice(client, twin)}. `
+      + (isManual
+          ? 'Adding it again creates a SECOND delivery and both will count.'
+          : 'Re-importing restates that invoice rather than doubling it, so continuing is safe — but nothing new will be added unless you edited a line.'));
+  } else if (twin && kind === 'ref-other-supplier') {
+    add('warn', `Invoice number ${i.ref} is already used by a different supplier: ${describeExistingInvoice(client, twin)}. `
+      + `Two suppliers reusing one number is normal — but purchases are tracked by invoice number, so importing this will REPLACE, not add to, anything already booked under ${i.ref} in ${targetName}.`);
+  } else if (twin && kind === 'fingerprint') {
+    add('warn', `Looks like a repeat — same supplier, date and total as ${twin.r || 'an existing invoice'}: ${describeExistingInvoice(client, twin)}. `
+      + `This invoice has no readable number, so it can't be matched by reference. `
+      + (isManual
+          ? 'Continuing adds it as a second delivery and both will count.'
+          : 'Continuing treats it as the same invoice and restates it rather than adding a second copy.'));
+  }
+
+  // ── (A) DATE vs PERIOD ─────────────────────────────────────────────────────
+  // NOTE: periodDays is deliberately NOT used as an upper bound. It is a hardcoded 30
+  // nobody maintains, so a bound built on it would warn on every invoice from week 5 of a
+  // longer period — the exact cry-wolf failure this whole feature has to avoid.
+  const DAY = 86400000;
+  const ts  = parseFlexDate(i.date);
+  if (ts == null) {
+    // parseFlexDate returns null for 'Unknown date' / 'Today' / year-less strings by
+    // design. That is not an error — just say where the invoice is going.
+    add('note', `No readable invoice date${i.date ? ` ("${i.date}")` : ''} — this invoice will be booked to ${targetName}.`);
+  } else {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    if (ts > today.getTime() + DAY) {
+      add('warn', `Dated in the future (${invoiceDateLabel(ts)}). Check the date on the invoice — importing here books it to ${targetName} regardless.`);
+    }
+    const od = parseFlexDate(target && target.openDate);
+    if (od != null && ts < od - 3 * DAY) {
+      const other = sessionForInvoiceDate(client, ts);
+      const otherName = (other && target && other.id === target.id) ? null : periodDisplayNameWithStatus(other);
+      add('warn', `Dated ${invoiceDateLabel(ts)}, before ${targetName} opened on ${target.openDate}`
+        + (otherName ? ` — that falls in ${otherName}.` : '.')
+        + ` Importing here books it to ${targetName}.`);
+    }
+    const cd = parseFlexDate(target && target.closeDate);
+    if (cd != null && ts > cd + 3 * DAY) {
+      add('warn', `Dated ${invoiceDateLabel(ts)}, after ${targetName} closed on ${target.closeDate}. Importing here books it to ${targetName} anyway.`);
+    }
+  }
+
+  return out;
+}
+
+// Banner markup shared by the review modal and the quick-import summary card, so both
+// surfaces say exactly the same thing. Returns '' for 'ok' — no chrome on the happy path.
+function invoiceWarningBannerHTML(v) {
+  if (!v || !v.messages || !v.messages.length) return '';
+  const esc = s => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const SKIN = {
+    block: 'background:rgba(240,80,80,0.08);border:1px solid rgba(240,80,80,0.25);color:var(--red);',
+    warn:  'background:rgba(240,192,64,0.07);border:1px solid rgba(240,192,64,0.2);color:var(--amber);',
+    note:  'background:none;border:1px solid transparent;color:var(--text3);',
+  };
+  const ICON = { block: '⛔', warn: '⚠', note: 'ℹ' };
+  return v.messages.map(m => `
+    <div style="${SKIN[m.level] || SKIN.note}border-radius:10px;padding:9px 13px;margin-bottom:8px;font-size:12px;line-height:1.55;display:flex;gap:9px;align-items:flex-start;">
+      <span style="flex-shrink:0;">${ICON[m.level] || ICON.note}</span><span>${esc(m.text)}</span>
+    </div>`).join('');
+}
+
+// Plain-text version for the commit-point confirm(). Notes are dropped — they carry no
+// decision, and a prompt for one would be friction with nothing to decide.
+function invoiceWarningConfirmText(v) {
+  return (v && v.messages || [])
+    .filter(m => m.level === 'warn' || m.level === 'block')
+    .map(m => '• ' + m.text).join('\n\n');
 }
 
 // ─── INVOICE DUMP (overview page) ────────────────
@@ -10178,6 +10390,18 @@ function renderInvoiceResults(id, invoice, filename) {
   res.style.display = 'block';
 
   // ── CLEAN SUMMARY CARD (no inline enrichment) ──
+  // r78 — mirror the review modal's warnings onto the CARD. Without this, "⚡ Quick
+  // import" is a blind commit path: it never opens the modal, so a banner that lives only
+  // in the modal would be invisible on the one route that skips it. This function rebuilds
+  // innerHTML wholesale (and runs twice in processInvoiceWithAI), so the banner is WRITTEN
+  // as part of the template — never appended, or the second pass would drop/duplicate it.
+  const warn78 = validateInvoiceImport(c, {
+    ref:       invoice.invoiceRef  || '',
+    date:      invoice.invoiceDate || '',
+    supplier:  invoice.supplier    || '',
+    total:     res._invoiceTotal || totalIncGST,
+    itemCount: rows.length,
+  });
   const hasNew = newCount > 0;
   res.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
@@ -10202,7 +10426,8 @@ function renderInvoiceResults(id, invoice, filename) {
              <button class="btn btn-primary" style="font-size:12px;padding:7px 16px;" onclick="openInvoiceReviewModal('${id}')">🔍 Review all ${rows.length} items →</button>`
         }
       </div>
-    </div>`;
+    </div>
+    ${warn78.messages.length ? `<div style="margin-top:12px;">${invoiceWarningBannerHTML(warn78)}</div>` : ''}`;
 }
 
 // ── INVOICE REVIEW MODAL ──────────────────────────
@@ -10277,6 +10502,23 @@ function openInvoiceReviewModal(id) {
   document.getElementById('irm-title').textContent     = `${supplier} · ${date} · ${ref}`;
   document.getElementById('irm-subtitle').textContent  = `${rows.length} items — ${updateCount} matched · ${newRows.length} new`;
   document.getElementById('irm-confirm-btn').onclick   = async () => { closeModal('invoiceReviewModal'); await applyInvoiceToProducts(id); };
+
+  // r78 — import warnings, pinned above the scrolling row list. The modal is a REUSED
+  // SINGLETON (same class of bug as the mobile weigh panel), so this must be written
+  // UNCONDITIONALLY on every open — an early return or a falsy-guard would leave the
+  // previous invoice's banner sitting over a clean one.
+  const warnEl = document.getElementById('irm-warnings');
+  if(warnEl) {
+    warnEl.innerHTML = invoiceWarningBannerHTML(validateInvoiceImport(c, {
+      ref, date, supplier,
+      total:     res._invoiceTotal,
+      itemCount: rows.length,
+    }));
+  }
+  // NOTE: nothing here touches #irm-confirm-btn. checkInvoiceReady owns its disabled/text
+  // state and re-runs on every keystroke in a name field, so anything written there would
+  // be wiped on the next character typed. Banner + the confirm() in applyInvoiceToProducts
+  // are the whole surface.
 
   // Initial validation check
   setTimeout(() => checkInvoiceReady(id, rows.length), 100);
@@ -10615,6 +10857,26 @@ function applyInvoiceToProducts(id) {
     console.error('applyInvoiceToProducts: no invoice data found for id:', id);
     alert('Invoice data not found — please re-upload the invoice.');
     return;
+  }
+
+  // r78 — BACKSTOP. This is the single choke point every import route funnels through
+  // (quick import, review-modal confirm, and the dump path), so one guard here covers all
+  // three. Only BLOCK level prompts: warnings are already on the card and in the modal
+  // banner, and prompting for them too would train the user to dismiss without reading.
+  // On the dump path activeClient is temporarily swapped to the target venue — `c` above
+  // is that swapped client, which is exactly the one to validate against.
+  const warn78 = validateInvoiceImport(c, {
+    ref:       res._invoiceRef      || (stored && stored.ref)      || '',
+    date:      res._invoiceDate     || (stored && stored.date)     || '',
+    supplier:  res._invoiceSupplier || (stored && stored.supplier) || '',
+    total:     res._invoiceTotal,
+    itemCount: (res._invoiceData || []).length,
+  });
+  if(warn78.level === 'block') {
+    if(!confirm(`This invoice looks like one you already imported.\n\n${invoiceWarningConfirmText(warn78)}\n\nImport anyway?`)) {
+      console.log('[AuditPro] r78 — import cancelled by user at the duplicate guard.');
+      return;
+    }
   }
 
   // FIX (r61) — resolve THE invoice ref ONCE, up front, and use this same value for BOTH
@@ -11270,16 +11532,21 @@ function saveManualInvoice() {
     if (!activeClient.deliveries) activeClient.deliveries = [];
     // r77 — this path never writes session.purchases (only a delivery), so it cannot cause
     // a purchases accumulation. It could still push a duplicate DELIVERY, which the live
-    // merge would count twice. Same recognition as the invoice paths; warn and let the user
-    // decide rather than block, since a venue can legitimately receive two same-day
-    // deliveries from one supplier for the same amount.
-    const manualTwin =
-         activeClient.deliveries.find(d => d && d.r && d.r === ref && sameSupplier(supplier, d.s))
-      || (isSyntheticRef(ref)
-            ? findInvoiceByFingerprint(activeClient, supplier, displayDate, total, ref)
-            : null);
-    if (manualTwin) {
-      const ok = confirm(`This looks like an invoice you already have:\n\n${manualTwin.s} · ${manualTwin.d} · ${manualTwin.r} · ${manualTwin.t}\n\nAdding it again will count these purchases twice.\n\nAdd anyway?`);
+    // merge would count twice. Warn and let the user decide rather than block, since a
+    // venue can legitimately receive two same-day deliveries from one supplier for the
+    // same amount.
+    // r78 — the same validator the import paths use, so manual entry gets the date checks
+    // (wrong-period / future-dated) too. Manual entry has no banner surface — it is a form
+    // in a modal — so warn AND block both prompt here; notes stay silent (a date typed as
+    // 'Today' is unparseable by design and must not nag on every manual invoice).
+    const manualWarn = validateInvoiceImport(activeClient, {
+      ref, supplier, total,
+      date:      displayDate,
+      itemCount: itemCount,
+      surface:   'manual',
+    });
+    if (manualWarn.level === 'warn' || manualWarn.level === 'block') {
+      const ok = confirm(`Check this invoice before adding it:\n\n${invoiceWarningConfirmText(manualWarn)}\n\nAdd anyway?`);
       if (!ok) return;
     }
     activeClient.deliveries.unshift({
@@ -13522,7 +13789,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r77';
+const APP_VERSION = '2026-06-10-r78';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
