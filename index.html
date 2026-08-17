@@ -9140,6 +9140,77 @@ function isDuplicateInvoice(client, invoiceRef, invoiceDate, supplier) {
   }) || null;
 }
 
+// ─── SAME-INVOICE RECOGNITION (r77) ──────────────────────────────────────────
+// Support for IDEMPOTENT import: re-importing an invoice must produce the same
+// numbers as importing it once. These helpers answer "is this the invoice I
+// already have?" — they never block an import, they only let the write paths
+// restate a contribution instead of stacking a second one on top.
+
+// A SYNTHETIC ref is minted per-import ('AUTO-'+Date.now() in applyInvoiceToProducts,
+// 'AUTO-'/'MANUAL-'+random elsewhere) for an invoice with no readable number. Two
+// uploads of the same PDF therefore get two different refs that can never collide,
+// so a ref comparison is MEANINGLESS for these — the fingerprint below is the only
+// way to recognise the re-upload.
+function isSyntheticRef(ref) {
+  return /^(AUTO|MANUAL)-/i.test(String(ref == null ? '' : ref).trim());
+}
+
+// Numeric value of a stored money field. Deliveries store totals as STRINGS
+// ('$1,234.56'), so every comparison must strip first.
+function invoiceTotalValue(t) {
+  const n = parseFloat(String(t == null ? '' : t).replace(/[^0-9.]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+// Supplier equivalence — normalised, first token, tested in BOTH directions.
+// isDuplicateInvoice's test is one-way (`stored.includes(incoming.firstWord)`), so it
+// answers differently depending on which extraction ran first: "Lion" vs "Lion
+// Beverages NZ" matches in one import order and not the other. This is symmetric.
+function sameSupplier(a, b) {
+  const norm = s => String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' ');
+  const na = norm(a), nb = norm(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  const ta = na.split(' ')[0], tb = nb.split(' ')[0];
+  if (!ta || !tb) return false;
+  return na.includes(tb) || nb.includes(ta);
+}
+
+// Same CALENDAR DAY. parseFlexDate resolves a timestamp only when a YEAR is present
+// and returns null for 'Unknown date' / 'Today' / year-less strings — that contract is
+// deliberate (see resolveDeliveryPeriod) and is honoured here: two parseable dates are
+// compared as days; two UNparseable ones fall back to exact string equality; one of
+// each is NOT comparable and never matches (no guessed year).
+function sameInvoiceDate(a, b) {
+  const ta = parseFlexDate(a), tb = parseFlexDate(b);
+  if (ta != null && tb != null) {
+    const da = new Date(ta), db = new Date(tb);
+    return da.getFullYear() === db.getFullYear()
+        && da.getMonth()    === db.getMonth()
+        && da.getDate()     === db.getDate();
+  }
+  if (ta != null || tb != null) return false;
+  const norm = s => String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' ');
+  return !!norm(a) && norm(a) === norm(b);
+}
+
+// FINGERPRINT match — the same invoice re-uploaded under a different (synthetic) ref:
+// same supplier + same calendar day + same total (within 2c, so a re-extraction landing
+// a cent apart still matches). Scans the FLAT GLOBAL deliveries list across ALL periods,
+// exactly like isDuplicateInvoice and for the same reason — a duplicate is a duplicate
+// wherever it already landed. Requires a real total: a $0 invoice carries no signal.
+function findInvoiceByFingerprint(client, supplier, date, total, excludeRef) {
+  const wantTotal = invoiceTotalValue(total);
+  if (!(wantTotal > 0)) return null;
+  return ((client && client.deliveries) || []).find(d => {
+    if (!d) return false;
+    if (excludeRef && d.r === excludeRef) return false;
+    if (!sameSupplier(supplier, d.s)) return false;
+    if (!sameInvoiceDate(date, d.d)) return false;
+    return Math.abs(invoiceTotalValue(d.t) - wantTotal) <= 0.02;
+  }) || null;
+}
+
 // ─── INVOICE DUMP (overview page) ────────────────
 async function handleInvoiceDump(files) {
   if(!files||!files.length) return;
@@ -9423,7 +9494,16 @@ function addDumpInvoiceToClient(c, invoice, id) {
     });
   }
 
-  if(!isDuplicateInvoice(c, invoice.invoiceRef, invoice.invoiceDate, invoice.supplier)) {
+  // r77 — same same-invoice recognition as applyInvoiceToProducts (which runs first on
+  // this path and may already have pushed the delivery under this very ref). An exact ref
+  // match with a compatible supplier, or — for a synthetic ref, minted fresh per upload and
+  // therefore never able to collide — a supplier + date + total fingerprint match.
+  const dumpTwin =
+       (c.deliveries||[]).find(d => d && d.r && d.r === archiveRef && sameSupplier(invoice.supplier, d.s))
+    || (isSyntheticRef(archiveRef)
+          ? findInvoiceByFingerprint(c, invoice.supplier, invoice.invoiceDate, total, archiveRef)
+          : null);
+  if(!dumpTwin && !isDuplicateInvoice(c, invoice.invoiceRef, invoice.invoiceDate, invoice.supplier)) {
     c.deliveries.unshift({
       s:   invoice.supplier    || 'Unknown supplier',
       d:   invoice.invoiceDate || 'Unknown date',
@@ -10545,7 +10625,37 @@ function applyInvoiceToProducts(id) {
   // unified ref also restores resolveDeliveryPeriod's ref-match signal for these
   // invoices. Written back to res + the store so a re-import of the same invoice reuses
   // the SAME AUTO ref (the duplicate check keeps working instead of minting a new ref).
-  const invRef = res._invoiceRef || (stored && stored.ref) || ('AUTO-' + Date.now());
+  // r77 — the minted ref carries a random suffix as well as the timestamp. Bare
+  // 'AUTO-'+Date.now() collides for two imports in the same millisecond, and since the
+  // ref now decides whether a purchase entry is RESTATED or accumulated, a collision
+  // would make two unrelated no-number invoices overwrite each other.
+  let invRef = res._invoiceRef || (stored && stored.ref)
+            || ('AUTO-' + Date.now() + '-' + Math.floor(Math.random()*900+100));
+  // FIX 3 (r77) — a SYNTHETIC ref is minted fresh on every upload, so re-uploading the
+  // same no-number PDF produced a SECOND 'AUTO-…' ref: two deliveries, both scoped to
+  // the period, both counted by deliveriesForSession — a genuine, unmasked double-count
+  // that no ref comparison could ever catch. Recognise the re-upload by FINGERPRINT
+  // (supplier + calendar day + total within 2c) and ADOPT the existing delivery's ref.
+  // That single substitution makes the rest of the function idempotent for free: the
+  // session-purchase write below restates instead of stacking, and the delivery guard
+  // sees the twin. A REAL invoice number is never remapped — only minted ones.
+  let refAdoptedFrom = null;
+  if(isSyntheticRef(invRef)) {
+    refAdoptedFrom = findInvoiceByFingerprint(
+      c,
+      res._invoiceSupplier || (stored && stored.supplier),
+      res._invoiceDate     || (stored && stored.date),
+      res._invoiceTotal,
+      invRef
+    );
+    if(refAdoptedFrom && refAdoptedFrom.r) {
+      console.log('[AuditPro] r77 — re-upload recognised by fingerprint; reusing ref',
+                  refAdoptedFrom.r, 'instead of minting', invRef);
+      invRef = refAdoptedFrom.r;
+    } else {
+      refAdoptedFrom = null;
+    }
+  }
   res._invoiceRef = invRef;
   if(stored && !stored.ref) stored.ref = invRef;
 
@@ -10713,6 +10823,27 @@ function applyInvoiceToProducts(id) {
     c.auditSessions.push(openSession);
   }
   if(!openSession.purchases) openSession.purchases = {};
+    // FIX 1/2 (r77) — IDEMPOTENT RE-IMPORT. This block used to accumulate
+    // UNCONDITIONALLY (`existing.qty += purchaseQty`), so re-importing the SAME invoice
+    // stacked its quantities on top of themselves. The duplicate check further down only
+    // ever guarded c.deliveries.unshift — it never protected this write, so "Review
+    // anyway" on an already-imported invoice silently doubled that period's purchases.
+    // (The live merge masked it wherever delivery lines resolved to the same product
+    // name, but it survived for empty-line deliveries and wherever cleanName diverged
+    // from the delivery line's fuzzy match — and freezeSessionSnapshot then baked the
+    // survivors into locked history.)
+    //
+    // The rule: an invoice's contribution to a product is STATED ONCE, not stacked.
+    //   • this invoice's slice of the entry, first line of this pass → RESTATED (replaced)
+    //   • line 2..n of THIS pass for the same product              → ACCUMULATE onto it
+    //     (one invoice can carry two lines that clean to one catalogue name)
+    //   • every OTHER invoice's slice                              → UNTOUCHED
+    //     (two genuinely different invoices both legitimately contribute — this is the
+    //      behaviour that must NOT regress)
+    // The per-invoice slices live in entry.byRef (see below); entry.qty is their sum.
+    // _restatedThisPass records the products this pass has already restated, so only the
+    // FIRST line of the invoice replaces and the rest add.
+    const _restatedThisPass = new Set();
     res._invoiceData.forEach((item, i) => {
       const nameInput     = document.getElementById(id+'-name-'+i);
       const soldasEl      = document.getElementById(id+'-soldas-'+i);
@@ -10740,19 +10871,61 @@ function applyInvoiceToProducts(id) {
       const unitCost  = isSplit ? editedPrice / caseQty : editedPrice;
 
       if(!unitCost) return;
-      const existing = openSession.purchases[cleanName];
-      if(existing) {
-        existing.qty = (parseFloat(existing.qty)||0) + purchaseQty;
-      } else {
+      const entryUnit = isSplit ? (item.cat==='Beer'?'Bottles':'Units')
+                                : (soldasEl?.value||item.unit||'Bottles');
+      const existing  = openSession.purchases[cleanName];
+      const firstLineOfPass = !_restatedThisPass.has(cleanName);
+      _restatedThisPass.add(cleanName);
+
+      if(!existing) {
         openSession.purchases[cleanName] = {
           qty:        purchaseQty,
-          unit:       isSplit ? (item.cat==='Beer'?'Bottles':'Units') : (soldasEl?.value||item.unit||'Bottles'),
+          unit:       entryUnit,
           costPrice:  unitCost,
           supplier:   res._invoiceSupplier || '',
           invoiceRef: invRef, // r61 — SAME ref as the delivery's r (see top of function)
           originalName: item.name || '',
           caseSize:   caseQty,
+          // r77 — per-invoice ledger; see below. qty is always its sum.
+          byRef:      { [invRef]: purchaseQty },
         };
+        return;
+      }
+
+      // r77 — PER-INVOICE LEDGER. A purchases entry is keyed by PRODUCT, but several
+      // invoices can supply that product in one period, and the single `invoiceRef` field
+      // only ever records the FIRST contributor. So a ref comparison alone cannot tell
+      // "this invoice is being re-imported" from "a second invoice is arriving" once two
+      // invoices share an entry. byRef holds each invoice's slice; qty is always the sum.
+      // Re-importing invoice X rewrites ONLY X's slice, leaving every other invoice's
+      // contribution intact — idempotent for X, and two different invoices still add up.
+      // Seeded from whatever the entry already holds, so a legacy entry or a frozen
+      // snapshot written by freezeSessionSnapshot converts cleanly on first touch.
+      let ledger = existing.byRef;
+      if(!ledger || typeof ledger !== 'object') {
+        ledger = {};
+        ledger[existing.invoiceRef || '_legacy'] = parseFloat(existing.qty) || 0;
+      }
+      // Restate this invoice's slice on the FIRST line of the pass; lines 2..n of the SAME
+      // pass then add onto it, so one invoice carrying two lines that clean to the same
+      // catalogue name still sums both.
+      if(firstLineOfPass) ledger[invRef] = 0;
+      ledger[invRef] = (parseFloat(ledger[invRef]) || 0) + purchaseQty;
+      existing.byRef = ledger;
+      existing.qty   = Object.keys(ledger)
+        .reduce((sum, k) => sum + (parseFloat(ledger[k]) || 0), 0);
+      // Legacy/ref-less entries predate r61's ref unification; stamp them so deleteInvoice,
+      // purgeGhostPurchases and the next re-import can all recognise them.
+      if(!existing.invoiceRef) existing.invoiceRef = invRef;
+      // Sole contributor ⇒ this invoice fully describes the entry, so a corrected
+      // re-import (edited qty, price, case size) actually takes effect. With more than one
+      // contributor the descriptive fields are left alone, exactly as before r77.
+      if(firstLineOfPass && Object.keys(ledger).length === 1) {
+        existing.unit         = entryUnit;
+        existing.costPrice    = unitCost;
+        existing.supplier     = res._invoiceSupplier || '';
+        existing.originalName = item.name || '';
+        existing.caseSize     = caseQty;
       }
     });
     dbSaveSession(c, openSession);
@@ -10793,7 +10966,19 @@ function applyInvoiceToProducts(id) {
   const storedInv = getInvoiceData(id);
   if(storedInv && storedInv.supplier) {
     if(!c.deliveries) c.deliveries = [];
-    const alreadyAdded = isDuplicateInvoice(c, storedInv.ref, storedInv.date, storedInv.supplier);
+    // r77 — recognise the SAME invoice already in purchase history, in order of certainty:
+    //   1. the fingerprint twin whose ref this import adopted above (same invoice by
+    //      construction — supplier + calendar day + total all agreed);
+    //   2. the existing ref+supplier check;
+    //   3. an exact ref match whose supplier agrees under the SYMMETRIC first-token test.
+    //      (2) is one-way, so a supplier name the AI extracted differently this time made
+    //      it miss and push a second delivery under the same ref. Supplier agreement is
+    //      still required here, so two different suppliers reusing invoice number "12345"
+    //      still produce two deliveries, as they should.
+    const alreadyAdded = refAdoptedFrom
+      || isDuplicateInvoice(c, storedInv.ref, storedInv.date, storedInv.supplier)
+      || (c.deliveries||[]).find(d => d && d.r && d.r === invRef && sameSupplier(storedInv.supplier, d.s))
+      || null;
     if(!alreadyAdded) {
       // FIX 1 — recompute the saved invoice total from the FINAL (possibly edited) line
       // values. If any line was changed in the review modal, use the sum of the final
@@ -11073,10 +11258,30 @@ function saveManualInvoice() {
 
   if (itemCount === 0) { alert('Please add at least one line item.'); return; }
 
-  // Format date for display
-  const displayDate = date === 'Today' ? 'Today' : new Date(date).toLocaleDateString('en-NZ', {day:'numeric',month:'short'});
+  // Format date for display. r77 — include the YEAR: parseFlexDate resolves a timestamp
+  // only when a year is present, so the old '17 Aug' was unreadable to the duplicate
+  // fingerprint and to resolveDeliveryPeriod's date branch. Matches the '17 Aug 2026'
+  // format finaliseStocktake already stamps on sessions.
+  const displayDate = date === 'Today'
+    ? 'Today'
+    : new Date(date).toLocaleDateString('en-NZ', {day:'numeric',month:'short',year:'numeric'});
 
   if (activeClient) {
+    if (!activeClient.deliveries) activeClient.deliveries = [];
+    // r77 — this path never writes session.purchases (only a delivery), so it cannot cause
+    // a purchases accumulation. It could still push a duplicate DELIVERY, which the live
+    // merge would count twice. Same recognition as the invoice paths; warn and let the user
+    // decide rather than block, since a venue can legitimately receive two same-day
+    // deliveries from one supplier for the same amount.
+    const manualTwin =
+         activeClient.deliveries.find(d => d && d.r && d.r === ref && sameSupplier(supplier, d.s))
+      || (isSyntheticRef(ref)
+            ? findInvoiceByFingerprint(activeClient, supplier, displayDate, total, ref)
+            : null);
+    if (manualTwin) {
+      const ok = confirm(`This looks like an invoice you already have:\n\n${manualTwin.s} · ${manualTwin.d} · ${manualTwin.r} · ${manualTwin.t}\n\nAdding it again will count these purchases twice.\n\nAdd anyway?`);
+      if (!ok) return;
+    }
     activeClient.deliveries.unshift({
       s: supplier,
       d: displayDate,
@@ -11090,6 +11295,9 @@ function saveManualInvoice() {
       // r59 — attribute this manual entry to the period current at creation time.
       periodId: currentSession(activeClient)?.id,
     });
+    // r77 — this write was never persisted: the delivery lived only in memory and was
+    // lost on the next dbLoadAll (which replaces clients[i] with the DB row wholesale).
+    dbSaveClient(activeClient);
     renderPage('purchases');
   }
   closeModal('newPurchaseModal');
@@ -13314,7 +13522,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r73';
+const APP_VERSION = '2026-06-10-r77';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
