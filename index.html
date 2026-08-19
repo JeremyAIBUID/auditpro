@@ -5576,6 +5576,14 @@ function needsInfoAlert(p) {
   if(!p.costPrice || p.costPrice <= 0)   missing.push('cost price');
   if(!p.unitVol   || p.unitVol <= 0)     missing.push('unit volume');
   if(needsTareAlert(p))                   missing.push('vessel weight');
+  // r79 — a product created on the phone mid-count lands here without the fields only
+  // the desktop form captures (supplier, supplierCode, serves[], a real serve size), so
+  // surface it instead of relying on someone remembering. No new UI needed: the red !
+  // nav badge, the products-page banner and the per-row click-to-edit pill all read this.
+  // SELF-CLEARING — saveProduct rebuilds the whole product object and never writes these
+  // two keys, so the first desktop save of that product ticks the review off.
+  if(p._userAdded)      missing.push('mobile-added — review');
+  if(p.serveVolGuessed) missing.push('serve size unconfirmed');
   return missing;
 }
 
@@ -5724,7 +5732,7 @@ function renderProducts(c, query) {
           <td class="td-mono">${p.cost}</td>
           <td style="font-size:12px;color:var(--text2);">${p.sell}</td>
           <td><span class="var-pill ${p.pcv}">${p.pc}</span></td>
-          <td style="font-size:12px;color:var(--text2);">${p.par}</td>
+          <td style="font-size:12px;color:var(--text2);">${p.par || ''}</td>
           <td>${vesselHtml}</td>
           <td>${serveHtml}</td>
           <td style="display:flex;gap:6px;">
@@ -13789,7 +13797,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r78';
+const APP_VERSION = '2026-06-10-r79';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();

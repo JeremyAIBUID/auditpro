@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r75';
+const APP_VERSION = '3.8-2026-06-10-r79';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -758,17 +758,31 @@ select.inp-m{cursor:pointer;}
     <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">Vessel & Volume</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
       <div class="form-group-m"><label class="lbl-m">Vessel type *</label>
+        <!-- r79 — 'Litres' removed: desktop's #pf-soldas has no such option, so editProduct
+             set an unmatched value and saveProduct silently rewrote it to Bottles. -->
         <select class="inp-m" id="mp-soldas" onchange="updateVesselVisibility();updateMobileProdPreview()">
           <option value="Bottles">Bottles</option>
           <option value="Cans">Cans</option>
           <option value="Kegs">Kegs</option>
           <option value="Cases">Cases</option>
           <option value="PVC">PVC</option>
-          <option value="Litres">Litres</option>
         </select>
       </div>
       <div class="form-group-m"><label class="lbl-m">Unit volume (ml) *</label>
         <input class="inp-m" id="mp-unitvol" type="number" placeholder="e.g. 700" min="1" oninput="updateMobileProdPreview()"></div>
+    </div>
+
+    <!-- r79 — CASE SIZE. The only add-product gap that produces a WRONG number rather
+         than a missing one: countToUnits does qty × (caseSize || 12) and the desktop
+         delivery expansion falls back to 12 as well, so a case-bought product with no
+         size silently books 12 units at a 12×-wrong cost per unit. Revealed by the SAME
+         updateVesselVisibility() pattern the vessel panel already uses — deliberately
+         not a generic "more details" accordion, which would invite field-creep into the
+         mid-count path. -->
+    <div class="form-group-m" id="mp-casesize-wrap" style="display:none;">
+      <label class="lbl-m">Units per case *</label>
+      <input class="inp-m" id="mp-casesize" type="number" placeholder="e.g. 24" min="1" max="500" step="1" inputmode="numeric">
+      <div style="font-size:11px;color:var(--text3);margin-top:5px;">How many bottles/cans in ONE case.</div>
     </div>
 
     <!-- Vessel weights -->
@@ -1321,12 +1335,28 @@ async function pushProductToSupabase(prod) {
         merged.barcode  = cur.barcode || mergedBarcodes[0];
       }
       // Likewise, a blank mobile value must not wipe other user-set fields.
-      ['costPrice','density','soldAs'].forEach(f => {
-        const v = prod[f];
-        const incomingBlank = v === undefined || v === null || v === '' || v === 0;
-        const existingSet    = cur[f] !== undefined && cur[f] !== null && cur[f] !== '' && cur[f] !== 0;
-        if(incomingBlank && existingSet) merged[f] = cur[f];
+      // r79 — the list grew with the fields the add-product form now derives, and
+      // caseSize is the critical one: saveMobileProduct pushes a FULL object, so on a
+      // name collision a non-Cases push (caseSize null) would erase a desktop-set case
+      // size — the r73 erase-on-save bug, on the exact field r79 exists to fix. Empty
+      // arrays count as blank so an empty barcodes/costHistory can't clear a real one.
+      const isBlank = v => v === undefined || v === null || v === '' || v === 0 ||
+                           (Array.isArray(v) && v.length === 0);
+      ['costPrice','density','soldAs','caseSize','costPriceExGST','par'].forEach(f => {
+        if(isBlank(prod[f]) && !isBlank(cur[f])) merged[f] = cur[f];
       });
+      // DERIVED defaults — meaningful only when mobile CREATES a product, so they never
+      // overwrite a stored value. A blank-guard is not enough for these two: parunit is
+      // always non-blank (it defaults to 'Bottles', which would silently demote a
+      // desktop 'Cases'), and costHistory is a desktop-owned append-only trail that must
+      // not be replaced by mobile's single seed entry.
+      ['parunit','costHistory'].forEach(f => { if(!isBlank(cur[f])) merged[f] = cur[f]; });
+      // A GUESSED serve size must never overwrite one the desktop actually set, and must
+      // not stamp an existing product as unconfirmed.
+      if(!isBlank(cur.serveVol)) { merged.serveVol = cur.serveVol; delete merged.serveVolGuessed; }
+      // Colliding with a product that was already in the catalogue does not make that
+      // product "mobile-added" — only keep the flag if the stored row already carried it.
+      if(cur._userAdded === undefined) delete merged._userAdded;
       clientData.products[exists] = merged;
     } else {
       clientData.products.push(prod);
@@ -1640,10 +1670,27 @@ function handleMobileDensityCustom() {
   if(ci) ci.style.display = sel?.value === 'custom' ? 'block' : 'none';
 }
 
-function getMobileDensity() {
-  const sel = document.getElementById('mp-density');
-  if(sel?.value === 'custom') return parseFloat(document.getElementById('mp-density-custom')?.value) || 1.0;
-  return parseFloat(sel?.value) || 1.0;
+// r79 — ONE density read shared by both vessel forms. The old inline
+// `parseFloat(el.value || '1.00')` put the || INSIDE parseFloat, operating on the
+// STRING, so a 'custom' selection became NaN → Math.round(NaN) wrote a literal "NaN"
+// into the full-weight input. prefix 'mb' (batch) has no density select at all, so a
+// null element still resolves to 1.00 exactly as before.
+function vesselDensity(prefix) {
+  const sel = document.getElementById(prefix + '-density');
+  if(!sel) return 1.0;
+  if(sel.value === 'custom') return parseFloat(document.getElementById(prefix + '-density-custom')?.value) || 1.0;
+  return parseFloat(sel.value) || 1.0;
+}
+
+function getMobileDensity() { return vesselDensity('mp'); }
+
+// r79 — the ONE serve-size guess. There is deliberately no serve-size input on the
+// phone (the pour spec lives at the desktop, not in a cool store), so this mirrors
+// desktop's own fallback in computeVariances/buildSalesDepletion exactly — same value,
+// no numeric delta. Shared by the preview and the save so the two can never drift; the
+// saved figure is stamped serveVolGuessed so a guess stays distinguishable.
+function guessServeVol(cat, unitVol) {
+  return cat === 'Spirits' ? 30 : cat === 'Wine' ? 150 : unitVol;
 }
 
 // ─── VESSEL WEIGHT AUTO-CALC ─────────────────────
@@ -1653,7 +1700,7 @@ function getMobileDensity() {
 function autoCalcVesselWeights(prefix) {
   const unitVol = parseFloat(document.getElementById(prefix+'-unitvol')?.value) || 0;
   const tareG   = parseFloat(document.getElementById(prefix+'-tareg')?.value)   || 0;
-  const density = parseFloat(document.getElementById(prefix+'-density')?.value || '1.00');
+  const density = vesselDensity(prefix);          // r79 — was NaN on a 'Custom…' selection
   const hintEl  = document.getElementById(prefix+'-vessel-hint');
   const fullEl  = document.getElementById(prefix+'-fullg');
   if(!fullEl) return;
@@ -1674,7 +1721,7 @@ function autoCalcVesselWeights(prefix) {
 function autoCalcFromFull(prefix) {
   const unitVol = parseFloat(document.getElementById(prefix+'-unitvol')?.value) || 0;
   const fullG   = parseFloat(document.getElementById(prefix+'-fullg')?.value)   || 0;
-  const density = parseFloat(document.getElementById(prefix+'-density')?.value || '1.00');
+  const density = vesselDensity(prefix);          // r79 — was NaN on a 'Custom…' selection
   const hintEl  = document.getElementById(prefix+'-vessel-hint');
   const tareEl  = document.getElementById(prefix+'-tareg');
   if(!tareEl) return;
@@ -1708,27 +1755,32 @@ function updateMobileProdSubcats() {
   }
 
   updateVesselVisibility();
-
-  // Auto-suggest serve size
-  const sv = document.getElementById('mp-servevol');
-  if(sv && !sv.value) {
-    if(cat==='Spirits') sv.value='30';
-    else if(cat==='Wine') sv.value='150';
-  }
+  // r79 — the old serve-size auto-suggest wrote to #mp-servevol, an element that has
+  // never existed in this form. Removed; the preview reads guessServeVol() instead.
   updateMobileProdPreview();
 }
 
 function updateVesselVisibility() {
   const cat    = document.getElementById('mp-cat')?.value    || '';
   const soldAs = document.getElementById('mp-soldas')?.value || '';
-  const show   = ['Spirits','Wine'].includes(cat) || soldAs === 'Kegs';
+  // r79 — Cocktails added: desktop's needsTareAlert flags Cocktails as needing a tare,
+  // so the phone has to be able to capture one.
+  const show   = ['Spirits','Wine','Cocktails'].includes(cat) || soldAs === 'Kegs';
   const section = document.getElementById('mp-vessel-section');
   if(section) section.style.display = show ? 'block' : 'none';
+  // r79 — case size rides the SAME reveal pattern (no new accordion), shown only when
+  // the product is actually sold as cases.
+  const csWrap = document.getElementById('mp-casesize-wrap');
+  if(csWrap) csWrap.style.display = soldAs === 'Cases' ? 'block' : 'none';
 }
 
 function updateMobileProdPreview() {
   const unitVol   = parseFloat(document.getElementById('mp-unitvol').value)  || 0;
-  const serveVol  = parseFloat(document.getElementById('mp-servevol')?.value) || 0;
+  // r79 — this used to read #mp-servevol, which has never existed in this form, so it
+  // was permanently 0 and the Pour cost / GP% / Serves tiles were permanently blank.
+  // Read the same guess the save writes.
+  const cat       = document.getElementById('mp-cat')?.value || '';
+  const serveVol  = guessServeVol(cat, unitVol);
   const costPrice = parseFloat(document.getElementById('mp-cost').value)     || 0;
   const sellPrice = parseFloat(document.getElementById('mp-sell').value)     || 0;
   const tareG     = parseFloat(document.getElementById('mp-tareg').value)    || 0;
@@ -1759,23 +1811,54 @@ function saveMobileProduct() {
   if(!cat)     { toast('Select a category'); return; }
   if(!unitVol) { toast('Unit volume required'); return; }
 
+  const soldAs = document.getElementById('mp-soldas')?.value || 'Bottles';
+
+  // r79 — CASE SIZE, the one gap that yields a WRONG number instead of a missing one.
+  // Validation is the r75 link-mode rule verbatim: whole number, > 0, ≤ 500 — refuse
+  // rather than store something countToUnits will silently turn into 12.
+  let caseSize = null;
+  if(soldAs === 'Cases') {
+    caseSize = parseFloat(document.getElementById('mp-casesize')?.value) || 0;
+    if(!(caseSize > 0) || caseSize !== Math.round(caseSize) || caseSize > 500) {
+      toast('⚠ Enter units per case (a whole number, e.g. 24)');
+      document.getElementById('mp-casesize')?.focus();
+      return;
+    }
+  }
+
   const costPrice = parseFloat(document.getElementById('mp-cost')?.value)  || 0;
   const sellPrice = parseFloat(document.getElementById('mp-sell')?.value)  || 0;
   const tareG     = parseFloat(document.getElementById('mp-tareg')?.value) || 0;
   const fullG     = parseFloat(document.getElementById('mp-fullg')?.value) || 0;
-  const density   = parseFloat(document.getElementById('mp-density')?.value) || 1.00;
+  const density   = getMobileDensity();   // r79 — honours 'Custom…' (used to save 1.00)
+  const barcode   = document.getElementById('mp-barcode')?.value.trim() || '';
 
   const prod = {
     name, n: name,
     _userAdded: true,
     cat,
     subcat:    document.getElementById('mp-subcat')?.value || '',
-    barcode:   document.getElementById('mp-barcode')?.value.trim() || '',
-    soldAs:    document.getElementById('mp-soldas')?.value || 'Bottles',
+    barcode,
+    barcodes:  barcode ? [barcode] : [],
+    soldAs,
+    caseSize,
     vol: unitVol, unitVol, fullMl: unitVol,
-    serveVol: cat === 'Spirits' ? 30 : cat === 'Wine' ? 150 : unitVol,
+    // r79 — the guessed serve size is UNCHANGED in value (it is exactly what desktop
+    // would infer from a blank field, so there is no numeric delta) but it is now
+    // STAMPED, so a guess is queryable instead of indistinguishable from a measured
+    // pour. Cleared by the first desktop save — saveProduct replaces the whole object.
+    serveVol: guessServeVol(cat, unitVol),
+    serveVolGuessed: true,
     tareG, fullG, density, costPrice, sellPrice,
+    // r79 — derived at save, zero UI cost. par:'' kills the literal "undefined" the
+    // desktop products table used to render; parunit mirrors the invoice-created path.
+    costPriceExGST: costPrice / 1.15,
     idealGP: 72,
+    par: '',
+    parunit: soldAs === 'Kegs' ? 'Kegs' : 'Bottles',
+    costHistory: costPrice > 0
+      ? [{ price: costPrice, priceExGST: costPrice / 1.15, date: new Date().toLocaleDateString('en-NZ'), source: 'mobile' }]
+      : [],
     cost:  costPrice > 0 ? '$' + costPrice.toFixed(2) : '—',
     sell:  sellPrice > 0 ? '$' + sellPrice.toFixed(2) + '/serve' : '—',
     pc: '—', pcv: 'var-ok', lastCount: null,
@@ -1786,10 +1869,11 @@ function saveMobileProduct() {
   pushProductToSupabase(prod);
 
   // Reset form
-  ['mp-name','mp-barcode','mp-unitvol','mp-tareg','mp-fullg','mp-cost','mp-sell'].forEach(id => {
+  ['mp-name','mp-barcode','mp-unitvol','mp-tareg','mp-fullg','mp-cost','mp-sell','mp-casesize'].forEach(id => {
     const el = document.getElementById(id); if(el) el.value = '';
   });
   document.getElementById('mp-cat').value = '';
+  updateVesselVisibility();   // r79 — panel state must follow the cleared category
   document.getElementById('mp-preview').style.display = 'none';
 
   const addBtn = document.getElementById('scan-add-btn');
@@ -2391,7 +2475,9 @@ async function linkBarcodeToProduct(idx) {
 
 function openProductFormWithName(name) {
   // Clear form then pre-fill name
-  ['mp-barcode','mp-unitvol','mp-servevol','mp-tareg','mp-cost','mp-sell','mp-par'].forEach(id=>{
+  // r79 — dropped the dead mp-servevol/mp-par ids (never existed in this form), added
+  // mp-fullg (a stale full weight used to survive into a new product) and mp-casesize.
+  ['mp-barcode','mp-unitvol','mp-tareg','mp-fullg','mp-cost','mp-sell','mp-casesize'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.value='';
   });
   document.getElementById('mp-name').value = name;
@@ -2424,7 +2510,8 @@ function openProductFormWithBarcode(barcode) {
     if(barcodeEl) barcodeEl.value = barcode;
 
     // Clear other fields for fresh entry
-    ['mp-name','mp-unitvol','mp-servevol','mp-tareg','mp-fullg','mp-cost','mp-sell','mp-par'].forEach(id => {
+    // r79 — dropped the dead mp-servevol/mp-par ids, added mp-casesize.
+    ['mp-name','mp-unitvol','mp-tareg','mp-fullg','mp-cost','mp-sell','mp-casesize'].forEach(id => {
       const el = document.getElementById(id); if(el) el.value = '';
     });
     const catEl = document.getElementById('mp-cat');
