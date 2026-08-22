@@ -1623,9 +1623,9 @@
           <div class="card-header"><span class="card-title">🔄 Next period setup</span></div>
           <div class="card-body">
             <div class="form-group">
-              <label>Next audit date</label>
+              <label>Next audit date <span style="font-weight:400;color:var(--text3);font-size:11px;">— planning only</span></label>
               <input type="date" id="fin-next-date" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;color:var(--text);font-family:var(--font-ui);font-size:13px;outline:none;width:100%;">
-              <div style="font-size:11px;color:var(--text3);margin-top:6px;">On rollover, this period's closing count always carries over as the next period's opening stock.</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:6px;">When you plan to run the next count. It does <strong>not</strong> set the new period's start date — a period opens the moment this one closes (r80). On rollover, this period's closing count always carries over as the next period's opening stock.</div>
             </div>
             <div class="form-group">
               <label>Audit notes (optional)</label>
@@ -2760,6 +2760,10 @@ function renderPage(page) {
     // render the flat legacy list.
     const purRow = (d, idx) => {
       const isManual = d.sc === 'chip-blue';
+      // r80 FIX 5 — a locked invoice renders its edit affordance as locked instead of
+      // inviting a form the save will reject. It stays CLICKABLE on purpose: editInvoice()
+      // now explains immediately, which beats a dead button.
+      const rowLocked = invoiceLockedPeriod(c, d);
       const statusChip = isManual
         ? `<span class="chip chip-purple">Manual entry</span>`
         : `<span class="chip ${d.sc}">${d.st}</span>`;
@@ -2771,7 +2775,7 @@ function renderPage(page) {
         <td class="td-mono">${d.t}</td>
         <td>${statusChip}</td>
         <td style="display:flex;gap:6px;">
-          <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;" onclick="editInvoice(${idx})">✏️ Edit</button>
+          <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;${rowLocked?'opacity:0.45;':''}" title="${rowLocked?'Locked — this period is closed. Reopen it on the Finalise page to amend.':'Edit this invoice'}" onclick="editInvoice(${idx})">${rowLocked?'🔒 Locked':'✏️ Edit'}</button>
           ${d.pdfUrl ? `<button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;" onclick="window.open('${d.pdfUrl}','_blank')">📄 PDF</button>` : ''}
           <button class="btn btn-danger" style="padding:4px 10px;font-size:11px;" onclick="deleteInvoice(${idx})">×</button>
         </td>
@@ -7244,6 +7248,8 @@ function renderVarTable() {
               ? p.invIdx
               : (activeClient?.deliveries||[]).findIndex(d=>d.r===p.inv||d.r===p.invoiceRef);
             const invDel    = invIdx>=0 ? (activeClient?.deliveries||[])[invIdx] : null;
+            // r80 FIX 5 — same lock-aware affordance as the purchases table.
+            const invLocked = invoiceLockedPeriod(activeClient, invDel);
             const viewAct   = invDel?.pdfUrl
               ? `window.open('${invDel.pdfUrl}','_blank')`
               : `viewInvoice(${invIdx})`;
@@ -7253,7 +7259,7 @@ function renderVarTable() {
             const actionBtns = invIdx>=0 ? `
               <div style="display:flex;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
                 <button onclick="document.querySelectorAll('.pur-popover.open,.sales-popover.open').forEach(x=>x.classList.remove('open'));${viewAct}" style="flex:1;padding:5px 8px;font-size:11px;border-radius:7px;background:rgba(91,156,240,0.12);border:1px solid rgba(91,156,240,0.25);color:#5b9cf0;cursor:pointer;font-family:var(--font-ui);font-weight:600;">📄 View invoice</button>
-                <button onclick="document.querySelectorAll('.pur-popover.open,.sales-popover.open').forEach(x=>x.classList.remove('open'));editInvoice(${invIdx})" style="flex:1;padding:5px 8px;font-size:11px;border-radius:7px;background:rgba(200,240,100,0.08);border:1px solid rgba(200,240,100,0.2);color:var(--accent);cursor:pointer;font-family:var(--font-ui);font-weight:600;">✏️ Edit</button>
+                <button onclick="document.querySelectorAll('.pur-popover.open,.sales-popover.open').forEach(x=>x.classList.remove('open'));editInvoice(${invIdx})" title="${invLocked?'Locked — this period is closed. Reopen it on the Finalise page to amend.':'Edit this invoice'}" style="flex:1;padding:5px 8px;font-size:11px;border-radius:7px;background:rgba(200,240,100,0.08);border:1px solid rgba(200,240,100,0.2);color:var(--accent);cursor:pointer;font-family:var(--font-ui);font-weight:600;${invLocked?'opacity:0.45;':''}">${invLocked?'🔒 Locked':'✏️ Edit'}</button>
               </div>` : '';
             return `<div class="pur-popover-row"><span style="color:var(--text2);">${p.sup}</span><span class="td-mono" style="color:var(--text);">${p.qty}</span><span class="td-mono" style="color:var(--text3);">${p.date}</span><span class="td-mono" style="font-size:11px;" ${invLink}>${p.inv||'—'}</span></div>${actionBtns}`;
           }).join('')
@@ -8905,6 +8911,8 @@ function viewInvoice(idx) {
   // Check if we have a stored PDF blob
   const storedInv = getInvoiceData ? getInvoiceData(d.r) : null;
   const hasPDF = storedInv && storedInv.pdfBlob;
+  // r80 FIX 5 — lock-aware edit affordance (editInvoice() explains on click either way).
+  const viewLocked = invoiceLockedPeriod(c, d);
 
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
@@ -8921,7 +8929,7 @@ function viewInvoice(idx) {
       <div style="overflow-y:auto;flex:1;">${linesHtml}</div>
       <div style="display:flex;gap:8px;margin-top:16px;">
         ${d.pdfUrl ? `<button onclick="window.open('${d.pdfUrl}','_blank')" class="btn btn-secondary" style="flex:1;font-size:13px;">📄 View PDF</button>` : ''}
-        <button onclick="document.getElementById('invoice-view-overlay').remove();editInvoice(${idx})" class="btn btn-secondary" style="flex:1;font-size:13px;">✏️ Edit invoice</button>
+        <button onclick="document.getElementById('invoice-view-overlay').remove();editInvoice(${idx})" class="btn btn-secondary" title="${viewLocked?'Locked — this period is closed. Reopen it on the Finalise page to amend.':'Edit this invoice'}" style="flex:1;font-size:13px;${viewLocked?'opacity:0.45;':''}">${viewLocked?'🔒 Locked':'✏️ Edit invoice'}</button>
         <button onclick="document.getElementById('invoice-view-overlay').remove()" class="btn btn-primary" style="flex:1;font-size:13px;">Close</button>
       </div>
     </div>`;
@@ -8933,6 +8941,16 @@ function editInvoice(idx) {
   const c = activeClient; if(!c) return;
   const d = c.deliveries[idx];
   if(!d) return;
+
+  // r80 FIX 5 — guard at OPEN time, not save time. saveEditedInvoice has refused an edit to a
+  // locked period since r61, but only AFTER the user had re-typed the whole invoice. Same
+  // test, moved to the front. The save-time guard stays as a backstop: a period can be
+  // re-closed from another surface while this form sits open.
+  const lockedPeriod = invoiceLockedPeriod(c, d);
+  if(lockedPeriod) {
+    alert(`This invoice belongs to a locked period (${formatSessionLabel(lockedPeriod)}). Its numbers are frozen, so it can't be edited.\n\nTo amend a closed period: Finalise page -> Reopen, make the change, then re-close.`);
+    return;
+  }
 
   // Build editable lines from d.lines or fall back to session purchases
   let editLines = d.lines || [];
@@ -9266,6 +9284,60 @@ function periodDisplayNameWithStatus(sess) {
   return periodDisplayName(sess) + word;
 }
 
+// ─── r80 — WHERE A WRITE MAY LAND ────────────────────────────────────────────
+// currentSession() deliberately falls back to a FINALISED period so the DISPLAY always has
+// something to show (STAGE 2, r58). For a WRITE that fallback is silent data loss:
+// computeVariances takes the FROZEN branch for any closed period and never scans
+// client.deliveries, so an invoice booked there never reaches variance — and the r61
+// immutability guards then refuse to let the user edit or delete it back out again.
+// So every import/adjustment path resolves its target through here, never currentSession().
+//   • an 'open' session       -> { session, reason:'ok' }
+//   • no sessions at all      -> { session:null, reason:'none' }  — callers may bootstrap one
+//   • sessions, but none open -> { session:null, reason:'closed' } — REFUSE the write
+// currentSession() itself is UNCHANGED: reads and display still use it.
+function importTargetSession(c) {
+  const arr = (c && c.auditSessions) || [];
+  const open = arr.find(s => s && s.status === 'open');
+  if (open) return { session: open, reason: 'ok' };
+  return { session: null, reason: arr.length ? 'closed' : 'none' };
+}
+
+// ONE wording, used by BOTH surfaces — the pre-commit banner (validateInvoiceImport) and the
+// hard refusal — so the warning a user reads before committing and the message they get if
+// they try to commit anyway say the same thing. `what` names the thing being written.
+function noOpenPeriodText(c, what) {
+  const fallback = currentSession(c);
+  if (!fallback) {
+    return `There is no audit period yet, so ${what.toLowerCase()} has nowhere to go. `
+         + `Finalise a stocktake to start the first period.`;
+  }
+  const word = fallback.status === 'rolledover' ? 'closed'
+             : fallback.status === 'finalised'  ? 'finalised'
+             : 'not open';
+  return `${periodDisplayName(fallback)} is ${word} — there is no open period. `
+       + `${what} would land in frozen history: it would never reach variance, and it could not `
+       + `be edited or deleted afterwards. Open the next period first — on the Finalise page, `
+       + `"Close period & roll over".`;
+}
+
+// Hard refusal for a WRITE path. Alerts and returns TRUE when the caller must stop.
+// 'none' (a client with no periods at all) is NOT refused — those callers bootstrap a period.
+function refuseWriteNoOpenPeriod(c, what) {
+  if (importTargetSession(c).reason !== 'closed') return false;
+  alert(noOpenPeriodText(c, what));
+  console.warn('[AuditPro] r80 — write refused, no open period:', what);
+  return true;
+}
+
+// r80 FIX 5 — the LOCKED period an invoice belongs to, or null when it is editable. The same
+// resolution deleteInvoice/saveEditedInvoice already perform (r61), lifted to a helper so the
+// pencil affordances can render locked BEFORE the user fills in a form that will be rejected.
+function invoiceLockedPeriod(c, d) {
+  if (!c || !d) return null;
+  const sess = (c.auditSessions || []).find(s => s && s.id === resolveDeliveryPeriod(c, d));
+  return isClosedSession(sess) ? sess : null;
+}
+
 // The period the DATE ALONE would pick — the same walk resolveDeliveryPeriod's date
 // branch performs (latest period opened on/before the invoice date, else the earliest).
 // Used ONLY to name that period in a warning; attribution itself is untouched.
@@ -9350,9 +9422,23 @@ function validateInvoiceImport(client, info) {
     if (INVOICE_WARN_RANK[level] > INVOICE_WARN_RANK[out.level]) out.level = level;
   };
 
-  const target     = currentSession(client);          // WRITES always land on the active period
+  // r80 — the period a write may ACTUALLY land in. currentSession() is the DISPLAY pick and
+  // falls back to a finalised period; importTargetSession() refuses to, so the banner names
+  // the real destination rather than a period this import is about to be refused for.
+  const targetInfo = importTargetSession(client);
+  const target     = targetInfo.session || currentSession(client);
   const targetName = periodDisplayName(target);
   const isManual   = i.surface === 'manual';
+
+  // ── (C) NO OPEN PERIOD (r80) ───────────────────────────────────────────────
+  // The one check that covers EVERY import route at once — AI import, quick import, the dump
+  // path and manual entry all funnel through this validator. Without it the failure is
+  // completely silent: the write "succeeds", the delivery is stored, and the number simply
+  // never appears in variance, because computeVariances reads a closed period's frozen
+  // snapshot instead of its deliveries.
+  if (targetInfo.reason === 'closed') {
+    add('block', noOpenPeriodText(client, isManual ? 'This entry' : 'This invoice'));
+  }
 
   // ── (B) DUPLICATE ──────────────────────────────────────────────────────────
   const { match: twin, kind } = findInvoiceTwin(client, i.ref, i.date, i.supplier, i.total, i.itemCount);
@@ -9379,16 +9465,22 @@ function validateInvoiceImport(client, info) {
   // longer period — the exact cry-wolf failure this whole feature has to avoid.
   const DAY = 86400000;
   const ts  = parseFlexDate(i.date);
+  // r80 — with NO open period, the (C) block above already says this invoice is going
+  // nowhere. Period-containment messages on top of that would be noise about a period it can
+  // never reach, so they are gated off. The future-date check is about the INVOICE, not the
+  // period, so it still runs — it just drops the "books it to X" clause.
+  const noTarget = targetInfo.reason === 'closed';
   if (ts == null) {
     // parseFlexDate returns null for 'Unknown date' / 'Today' / year-less strings by
     // design. That is not an error — just say where the invoice is going.
-    add('note', `No readable invoice date${i.date ? ` ("${i.date}")` : ''} — this invoice will be booked to ${targetName}.`);
+    if (!noTarget) add('note', `No readable invoice date${i.date ? ` ("${i.date}")` : ''} — this invoice will be booked to ${targetName}.`);
   } else {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     if (ts > today.getTime() + DAY) {
-      add('warn', `Dated in the future (${invoiceDateLabel(ts)}). Check the date on the invoice — importing here books it to ${targetName} regardless.`);
+      add('warn', `Dated in the future (${invoiceDateLabel(ts)}). Check the date on the invoice`
+        + (noTarget ? '.' : ` — importing here books it to ${targetName} regardless.`));
     }
-    const od = parseFlexDate(target && target.openDate);
+    const od = noTarget ? null : parseFlexDate(target && target.openDate);
     if (od != null && ts < od - 3 * DAY) {
       const other = sessionForInvoiceDate(client, ts);
       const otherName = (other && target && other.id === target.id) ? null : periodDisplayNameWithStatus(other);
@@ -9396,7 +9488,7 @@ function validateInvoiceImport(client, info) {
         + (otherName ? ` — that falls in ${otherName}.` : '.')
         + ` Importing here books it to ${targetName}.`);
     }
-    const cd = parseFlexDate(target && target.closeDate);
+    const cd = noTarget ? null : parseFlexDate(target && target.closeDate);
     if (cd != null && ts > cd + 3 * DAY) {
       add('warn', `Dated ${invoiceDateLabel(ts)}, after ${targetName} closed on ${target.closeDate}. Importing here books it to ${targetName} anyway.`);
     }
@@ -9673,8 +9765,12 @@ function applyDumpEnrichment(enrichId, dumpId, clientId) {
   if(!c || !invoice) return;
   const prevClient = activeClient;
   activeClient = c;
-  applyInvoiceToProducts(enrichId);
+  const applied = applyInvoiceToProducts(enrichId);
   activeClient = prevClient;
+  // r80 FIX 2 — applyInvoiceToProducts returns false when it REFUSED the write (no open
+  // period). Bail before addDumpInvoiceToClient pushes its own delivery and archive row, or
+  // the dump path would half-import exactly what the refusal just prevented.
+  if(applied === false) return;
   // FIX (r61) — carry the ref applyInvoiceToProducts just resolved (incl. a generated
   // AUTO- ref for a no-number invoice) onto the dump invoice, so addDumpInvoiceToClient
   // archives and duplicate-checks against the SAME ref instead of minting a second,
@@ -9685,6 +9781,20 @@ function applyDumpEnrichment(enrichId, dumpId, clientId) {
 }
 
 function addDumpInvoiceToClient(c, invoice, id) {
+  // r80 FIX 2 — this path pushes a delivery of its own, so it obeys the same open-period rule
+  // as applyInvoiceToProducts. Normally unreachable when refused (applyDumpEnrichment bails
+  // first), so this is a defensive backstop and stays SILENT — no second alert; the card's
+  // own status line carries the reason.
+  const dumpTarget = importTargetSession(c);
+  if(dumpTarget.reason === 'closed') {
+    console.warn('[AuditPro] r80 — dump import refused, no open period:', c && c.name);
+    const stEl = document.getElementById(id+'-status');
+    const bgEl = document.getElementById(id+'-badge');
+    if(stEl) { stEl.textContent = 'Not imported — no open period. Close & roll over first.'; stEl.style.color = 'var(--red)'; }
+    if(bgEl) { bgEl.textContent = 'Blocked'; bgEl.style.color = 'var(--red)'; }
+    return;
+  }
+
   const total = (invoice.invoiceTotal || invoice.items.reduce((s,i)=>s+(i.lineTotal||0),0)).toFixed(2);
   if(!c.deliveries) c.deliveries = [];
 
@@ -9735,8 +9845,10 @@ function addDumpInvoiceToClient(c, invoice, id) {
       gst: '$' + (invoice.invoiceGST || (parseFloat(total)/1.15*0.15)).toFixed(2),
       st: 'Verified', sc: 'chip-green',
       lines: dumpLines,
-      // r59 — attribute to the period current at import time (see resolveDeliveryPeriod).
-      periodId: currentSession(c)?.id,
+      // r59 — attribute to the period this import landed in (see resolveDeliveryPeriod).
+      // r80 — resolved AFTER applyInvoiceToProducts ran, so a period it bootstrapped is
+      // picked up; it is never a closed period (guard at the top of this function).
+      periodId: dumpTarget.session?.id,
     });
     if(invoice.supplier) {
       if(!c.suppliers) c.suppliers = [];
@@ -10843,6 +10955,14 @@ async function attachInvoicePDF(idx, input) {
   }
 }
 
+// RETURN CONTRACT (r80) — callers MUST test `=== false`, never truthiness.
+//   false      -> the write was REFUSED (no open period). Nothing was written; a caller that
+//                 pushes its own delivery/archive row must bail. This is the ONLY false.
+//   undefined  -> everything else, SUCCESS INCLUDED (the function falls off the end), as well
+//                 as the other early aborts: no client, missing results div, missing invoice
+//                 data, and the r78 duplicate guard when the user cancels.
+// So `if (!applied)` would treat a successful import as a failure, and `if (applied)` would
+// never fire at all. Only the strict test separates the refusal from the rest.
 function applyInvoiceToProducts(id) {
   const c   = activeClient;
   if(!c) { alert('No client selected — please select a client first.'); return; }
@@ -10866,6 +10986,12 @@ function applyInvoiceToProducts(id) {
     alert('Invoice data not found — please re-upload the invoice.');
     return;
   }
+
+  // r80 FIX 2 — HARD REFUSAL. An import may only land in an OPEN period. This sits ABOVE
+  // every write in this function (products, master catalogue, session.purchases, the
+  // delivery), so a refused import leaves nothing behind at all. It returns FALSE so
+  // applyDumpEnrichment can bail before it pushes its own delivery + archive row.
+  if(refuseWriteNoOpenPeriod(c, 'This invoice')) return false;
 
   // r78 — BACKSTOP. This is the single choke point every import route funnels through
   // (quick import, review-modal confirm, and the dump path), so one guard here covers all
@@ -11075,11 +11201,14 @@ function applyInvoiceToProducts(id) {
 
   // Sync invoice purchases into active/latest audit session for variance
   if(!c.auditSessions) c.auditSessions = [];
-  // STAGE 2 (r58) FIX 5 — attach invoice purchases to the CURRENT working period
-  // (open, else the current finalised period) — never to a rolled-over/locked history
-  // period. currentSession() collapses to the same open-session pick used before for
-  // every real case (a rolledover period always has a newer open/finalised successor).
-  let openSession = currentSession(c);
+  // STAGE 2 (r58) FIX 5 / r80 FIX 2 — attach invoice purchases to the OPEN period. r58 used
+  // currentSession(), which falls back to the current FINALISED period when nothing is open;
+  // that fallback books the purchase into a frozen snapshot computeVariances never re-reads,
+  // so the money silently vanished. importTargetSession() never returns a closed period, and
+  // the hard refusal at the top of this function has already returned for that case — so a
+  // null here means reason 'none': this client has no periods at all, and the bootstrap below
+  // creates the first one exactly as before.
+  let openSession = importTargetSession(c).session;
   // Create a pending session if none exists
   if(!openSession) {
     openSession = {
@@ -11316,7 +11445,11 @@ function applyInvoiceToProducts(id) {
         // r59 — attribute this delivery to the period it was imported into (the same
         // session its purchases were attached to above), so it never bleeds into a
         // later period after rollover.
-        periodId: openSession?.id || currentSession(c)?.id,
+        // r80 — the old `|| currentSession(c)?.id` fallback could stamp a CLOSED period,
+        // which is precisely the state this build refuses. openSession is guaranteed set by
+        // the time we get here (refusal + bootstrap above); leaving it unstamped would at
+        // worst defer to resolveDeliveryPeriod, which never picks the current period.
+        periodId: openSession?.id,
       };
       c.deliveries.unshift(delivery);
       if(!c.suppliers) c.suppliers = [];
@@ -11537,6 +11670,12 @@ function saveManualInvoice() {
     : new Date(date).toLocaleDateString('en-NZ', {day:'numeric',month:'short',year:'numeric'});
 
   if (activeClient) {
+    // r80 FIX 2 — a manual entry writes a DELIVERY only. On a closed period computeVariances
+    // reads the frozen purchases snapshot and never scans deliveries, so the entry would be
+    // invisible in variance AND (r61) impossible to edit or delete back out. Refuse rather
+    // than write it into frozen history. Placed before the r78 confirm so the user is never
+    // asked to approve a write that is about to be refused; the modal keeps their typing.
+    if (refuseWriteNoOpenPeriod(activeClient, 'This entry')) return;
     if (!activeClient.deliveries) activeClient.deliveries = [];
     // r77 — this path never writes session.purchases (only a delivery), so it cannot cause
     // a purchases accumulation. It could still push a duplicate DELIVERY, which the live
@@ -11567,8 +11706,9 @@ function saveManualInvoice() {
       sc: 'chip-blue',
       lines: purchaseLines,
       notes: notes,
-      // r59 — attribute this manual entry to the period current at creation time.
-      periodId: currentSession(activeClient)?.id,
+      // r59 — attribute this manual entry to the period it was created in.
+      // r80 — the OPEN period; the refusal above guarantees this is never a closed one.
+      periodId: importTargetSession(activeClient).session?.id,
     });
     // r77 — this write was never persisted: the delivery lived only in memory and was
     // lost on the next dbLoadAll (which replaces clients[i] with the DB row wholesale).
@@ -12468,6 +12608,25 @@ function rolloverPeriod() {
   const today       = new Date().toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'});
   const nextDate    = document.getElementById('fin-next-date')?.value || '';
 
+  // r80 FIX 3 — a period OPENS when the previous one CLOSES. Before r80 both openDate and
+  // label were taken from the "Next audit date" input, which is the planned NEXT COUNT date —
+  // typically a month AHEAD. That produced a period whose openDate was in the FUTURE and
+  // AFTER its own closeDate (the live data read "2026-09-21 -> 22 Aug 2026" in the report and
+  // variance headers), made validateInvoiceImport's out-of-period check fire on every real
+  // invoice — the exact cry-wolf failure r78 exists to avoid — and left resolveDeliveryPeriod's
+  // date branch unable to ever pick the period for an in-period invoice. nextDate is kept, but
+  // strictly as a PLANNING field: nothing computes from it.
+  const openDateStr = cur.closeDate || today;
+  const openTs      = parseFlexDate(openDateStr);
+  const openAsDate  = openTs != null ? new Date(openTs) : new Date();
+  // Name the period for the month it OPENS in. If a sibling already carries that name (two
+  // periods closed inside one calendar month), disambiguate with the open day so the period
+  // selector never shows two identical entries.
+  let newLabel = openAsDate.toLocaleDateString('en-NZ',{month:'long',year:'numeric'});
+  if((c.auditSessions||[]).some(s => s && s.label === newLabel)) {
+    newLabel += ' (from ' + openAsDate.toLocaleDateString('en-NZ',{day:'numeric',month:'short'}) + ')';
+  }
+
   // 1) Lock the current finalised period as history.
   cur.status = 'rolledover';
 
@@ -12478,10 +12637,12 @@ function rolloverPeriod() {
     id:         newSessionId(),
     seq:        nextSessionSeq(c),
     prevId:     cur.id,
-    label:      nextDate ? new Date(nextDate).toLocaleDateString('en-NZ',{month:'long',year:'numeric'})
-                         : new Date().toLocaleDateString('en-NZ',{month:'long',year:'numeric'}),
+    label:      newLabel,
     status:     'open',
-    openDate:   nextDate || today,
+    openDate:   openDateStr,
+    // The PLANNED next count date (r80 FIX 3). Kept for planning only, deliberately separate
+    // from openDate — nothing reads it to decide when the period started.
+    nextDate:   nextDate || null,
     periodDays: cur.periodDays || 30,
     opening:    JSON.parse(JSON.stringify(cur.closing || {})),
     purchases:  {},
@@ -13797,7 +13958,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r79';
+const APP_VERSION = '2026-06-10-r80';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();

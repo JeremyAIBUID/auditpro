@@ -64,8 +64,8 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r79` | `index.html:13792` |
-| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r79` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix) |
+| `index.html` | `2026-06-10-r80` | `index.html:13961` |
+| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r79` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r80 was desktop-only, so this correctly stays at r79**) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
   Desktop logs it on load (`[AuditPro] build …`); mobile compares it against
@@ -365,6 +365,41 @@ propagation.
   multiply by `caseSize` a second time).
 - Every edit appends to `sess.amendments` (`{ product, oldUnits, newUnits, oldEntry, newEntry, ts }`).
 - Status is re-checked at write time.
+
+### Where a WRITE may land (r80)
+`currentSession(c)` deliberately falls back to a **finalised** period so the DISPLAY always has
+something to show. For a **write** that fallback is silent data loss: `computeVariances` takes
+the FROZEN branch for any closed period and never scans `client.deliveries`, so an invoice
+booked there never reaches variance — and the r61 guards then refuse to let the user edit or
+delete it back out. The live September 2026 period hit exactly this.
+
+**Every import/adjustment path resolves its target through `importTargetSession(c)`, never
+`currentSession()`.** It returns `{session, reason}`:
+`'ok'` (an open session) · `'none'` (no sessions at all — callers may bootstrap one) ·
+`'closed'` (sessions exist but none open — **REFUSE the write**).
+
+- `refuseWriteNoOpenPeriod(c, what)` alerts and returns `true` when the caller must stop.
+  `noOpenPeriodText()` is the ONE wording, shared with the pre-commit banner, so the warning
+  and the refusal say the same thing. Wired into `applyInvoiceToProducts`,
+  `applyDumpEnrichment`, `addDumpInvoiceToClient` and `saveManualInvoice`.
+- `validateInvoiceImport` gained a **`block`**-level "no open period" message (check C), and
+  gates its period-containment messages off when there is no target — otherwise it would nag
+  about a period the invoice can never reach.
+- **`applyInvoiceToProducts` return contract:** `false` means REFUSED and is the ONLY `false`;
+  success *and* the other early aborts all return `undefined`. Callers **must** test
+  `=== false` — `!applied` would treat a successful import as a failure.
+- **`rolloverPeriod()` sets `openDate` from the prior period's `closeDate`,** not from the
+  `#fin-next-date` input. That input is the planned NEXT COUNT date (typically a month ahead);
+  using it produced a period whose `openDate` was in the future and after its own `closeDate`,
+  which made r78's out-of-period check cry wolf on every real invoice and stopped
+  `resolveDeliveryPeriod`'s date branch ever picking the period. It is now stored separately as
+  `sess.nextDate` — **planning only, nothing computes from it.**
+- `invoiceLockedPeriod(c, d)` lifts the r61 resolution into a helper so `editInvoice()` can
+  refuse at **open** time (it previously let the user re-type the whole invoice, then rejected
+  it on save) and so the three pencil affordances render `🔒 Locked`.
+- **Live data fix:** September 2026's `openDate` was corrected `'2026-09-21'` → `'25 Jul 2026'`
+  in **both** `ap_clients.data.auditSessions` **and** `ap_audit_sessions` — the latter
+  **overwrites** the client copy at `dbLoadAll`, so patching only one lets the stale value win.
 
 ---
 
@@ -669,15 +704,15 @@ saveToStorage() / resetForNextAudit() / updateCountUI() / editCountItem(idx)
 
 ## Constants in the Desktop App
 ```javascript
-const PROD_SUBCATS            // index.html:5218 — { Spirits:[…], Beer:[…], … }
-const CAT_ORDER_PROD          // :5579 — ['Spirits','Beer','Wine','RTD','Soft drinks','Food','Cocktails','Other']
-const CAT_COLORS_PROD         // :5580 — { Spirits:{bg,text,icon}, … }
-const SUBCAT_ORDER            // :5590
-const SUBCAT_ICONS            // :5595 — { Gin:'🌿', Vodka:'🫧', … }
-const SUBCAT_BREAKDOWN_CATS   // :6056 — new Set(['Spirits'])
-const DENSITY                 // :6080 — { spirits:0.9467, wine:0.9805, beer:1.014, liqueur:1.06 }
-const REPORT_CAT_THRESHOLDS   // :3727
-const APP_VERSION             // :13792
+const PROD_SUBCATS            // index.html:5225 — { Spirits:[…], Beer:[…], … }
+const CAT_ORDER_PROD          // :5594 — ['Spirits','Beer','Wine','RTD','Soft drinks','Food','Cocktails','Other']
+const CAT_COLORS_PROD         // :5595 — { Spirits:{bg,text,icon}, … }
+const SUBCAT_ORDER            // :5605
+const SUBCAT_ICONS            // :5610 — { Gin:'🌿', Vodka:'🫧', … }
+const SUBCAT_BREAKDOWN_CATS   // :6071 — new Set(['Spirits'])
+const DENSITY                 // :6095 — { spirits:0.9467, wine:0.9805, beer:1.014, liqueur:1.06 }
+const REPORT_CAT_THRESHOLDS   // :3734
+const APP_VERSION             // :13961
 ```
 
 ---
