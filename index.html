@@ -3922,16 +3922,28 @@ function calculateReportData(client, session) {
   const priorityIssues = issues.sort((a, b) => b.sev - a.sev).slice(0, 3);
 
   // Purchase history (deliveries)
-  const purchaseHistory = (client.deliveries || []).map(d => {
+  // r81 FIX 6 — PERIOD-SCOPED. This read `client.deliveries` globally, so every report
+  // printed every invoice the venue had ever received regardless of which period the report
+  // was for. deliveriesForSession() is the same attribution the variance page uses
+  // (resolveDeliveryPeriod: periodId -> ref-match -> date -> earliest). With no session to
+  // scope to, fall back to the full list rather than printing an empty section.
+  const historyDeliveries = session ? deliveriesForSession(client, session) : (client.deliveries || []);
+  const purchaseHistory = historyDeliveries.map(d => {
     // Prefer the stored invoice total (d.t, incl. GST) — it's the real invoice
     // grand total (freight/levies included) and can exceed the sum of captured
     // line items. Only fall back to summing lines when no stored total exists.
-    const storedTotal = parseFloat(String(d.t != null ? d.t : '').replace(/[^0-9.\-]/g, '')) || 0;
+    // r81 FIX 1 — presence is tested with isFinite, NOT `> 0`. A NEGATIVE stored total (stock
+    // going out) is real and must be used; the old `> 0` rejected it and fell back to summing
+    // `_incGST`, which manual/adjustment lines do not carry — so a −$1,070.60 transfer printed
+    // as $0.00. An absent or unparseable `d.t` still falls back to the line sum; a stored
+    // total of exactly 0 is now taken at face value, because it IS the stored figure.
+    const storedRaw   = d.t != null ? parseFloat(String(d.t).replace(/[^0-9.\-]/g, '')) : NaN;
+    const hasStored   = Number.isFinite(storedRaw);
     const lineTotal   = (d.lines || []).reduce((s, l) => s + (parseFloat(l._incGST) || 0) * (parseFloat(l.qty) || 0), 0);
     return {
       ref: d.r || '—', supplier: d.s || '—', date: d.d || '—',
       items: d.i || (d.lines ? d.lines.length : 0),
-      total: storedTotal > 0 ? storedTotal : lineTotal,
+      total: hasStored ? storedRaw : lineTotal,
     };
   }).sort((a, b) => new Date(a.date) - new Date(b.date));
   const purchaseTotal = purchaseHistory.reduce((s, d) => s + d.total, 0);
@@ -6158,6 +6170,17 @@ function countToUnits(entry, prod) {
   }
 
   // ── Whole-unit portion ──
+  // r81 — the `qty > 0` clamp is DELIBERATE and stays. countToUnits converts a physical
+  // COUNT entry, and a count can never be negative: you cannot count −2 bottles off a shelf.
+  // Verified call sites are opening/closing only (computeVariances ~6515/~6566, the report's
+  // sessionOverallVariancePct ~4117/~4118, the stock-value sum ~12490, and openAmendClosing
+  // ~12920/~12928) — nothing routes a purchase or a delivery line through here, so the clamp
+  // cannot suppress a negative purchase.
+  // A STOCK ADJUSTMENT MUST NEVER BE MODELLED AS A COUNT ENTRY. Stock leaving the venue is a
+  // signed PURCHASE (a negative delivery line), which flows through mergedPurchases and is
+  // subtracted by `expected = opening + purchases − sales`. Writing it as a negative count
+  // would be silently clamped to 0 here and vanish. See r66's openAmendClosing, which is the
+  // only sanctioned way to change a closing figure.
   const unit = (entry.unit || '').toLowerCase();
   const qty  = parseFloat(entry.qty) || 0;
   if (qty > 0 && unit !== 'g') {
@@ -6407,10 +6430,15 @@ function computeVariances(client, session = null) {
       const unitCost = (lineUnit === 'cases' || lineUnit === 'car' || lineUnit === 'cartons' || lineUnit === 'ctn') && cost > 0
         ? cost / caseSize
         : cost;
+      // r81 FIX 5 — a transfer/wastage valuation is NOT a supplier price. An adjustment
+      // contributes its QUANTITY to the merge (that is the whole point) but never supplies a
+      // cost, and stamps the entry so the catalogue write-back below can skip it.
+      const lineIsAdj = isAdjustmentDelivery(del);
       if(!deliveryPurchases[name]) {
-        deliveryPurchases[name] = { qty: 0, costPrice: unitCost || cost, unit: lineUnit === 'keg' || lineUnit === 'kegs' ? 'Kegs' : 'Bottles', invoiceRef: del.r, lines: [] };
+        deliveryPurchases[name] = { qty: 0, costPrice: lineIsAdj ? 0 : (unitCost || cost), unit: lineUnit === 'keg' || lineUnit === 'kegs' ? 'Kegs' : 'Bottles', invoiceRef: del.r, lines: [] };
       }
-      if(unitCost > 0) deliveryPurchases[name].costPrice = unitCost;
+      if(lineIsAdj) deliveryPurchases[name]._adjustment = true;
+      if(unitCost > 0 && !lineIsAdj) deliveryPurchases[name].costPrice = unitCost;
       deliveryPurchases[name].qty += qty;
       // Store per-invoice detail for popover
       deliveryPurchases[name].lines.push({
@@ -6519,8 +6547,13 @@ function computeVariances(client, session = null) {
     const purUnits   = purEntry ? (parseFloat(purEntry.qty) || 0) : 0;
     // Sync cost price from most recent invoice
     const costPrice  = latestCostPrice(prod, purEntry);
-    // Live-update product catalogue entry
-    if (purEntry && purEntry.costPrice && prodMap[name]) {
+    // Live-update product catalogue entry.
+    // r81 FIX 5 — but NEVER from a stock adjustment. This write-back pushes an invoice's unit
+    // cost onto the permanent catalogue (and on to every future period's valuation), so a
+    // transfer-out or wastage figure landing here would silently redefine the product's cost
+    // price. `_adjustment` is stamped in the delivery merge above; entries from genuine
+    // supplier invoices never carry it, so this is a no-op until Build 3 ships.
+    if (purEntry && purEntry.costPrice && !purEntry._adjustment && prodMap[name]) {
       prodMap[name].costPrice = purEntry.costPrice;
       // Also update the client.products array so UI reflects it
       const idx = (client.products||[]).findIndex(p=>p.n===name);
@@ -6571,7 +6604,11 @@ function computeVariances(client, session = null) {
     const actual     = closeUnits;
     const varUnits   = actual - expected;           // +ve = surplus, −ve = loss
     const varMl      = Math.round(varUnits * unitVol);
-    const varPct     = expected > 0 ? (varUnits / expected) * 100 : 0;
+    // r81 FIX 2 — a % is only quoted when `expected` is at least one whole unit; see
+    // varPctDisplay(). varPct stays a NUMBER (0 when suppressed) so every existing numeric
+    // consumer is unaffected; `varPctValid` is what tells a reader the figure is real.
+    const varPctInfo = varPctDisplay(expected, actual, varUnits * costPrice);
+    const varPct     = varPctInfo.valid ? varPctInfo.pct : 0;
     const costImpact = varUnits * costPrice;        // −ve = cost loss
 
     // ── Weighed-count audit trail ─────────────────────
@@ -6603,8 +6640,9 @@ function computeVariances(client, session = null) {
     }
 
     // ── Status ───────────────────────────────────────
-    const absVarPct  = Math.abs(varPct);
-    const vc = absVarPct > 8 ? 'var-alert' : absVarPct > 3 ? 'var-warn' : 'var-ok';
+    // r81 — when the % is suppressed the pill is coloured by COST IMPACT instead, so a row
+    // with a real dollar loss but no usable denominator can never render as a green 'var-ok'.
+    const vc = varPctInfo.cls;
 
     // ── Days of stock ─────────────────────────────────
     const dailySales = salesUnits / periodDays;
@@ -6632,7 +6670,9 @@ function computeVariances(client, session = null) {
     const onHandCost = actual * costPrice;
 
     // ── Purchase detail for popover ───────────────────
-    const purDetail = purEntry && purUnits > 0
+    // r81 FIX 1 — `!== 0`, not `> 0`. A negative movement produced an EMPTY detail list, so
+    // the popover read "No purchases this period" over a real stock movement.
+    const purDetail = purEntry && purUnits !== 0
       ? (purEntry.lines && purEntry.lines.length
           ? purEntry.lines.map(l => ({
               qty:    l.qty + ' ' + (l.unit || unitLabel(prod, l.qty)),
@@ -6657,7 +6697,10 @@ function computeVariances(client, session = null) {
       tareG:       prod.tareG || 0,
       costPrice,
       prevClose:   openUnits.toFixed(2) + ' ' + unitLabel(prod, openUnits),
-      purchaseVol: purUnits > 0
+      // r81 FIX 1 — `!== 0`, not `> 0`. A negative purchase is stock going OUT and must
+      // show its sign; only a genuine zero renders '—'. fmtVol and unitLabel already handle
+      // negatives (both use Math.abs for their thresholds and keep the sign on the value).
+      purchaseVol: purUnits !== 0
         ? (['Bottles','Cans'].includes(prod.soldAs) || cat === 'RTD')
           ? purUnits % 1 === 0 ? purUnits + ' units' : purUnits.toFixed(1) + ' units'
           : fmtVol(purUnits * unitVol)
@@ -6672,7 +6715,7 @@ function computeVariances(client, session = null) {
       o:           openUnits.toFixed(2),
       e:           expected.toFixed(2),
       a:           actual.toFixed(2),
-      v:           (varPct >= 0 ? '+' : '') + varPct.toFixed(1) + '%',
+      v:           varPctInfo.text,
       vc,
       varMl,
       costImpact,
@@ -6691,6 +6734,9 @@ function computeVariances(client, session = null) {
       expectedNum: expected,
       actualNum:   actual,
       varPctNum:   varPct,
+      // r81 — false when `expected` was too small to quote a % (see VAR_PCT_MIN_EXPECTED).
+      // varPctNum is 0 in that case, which is NOT a real "no variance".
+      varPctValid: varPctInfo.valid,
       sellPrice,
       soldAs:      prod.soldAs  || '',
       subcat:      prod.subcat  || '',
@@ -6881,6 +6927,50 @@ function unitLabel(p, qty) {
   if (soldAs === 'Cans' || cat === 'RTD')               return plural ? 'cans' : 'can';
   if (soldAs === 'Litres')                              return 'L';
   return plural ? 'btls' : 'btl';
+}
+
+// ─── r81 — SIGNED PURCHASES & MEANINGLESS-PERCENT SUPPRESSION ───────────────
+// A negative purchase quantity is stock going OUT (transfer out, wastage, breakage). The
+// arithmetic already handled it end to end — the delivery line keeps the sign, the merge
+// accumulates negatively, case expansion preserves it, expected = opening + purchases − sales
+// subtracts correctly, and costImpact is signed. What blocked it was DISPLAY: every gate was
+// a `> 0` that should have been `!== 0`, so the stock left, the maths knew, and the column
+// printed '—'.
+//
+// A variance PERCENTAGE needs a denominator big enough to mean something. `expected` is in
+// UNITS (bottles / kegs). Below one whole unit the ratio explodes or inverts: the live data
+// showed Speights Summit at expected 0.10 reading +1918.6%, and Steinlager Classic at
+// expected −0.65 reading a flat +0.0% — i.e. "perfect" — while carrying a +$906 cost impact.
+// Both are noise dressed as a number. So: no percentage below one full unit of expected
+// stock. The row is NOT hidden — it still carries its signed cost impact, and the pill turns
+// amber when that impact is real, so a suppressed percentage draws the eye instead of
+// disappearing.
+const VAR_PCT_MIN_EXPECTED = 1;   // units of expected stock required to quote a %
+
+// The ONE decision point for "may I show a variance %?", used by the product row, the subcat
+// subtotal, the category total and the grand total so all four agree.
+function varPctDisplay(expected, actual, costImpact) {
+  const exp = Number(expected) || 0;
+  const act = Number(actual)   || 0;
+  const ci  = Number(costImpact) || 0;
+  if (!(exp >= VAR_PCT_MIN_EXPECTED)) {
+    // No usable denominator. Colour by cost impact so a real loss is never painted green.
+    return { valid: false, pct: null, text: '—',
+             cls: Math.abs(ci) >= 1 ? 'var-warn' : 'var-ok' };
+  }
+  const pct = ((act - exp) / exp) * 100;
+  const a   = Math.abs(pct);
+  return { valid: true, pct,
+           text: (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%',
+           cls: a > 8 ? 'var-alert' : a > 3 ? 'var-warn' : 'var-ok' };
+}
+
+// r81 FIX 5 — is this delivery a stock ADJUSTMENT rather than a supplier purchase?
+// `d.kind` is not in the data yet: Build 3 (the stock-adjustment feature) stamps
+// `kind:'adjustment'` on the delivery it creates and this starts returning true with no
+// further change here. Until then it is always false, so behaviour is identical to r80.
+function isAdjustmentDelivery(d) {
+  return !!(d && (d.kind === 'adjustment' || d.adjustment === true));
 }
 
 function fmtVolSigned(ml) {
@@ -7349,8 +7439,11 @@ function renderVarTable() {
       // already summed every row across buckets, so the category total below is
       // exactly Σ subcat subtotals and grand totals are untouched.
       if (showSub) {
-        const subVarPct    = subExpected > 0 ? ((subActual-subExpected)/subExpected*100).toFixed(1)+'%' : '—';
-        const subVarPctCol = parseFloat(subVarPct) < -5 ? 'var-alert' : parseFloat(subVarPct) < -2 ? 'var-warn' : 'var-ok';
+        // r81 FIX 2 — same suppression rule as the product rows (VAR_PCT_MIN_EXPECTED).
+        const subPctInfo   = varPctDisplay(subExpected, subActual, subCostImpact);
+        const subVarPct    = subPctInfo.text;
+        const subVarPctCol = !subPctInfo.valid ? subPctInfo.cls
+                           : subPctInfo.pct < -5 ? 'var-alert' : subPctInfo.pct < -2 ? 'var-warn' : 'var-ok';
         const subOnHand    = bucketRows.reduce((s,r)=>s+(Number(r.a)||0)*(Number(r.costPrice)||0),0);
         const subAvgGP     = Math.round(subGPSum / bucketRows.length);
         const subGpCol     = subAvgGP>=72?'var(--green)':subAvgGP>=65?'var(--amber)':'var(--red)';
@@ -7385,8 +7478,11 @@ function renderVarTable() {
     grandGPCount    += grouped[cat].length;
 
     // ── Category total row ──
-    const catVarPct    = catExpected > 0 ? ((catActual-catExpected)/catExpected*100).toFixed(1)+'%' : '—';
-    const catVarPctCol = parseFloat(catVarPct) < -5 ? 'var-alert' : parseFloat(catVarPct) < -2 ? 'var-warn' : 'var-ok';
+    // r81 FIX 2 — same suppression rule as the product rows (VAR_PCT_MIN_EXPECTED).
+    const catPctInfo   = varPctDisplay(catExpected, catActual, catCostImpact);
+    const catVarPct    = catPctInfo.text;
+    const catVarPctCol = !catPctInfo.valid ? catPctInfo.cls
+                       : catPctInfo.pct < -5 ? 'var-alert' : catPctInfo.pct < -2 ? 'var-warn' : 'var-ok';
     const catOnHand    = grouped[cat].reduce((s,r)=>s+(Number(r.a)||0)*(Number(r.costPrice)||0),0);
     const catAvgGP     = Math.round(catGPSum / grouped[cat].length);
     const catGpCol     = catAvgGP>=72?'var(--green)':catAvgGP>=65?'var(--amber)':'var(--red)';
@@ -7410,8 +7506,11 @@ function renderVarTable() {
   });
 
   // ── Grand total row ──
-  const grandVarPct    = grandExpected > 0 ? ((grandActual-grandExpected)/grandExpected*100).toFixed(1)+'%' : '—';
-  const grandVarPctCol = parseFloat(grandVarPct) < -5 ? 'var-alert' : parseFloat(grandVarPct) < -2 ? 'var-warn' : 'var-ok';
+  // r81 FIX 2 — same suppression rule as the product rows (VAR_PCT_MIN_EXPECTED).
+  const grandPctInfo   = varPctDisplay(grandExpected, grandActual, grandCostImpact);
+  const grandVarPct    = grandPctInfo.text;
+  const grandVarPctCol = !grandPctInfo.valid ? grandPctInfo.cls
+                       : grandPctInfo.pct < -5 ? 'var-alert' : grandPctInfo.pct < -2 ? 'var-warn' : 'var-ok';
   const grandAvgGP     = Math.round(grandGPSum / grandGPCount);
   const grandGpCol     = grandAvgGP>=72?'var(--green)':grandAvgGP>=65?'var(--amber)':'var(--red)';
   const grandOnHand    = Object.values(grouped).flat().reduce((s,r)=>s+(Number(r.a)||0)*(Number(r.costPrice)||0),0);
@@ -11269,7 +11368,17 @@ function applyInvoiceToProducts(id) {
       const purchaseQty = isSplit ? editedQty * caseQty : editedQty;
       const unitCost  = isSplit ? editedPrice / caseQty : editedPrice;
 
-      if(!unitCost) return;
+      // r81 FIX 4 — was `if(!unitCost) return;`, which dropped any line whose unit cost was
+      // zero or unknown BEFORE it reached session.purchases. Quantity is the point of a
+      // purchase entry; cost may legitimately be 0 (an inter-venue transfer, a supplier
+      // freebie, a sample) or simply not captured. Dropping the line lost the stock movement
+      // entirely — and because session.purchases is what a CLOSED period reads, it vanished
+      // permanently the moment the period was finalised.
+      // The guard now tests the field that actually has to be sane: QTY. A non-finite or
+      // zero quantity is a malformed or no-op line and is still refused, so nothing junk is
+      // admitted; the product name was already validated by the `cleanName` guard above.
+      // Negative quantities pass deliberately — that is stock going out.
+      if(!Number.isFinite(purchaseQty) || purchaseQty === 0) return;
       const entryUnit = isSplit ? (item.cat==='Beer'?'Bottles':'Units')
                                 : (soldasEl?.value||item.unit||'Bottles');
       const existing  = openSession.purchases[cleanName];
@@ -13958,7 +14067,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r80';
+const APP_VERSION = '2026-06-10-r81';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();

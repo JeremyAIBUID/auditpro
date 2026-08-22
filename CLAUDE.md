@@ -64,8 +64,8 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r80` | `index.html:13961` |
-| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r79` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r80 was desktop-only, so this correctly stays at r79**) |
+| `index.html` | `2026-06-10-r81` | `index.html:14070` |
+| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r79` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r80 and r81 were desktop-only, so this correctly stays at r79**) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
   Desktop logs it on load (`[AuditPro] build …`); mobile compares it against
@@ -566,6 +566,63 @@ not propagated).
 **`downloadVariancePDF()`** works from any page — the hidden `.page` divs plus `renderVarTable()`
 fill `#var-body` before capture.
 
+### Signed purchases — stock going OUT (r81)
+A **negative purchase quantity** is stock leaving the venue (transfer out, wastage, breakage).
+The arithmetic always handled it: the delivery line keeps the sign, the delivery→purchase merge
+accumulates negatively, **case expansion preserves the sign**, `purUnits` keeps it,
+`expected = opening + purchases − sales` subtracts correctly, and `costImpact` is signed.
+Nothing crashed and nothing flipped sign. What blocked it was **display** — every gate was a
+`> 0` that should have been `!== 0`:
+
+| Surface | Was | Now |
+|---|---|---|
+| Variance "+ Purchases" cell | `purUnits > 0 ? … : '—'` | `purUnits !== 0` |
+| Purchase popover (`purDetail`) | `purEntry && purUnits > 0` | `purEntry && purUnits !== 0` |
+| Report Purchase History total | `storedTotal > 0 ? storedTotal : lineTotal` | `Number.isFinite(storedRaw)` |
+
+`fmtVol` and `unitLabel` already coped with negatives (both `Math.abs` their thresholds and keep
+the sign on the value) — the gates were the only blocker. A −$1,070.60 transfer printed as
+**$0.00** because the old `> 0` rejected the negative and fell back to summing `_incGST`, which
+manual/adjustment lines do not carry.
+
+**`countToUnits`' `qty > 0` clamp STAYS.** A physical count can never be negative. Verified call
+sites are opening/closing only (`computeVariances` ~6515/~6566, `sessionOverallVariancePct`
+~4117/~4118, the stock-value sum ~12490, `openAmendClosing` ~12920/~12928) — nothing routes a
+purchase through it. **An adjustment must NEVER be modelled as a count entry** — it is a signed
+purchase, or it is silently clamped to 0 and vanishes.
+
+### Meaningless variance percentages (r81)
+`expected` is in UNITS. Below one whole unit the ratio explodes or inverts — live data showed
+Speights Summit at expected `0.10` reading **+1918.6%**, and Steinlager Classic at expected
+`−0.65` reading a flat **+0.0%** ("perfect") while carrying a **+$906** cost impact.
+
+`VAR_PCT_MIN_EXPECTED = 1` (one full unit) is the floor, and **`varPctDisplay(expected, actual,
+costImpact)` is the ONE decision point**, used by the product row, the subcat subtotal, the
+category total and the grand total so all four agree. Below the floor it returns `'—'` — and
+colours the pill by **cost impact**, so a row with a real dollar loss is never painted green.
+
+- `varPctNum` stays a NUMBER (0 when suppressed) so existing numeric consumers are unaffected;
+  **`varPctValid`** is the flag that says whether the figure is real.
+- **Known remaining surface:** the PDF report's per-product `variancePct` (`:3822`,
+  `r.varPctNum || 0`) still prints a figure for suppressed rows. Wiring `varPctValid` through
+  `reportRAG`/`fmtPct`/the sort at `:4441` is a follow-up.
+
+### Adjustments must not reprice the catalogue (r81)
+`computeVariances` writes an invoice's unit cost back onto `client.products[idx].costPrice`
+(~6521) — permanently, and on into every future period's valuation. A transfer/wastage figure
+landing there would silently redefine the product's cost. `isAdjustmentDelivery(d)` returns true
+for `d.kind === 'adjustment'` (or `d.adjustment === true`); an adjustment line contributes its
+**quantity** but never a cost, stamps `_adjustment` on the merged entry, and the write-back skips
+it. **`d.kind` is not in the data yet** — Build 3 stamps it and this activates with no further
+change; until then it is a no-op.
+
+### Report Purchase History is period-scoped (r81)
+It read `client.deliveries` **globally**, so every report printed every invoice the venue had
+ever received. Now `deliveriesForSession(client, session)`, falling back to the full list when
+there is no session. **Note:** `calculateReportData(client, session)` still calls
+`computeVariances(client)` **without** the session (`:3799`), so the report's variance numbers
+track `currentSession()` rather than the selected period — pre-existing, not fixed here.
+
 ---
 
 ## PDF Audit Report
@@ -704,15 +761,16 @@ saveToStorage() / resetForNextAudit() / updateCountUI() / editCountItem(idx)
 
 ## Constants in the Desktop App
 ```javascript
-const PROD_SUBCATS            // index.html:5225 — { Spirits:[…], Beer:[…], … }
-const CAT_ORDER_PROD          // :5594 — ['Spirits','Beer','Wine','RTD','Soft drinks','Food','Cocktails','Other']
-const CAT_COLORS_PROD         // :5595 — { Spirits:{bg,text,icon}, … }
-const SUBCAT_ORDER            // :5605
-const SUBCAT_ICONS            // :5610 — { Gin:'🌿', Vodka:'🫧', … }
-const SUBCAT_BREAKDOWN_CATS   // :6071 — new Set(['Spirits'])
-const DENSITY                 // :6095 — { spirits:0.9467, wine:0.9805, beer:1.014, liqueur:1.06 }
+const PROD_SUBCATS            // index.html:5237 — { Spirits:[…], Beer:[…], … }
+const CAT_ORDER_PROD          // :5606 — ['Spirits','Beer','Wine','RTD','Soft drinks','Food','Cocktails','Other']
+const CAT_COLORS_PROD         // :5607 — { Spirits:{bg,text,icon}, … }
+const SUBCAT_ORDER            // :5617
+const SUBCAT_ICONS            // :5622 — { Gin:'🌿', Vodka:'🫧', … }
+const SUBCAT_BREAKDOWN_CATS   // :6083 — new Set(['Spirits'])
+const DENSITY                 // :6107 — { spirits:0.9467, wine:0.9805, beer:1.014, liqueur:1.06 }
 const REPORT_CAT_THRESHOLDS   // :3734
-const APP_VERSION             // :13961
+const VAR_PCT_MIN_EXPECTED    // :6948 — 1 unit; below this no variance % is quoted (r81)
+const APP_VERSION             // :14070
 ```
 
 ---
