@@ -169,6 +169,14 @@
   .mi-line{display:grid;grid-template-columns:2.5fr 0.8fr 0.9fr 1fr 1fr auto;gap:6px;align-items:center;margin-bottom:6px;}
   .mi-line input,.mi-line select{padding:7px 10px;font-size:12px;}
   .mi-line-total{font-family:var(--font-mono);font-size:12px;color:var(--accent);padding:7px 4px;}
+  /* r82 — stock-adjustment line: product | qty | unit | pack | cost | total | remove.
+     The pack-size cell is only visible when the unit is Cases (see saSyncUnitRow). */
+  .sa-line{display:grid;grid-template-columns:2.4fr 0.75fr 0.95fr 0.8fr 0.9fr 1fr auto;gap:6px;align-items:center;margin-bottom:6px;}
+  .sa-line input,.sa-line select{padding:7px 10px;font-size:12px;width:100%;min-width:0;}
+  .sa-line-total{font-family:var(--font-mono);font-size:12px;color:var(--accent);padding:7px 4px;text-align:right;}
+  .sa-dir-btn{flex:1;padding:9px 10px;border-radius:9px;font-family:var(--font-ui);font-size:12.5px;font-weight:700;cursor:pointer;border:1px solid var(--border2);background:var(--bg3);color:var(--text3);}
+  .sa-dir-btn.on-out{background:rgba(240,80,80,0.14);border-color:rgba(240,80,80,0.4);color:var(--red);}
+  .sa-dir-btn.on-in{background:rgba(91,227,180,0.12);border-color:rgba(91,227,180,0.35);color:var(--green);}
   .var-filter{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;color:var(--text3);border:1px solid var(--border2);background:var(--bg3);font-family:var(--font-ui);transition:all 0.15s;}
   .var-filter:hover{color:var(--text);border-color:var(--border2);}
   .var-filter.active{background:rgba(200,240,100,0.12);color:var(--accent);border-color:rgba(200,240,100,0.3);}
@@ -788,7 +796,7 @@
         <div class="card-header">
           <span class="card-title">Purchase history</span>
           <div style="display:flex;gap:8px;">
-            <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;" onclick="openStockTransfer()">⇄ Transfer stock</button>
+            <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;" onclick="openStockAdjustment()">⇄ Stock adjustment</button>
             <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;" onclick="openInvoiceModal()">+ Add manually</button>
           </div>
         </div>
@@ -2150,56 +2158,63 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="stockTransferModal">
-  <div class="modal" style="width:560px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+<!-- r82 — STOCK ADJUSTMENT. Replaces the orphaned #stockTransferModal, whose four handlers
+     (openStockTransfer / populateTransferProducts / addTransferLine / confirmStockTransfer) were
+     never defined in ANY commit — the button threw on click. That modal also assumed a From/To
+     VENUE PAIR, which is the wrong model: a movement is usually recorded at ONE venue only, with
+     no matching entry at the other end and often no other venue in the system at all. This form
+     records a one-sided movement at THIS venue. Optional mirroring to a second venue can be added
+     later without redesign — see `mirrorOf` in the delivery shape. -->
+<div class="modal-overlay" id="stockAdjustmentModal">
+  <div class="modal" style="width:720px;max-height:90vh;overflow-y:auto;">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;">
       <div>
-        <div class="modal-title" style="margin-bottom:2px;">Transfer stock between venues</div>
-        <div style="font-size:12px;color:var(--text3);">Record stock moved from one venue to another — adjusts both venue's purchase/variance records</div>
+        <div class="modal-title" style="margin-bottom:2px;">Stock adjustment</div>
+        <div style="font-size:12px;color:var(--text3);">Stock that moved without a supplier invoice — a transfer, wastage, breakage, staff or promo. Recorded against this venue only.</div>
       </div>
-      <button onclick="closeModal('stockTransferModal')" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;">×</button>
+      <button onclick="closeModal('stockAdjustmentModal')" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;line-height:1;">×</button>
     </div>
 
-    <!-- From / To -->
-    <div class="form-row" style="align-items:flex-end;">
-      <div class="form-group" style="flex:1;">
-        <label>From venue *</label>
-        <select id="st-from" onchange="populateTransferProducts()" style="width:100%;">
-          <option value="">— select —</option>
-        </select>
+    <div style="background:var(--bg3);border-radius:10px;padding:14px 16px;margin-bottom:18px;">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);margin-bottom:12px;">What happened</div>
+      <div class="form-row">
+        <div class="form-group"><label>Reason *</label>
+          <select id="sa-reason" onchange="saReasonChanged()"></select>
+        </div>
+        <div class="form-group"><label>Date</label><input type="date" id="sa-date"></div>
       </div>
-      <div style="padding-bottom:14px;font-size:20px;color:var(--text3);flex-shrink:0;">→</div>
-      <div class="form-group" style="flex:1;">
-        <label>To venue *</label>
-        <select id="st-to" style="width:100%;">
-          <option value="">— select —</option>
-        </select>
+
+      <!-- DIRECTION is an explicit toggle, never a typed minus sign. The user always enters
+           POSITIVE quantities and the save multiplies by this. -->
+      <div class="form-group">
+        <label>Direction *</label>
+        <div style="display:flex;gap:8px;">
+          <button type="button" id="sa-dir-out-btn" class="sa-dir-btn" onclick="saSetDirection(-1)">− Stock OUT (left the venue)</button>
+          <button type="button" id="sa-dir-in-btn"  class="sa-dir-btn" onclick="saSetDirection(1)">+ Stock IN (arrived)</button>
+        </div>
+        <input type="hidden" id="sa-direction" value="-1">
+      </div>
+
+      <div class="form-group" style="margin-bottom:0;"><label>Note (optional)</label>
+        <input type="text" id="sa-note" placeholder="e.g. To The Corner — event cover">
       </div>
     </div>
 
-    <!-- Transfer date -->
-    <div class="form-group">
-      <label>Transfer date</label>
-      <input type="date" id="st-date" style="width:100%;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);">Products</div>
+      <div style="font-size:11px;color:var(--text3);">Pick from the catalogue — free text is not accepted</div>
     </div>
-
-    <!-- Transfer lines -->
-    <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);margin-bottom:8px;">Products to transfer</div>
-    <div id="st-lines" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;max-height:280px;overflow-y:auto;"></div>
-    <button class="btn btn-secondary" style="font-size:12px;padding:6px 14px;margin-bottom:16px;" onclick="addTransferLine()">+ Add product</button>
-
-    <!-- Notes -->
-    <div class="form-group">
-      <label>Notes (optional)</label>
-      <input type="text" id="st-notes" placeholder="e.g. Emergency cover for event" style="width:100%;">
+    <div id="sa-line-head" class="sa-line" style="margin-bottom:4px;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);">
+      <div>Product</div><div>Qty</div><div>Unit</div><div>Pack</div><div>Unit cost</div><div style="text-align:right;">Value</div><div></div>
     </div>
+    <div id="sa-line-list" style="max-height:260px;overflow-y:auto;"></div>
+    <button class="btn btn-secondary" style="font-size:12px;padding:6px 14px;margin-top:6px;" onclick="saAddLine()">+ Add product</button>
 
-    <!-- Summary -->
-    <div id="st-summary" style="display:none;background:rgba(200,240,100,0.06);border:1px solid rgba(200,240,100,0.2);border-radius:10px;padding:12px 14px;font-size:12px;color:var(--text2);margin-bottom:16px;"></div>
+    <div id="sa-summary" style="background:var(--bg3);border-radius:10px;padding:12px 14px;font-size:12px;color:var(--text2);margin-top:16px;"></div>
 
-    <div class="modal-actions">
-      <button class="btn btn-secondary" onclick="closeModal('stockTransferModal')">Cancel</button>
-      <button class="btn btn-primary" onclick="confirmStockTransfer()">⇄ Record transfer</button>
+    <div class="modal-actions" style="margin-top:18px;">
+      <button class="btn btn-secondary" onclick="closeModal('stockAdjustmentModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveStockAdjustment()">⇄ Record adjustment</button>
     </div>
   </div>
 </div>
@@ -2764,7 +2779,13 @@ function renderPage(page) {
       // inviting a form the save will reject. It stays CLICKABLE on purpose: editInvoice()
       // now explains immediately, which beats a dead button.
       const rowLocked = invoiceLockedPeriod(c, d);
-      const statusChip = isManual
+      // r82 FIX 6 — an adjustment gets its own chip naming the REASON, so a client reading
+      // purchase history can see WHY stock moved rather than mistaking it for a delivery.
+      // d.sc was the only consumer of the manual flag, so adding a kind branch breaks nothing.
+      const rowIsAdj = isAdjustmentDelivery(d);
+      const statusChip = rowIsAdj
+        ? `<span class="chip chip-amber" title="${d.note ? String(d.note).replace(/"/g,'&quot;') : 'Stock adjustment'}">⇄ ${adjReasonLabel(d.reason)}</span>`
+        : isManual
         ? `<span class="chip chip-purple">Manual entry</span>`
         : `<span class="chip ${d.sc}">${d.st}</span>`;
       return `<tr>
@@ -3944,14 +3965,21 @@ function calculateReportData(client, session) {
       ref: d.r || '—', supplier: d.s || '—', date: d.d || '—',
       items: d.i || (d.lines ? d.lines.length : 0),
       total: hasStored ? storedRaw : lineTotal,
+      // r82 FIX 6 — carried so the report can separate stock ADJUSTMENTS from supplier
+      // purchases. A transfer out is not a purchase and must not be summed as one.
+      isAdj: isAdjustmentDelivery(d),
+      reason: d.reason ? adjReasonLabel(d.reason) : '',
     };
   }).sort((a, b) => new Date(a.date) - new Date(b.date));
-  const purchaseTotal = purchaseHistory.reduce((s, d) => s + d.total, 0);
+  const purchaseTotal    = purchaseHistory.reduce((s, d) => s + d.total, 0);
+  const supplierTotal    = purchaseHistory.filter(d => !d.isAdj).reduce((s, d) => s + d.total, 0);
+  const adjustmentTotal  = purchaseHistory.filter(d =>  d.isAdj).reduce((s, d) => s + d.total, 0);
+  const adjustmentCount  = purchaseHistory.filter(d =>  d.isAdj).length;
 
   return {
     products, categories, totals, actualGPavg, idealGPavg,
     lossLeaders, gainLeaders, deadStock, slowMovers, priorityIssues,
-    purchaseHistory, purchaseTotal, periodDays,
+    purchaseHistory, purchaseTotal, supplierTotal, adjustmentTotal, adjustmentCount, periodDays,
   };
 }
 
@@ -4489,18 +4517,25 @@ function renderReportDocument(client, meta, data) {
   const phRows = data.purchaseHistory.length
     ? data.purchaseHistory.map(d => `<tr>
         <td><strong>${rptEsc(d.ref)}</strong></td>
-        <td>${rptEsc(d.supplier)}</td>
+        <td>${rptEsc(d.supplier)}${d.isAdj && d.reason ? ` <em class="rpt-muted">(${rptEsc(d.reason)})</em>` : ''}</td>
         <td class="rpt-muted">${rptEsc(d.date)}</td>
         <td class="num">${d.items}</td>
         <td class="num">${fmtMoney(d.total, 2)}</td>
       </tr>`).join('')
     : `<tr><td colspan="5" class="rpt-muted" style="text-align:center;padding:14px;">No invoices recorded this period</td></tr>`;
+  // r82 FIX 6 — split the footer so a stock adjustment is never read as a supplier purchase.
+  // Only shown when there ARE adjustments; otherwise the single TOTAL row reads as before.
+  const phFoot = data.adjustmentCount
+    ? `<tr class="rpt-total"><td colspan="4">Supplier purchases</td><td class="num">${fmtMoney(data.supplierTotal, 2)}</td></tr>
+       <tr class="rpt-total"><td colspan="4">Stock adjustments — ${data.adjustmentCount} entr${data.adjustmentCount !== 1 ? 'ies' : 'y'}</td><td class="num">${fmtMoney(data.adjustmentTotal, 2)}</td></tr>
+       <tr class="rpt-total"><td colspan="3">NET — ${data.purchaseHistory.length} entr${data.purchaseHistory.length !== 1 ? 'ies' : 'y'}</td><td class="num">${data.purchaseHistory.reduce((s, d) => s + d.items, 0)}</td><td class="num">${fmtMoney(data.purchaseTotal, 2)}</td></tr>`
+    : `<tr class="rpt-total"><td colspan="3">TOTAL — ${data.purchaseHistory.length} invoice${data.purchaseHistory.length !== 1 ? 's' : ''}</td><td class="num">${data.purchaseHistory.reduce((s, d) => s + d.items, 0)}</td><td class="num">${fmtMoney(data.purchaseTotal, 2)}</td></tr>`;
   const p8 = `<div class="rpt-page">
     <h2>Purchase history</h2>
     <table class="rpt-table">
       <thead><tr><th>Invoice ref</th><th>Supplier</th><th>Date</th><th class="num" style="width:54px;">Items</th><th class="num" style="width:130px;min-width:130px;">Total incl. GST</th></tr></thead>
       <tbody>${phRows}</tbody>
-      <tfoot><tr class="rpt-total"><td colspan="3">TOTAL — ${data.purchaseHistory.length} invoice${data.purchaseHistory.length !== 1 ? 's' : ''}</td><td class="num">${data.purchaseHistory.reduce((s, d) => s + d.items, 0)}</td><td class="num">${fmtMoney(data.purchaseTotal, 2)}</td></tr></tfoot>
+      <tfoot>${phFoot}</tfoot>
     </table>
     ${rptFooter(meta, 9, PAGES)}
   </div>`;
@@ -6437,8 +6472,15 @@ function computeVariances(client, session = null) {
       if(!deliveryPurchases[name]) {
         deliveryPurchases[name] = { qty: 0, costPrice: lineIsAdj ? 0 : (unitCost || cost), unit: lineUnit === 'keg' || lineUnit === 'kegs' ? 'Kegs' : 'Bottles', invoiceRef: del.r, lines: [] };
       }
+      // `_adjustment` records that an adjustment fed this entry (used to LABEL the popover).
+      // `_costFromSupplier` records that a real invoice supplied the cost — that, not the
+      // presence of an adjustment, is what licenses the catalogue write-back below. One entry
+      // can legitimately carry both when a delivery and a wastage line hit the same product.
       if(lineIsAdj) deliveryPurchases[name]._adjustment = true;
-      if(unitCost > 0 && !lineIsAdj) deliveryPurchases[name].costPrice = unitCost;
+      if(unitCost > 0 && !lineIsAdj) {
+        deliveryPurchases[name].costPrice = unitCost;
+        deliveryPurchases[name]._costFromSupplier = true;
+      }
       deliveryPurchases[name].qty += qty;
       // Store per-invoice detail for popover
       deliveryPurchases[name].lines.push({
@@ -6447,6 +6489,10 @@ function computeVariances(client, session = null) {
         sup:    del.s || '—',
         inv:    del.r || '—',
         invIdx: (client.deliveries||[]).indexOf(del),
+        // r82 FIX 6 — label the popover row so an adjustment is never read as a supplier
+        // purchase. Present only on adjustments; renderVarTable styles the row off it.
+        adj:    lineIsAdj ? adjReasonLabel(del.reason) : null,
+        note:   lineIsAdj ? (del.note || '') : '',
       });
     });
   });
@@ -6548,12 +6594,15 @@ function computeVariances(client, session = null) {
     // Sync cost price from most recent invoice
     const costPrice  = latestCostPrice(prod, purEntry);
     // Live-update product catalogue entry.
-    // r81 FIX 5 — but NEVER from a stock adjustment. This write-back pushes an invoice's unit
-    // cost onto the permanent catalogue (and on to every future period's valuation), so a
-    // transfer-out or wastage figure landing here would silently redefine the product's cost
-    // price. `_adjustment` is stamped in the delivery merge above; entries from genuine
-    // supplier invoices never carry it, so this is a no-op until Build 3 ships.
-    if (purEntry && purEntry.costPrice && !purEntry._adjustment && prodMap[name]) {
+    // r81 FIX 5 / r82 — but NEVER from a stock adjustment's valuation. This write-back pushes
+    // a unit cost onto the permanent catalogue (and on into every future period's valuation),
+    // so a transfer-out or wastage figure landing here would silently redefine the product's
+    // cost price. The test is on PROVENANCE, not on whether an adjustment touched the entry:
+    // a product can receive a supplier delivery AND a wastage line in the same period, and the
+    // supplier price must still come through. Entries with neither flag are ordinary supplier
+    // purchases (incl. every pre-r82 and frozen-snapshot entry), so they write back as before.
+    const costIsSupplier = !purEntry?._adjustment || purEntry?._costFromSupplier;
+    if (purEntry && purEntry.costPrice && costIsSupplier && prodMap[name]) {
       prodMap[name].costPrice = purEntry.costPrice;
       // Also update the client.products array so UI reflects it
       const idx = (client.products||[]).findIndex(p=>p.n===name);
@@ -6680,8 +6729,16 @@ function computeVariances(client, session = null) {
               sup:    l.sup  || 'See invoices',
               inv:    l.inv  || '—',
               invIdx: l.invIdx != null ? l.invIdx : -1,
+              // r82 — this map RE-PROJECTS each line, so anything the merge attaches must be
+              // copied explicitly or it never reaches the popover.
+              adj:    l.adj  || null,
+              note:   l.note || '',
             }))
-          : [{ qty: purUnits + ' ' + (purEntry.unit || unitLabel(prod, purUnits)), date: session?.openDate || '—', sup: purEntry.supplier || 'See invoices', inv: purEntry.invoiceRef || '—', invIdx: -1 }]
+          // FROZEN branch — a closed period has no delivery lines, only the session entry.
+          // _adjustment/reason are stamped on it at save (and survive the deep clone in
+          // freezeSessionSnapshot), so a locked period still shows WHY the stock moved.
+          : [{ qty: purUnits + ' ' + (purEntry.unit || unitLabel(prod, purUnits)), date: session?.openDate || '—', sup: purEntry.supplier || 'See invoices', inv: purEntry.invoiceRef || '—', invIdx: -1,
+               adj: purEntry._adjustment ? adjReasonLabel(purEntry.reason) : null, note: '' }]
         )
       : [];
 
@@ -7351,7 +7408,12 @@ function renderVarTable() {
                 <button onclick="document.querySelectorAll('.pur-popover.open,.sales-popover.open').forEach(x=>x.classList.remove('open'));${viewAct}" style="flex:1;padding:5px 8px;font-size:11px;border-radius:7px;background:rgba(91,156,240,0.12);border:1px solid rgba(91,156,240,0.25);color:#5b9cf0;cursor:pointer;font-family:var(--font-ui);font-weight:600;">📄 View invoice</button>
                 <button onclick="document.querySelectorAll('.pur-popover.open,.sales-popover.open').forEach(x=>x.classList.remove('open'));editInvoice(${invIdx})" title="${invLocked?'Locked — this period is closed. Reopen it on the Finalise page to amend.':'Edit this invoice'}" style="flex:1;padding:5px 8px;font-size:11px;border-radius:7px;background:rgba(200,240,100,0.08);border:1px solid rgba(200,240,100,0.2);color:var(--accent);cursor:pointer;font-family:var(--font-ui);font-weight:600;${invLocked?'opacity:0.45;':''}">${invLocked?'🔒 Locked':'✏️ Edit'}</button>
               </div>` : '';
-            return `<div class="pur-popover-row"><span style="color:var(--text2);">${p.sup}</span><span class="td-mono" style="color:var(--text);">${p.qty}</span><span class="td-mono" style="color:var(--text3);">${p.date}</span><span class="td-mono" style="font-size:11px;" ${invLink}>${p.inv||'—'}</span></div>${actionBtns}`;
+            // r82 FIX 6 — adjustments render in amber with a ⇄ reason badge (and the note as
+            // a tooltip), so "6 units" from a transfer never reads as "6 units" from Lion NZ.
+            const adjTag = p.adj
+              ? `<span class="chip chip-amber" style="padding:1px 7px;font-size:10px;margin-left:6px;" title="${String(p.note||'').replace(/"/g,'&quot;')}">⇄ ${p.adj}</span>`
+              : '';
+            return `<div class="pur-popover-row"${p.adj?' style="background:rgba(240,192,64,0.06);border-radius:6px;"':''}><span style="color:${p.adj?'var(--amber)':'var(--text2)'};">${p.sup}${adjTag}</span><span class="td-mono" style="color:var(--text);">${p.qty}</span><span class="td-mono" style="color:var(--text3);">${p.date}</span><span class="td-mono" style="font-size:11px;" ${invLink}>${p.inv||'—'}</span></div>${actionBtns}`;
           }).join('')
         : `<div style="font-size:12px;color:var(--text3);padding:4px 0;">No purchases this period</div>`;
       const purCell = `
@@ -9204,7 +9266,17 @@ function saveEditedInvoice(idx) {
     const qty   = parseFloat(qtyEl?.value) || 1;
     const price = parseFloat(priceEl?.value) || 0;
     if(!name) return null;
-    return { _cleanName: name, name, qty, unit: 'Bottles', _incGST: price, _exGST: +(price/1.15).toFixed(4) };
+    // r82 FIX 7 — carry the ORIGINAL line's unit and caseSize through the edit instead of
+    // hardcoding 'Bottles'. The edit form exposes name/qty/price only, so anything it does not
+    // show must be preserved, not reset: flattening a Kegs line to Bottles silently rewrote a
+    // 50L keg as a 750ml bottle, and dropping caseSize re-armed the `caseSize || 12` fallback.
+    // Matched by ROW INDEX against the lines the form was built from (d._editLines).
+    const prev  = (d._editLines || [])[Number(id)] || {};
+    const unit  = prev.unit || 'Bottles';
+    const out   = { _cleanName: name, name, qty, unit, _incGST: price, _exGST: +(price/1.15).toFixed(4) };
+    if (prev.caseSize != null) out.caseSize = prev.caseSize;
+    if (prev.caseQty  != null) out.caseQty  = prev.caseQty;
+    return out;
   }).filter(Boolean);
 
   d.lines = newLines;
@@ -9230,11 +9302,25 @@ function saveEditedInvoice(idx) {
     if(isClosedSession(sess) || !sess.purchases) return;
     let dirty = false;
     Object.keys(sess.purchases).forEach(name => {
-      if(sess.purchases[name].invoiceRef === d.r) {
+      const entry = sess.purchases[name];
+      if(entry.invoiceRef === d.r) {
         const match = newLines.find(l => (l._cleanName||l.name||'').toLowerCase() === name.toLowerCase());
         if(match) {
-          sess.purchases[name].qty = match.qty;
-          sess.purchases[name].costPrice = match._incGST;
+          // r82 FIX 7 — rewrite THIS invoice's slice of the r77 byRef ledger rather than
+          // stamping entry.qty directly. The old direct assignment made qty disagree with the
+          // ledger, so the next re-import of any contributing invoice recomputed qty from the
+          // stale slices and threw the edit away. Where the entry has only one contributor the
+          // result is identical; where two invoices share it, only this one moves.
+          let ledger = entry.byRef;
+          if(!ledger || typeof ledger !== 'object') {
+            ledger = {}; ledger[entry.invoiceRef || '_legacy'] = parseFloat(entry.qty) || 0;
+          }
+          ledger[d.r] = match.qty;
+          entry.byRef = ledger;
+          entry.qty   = Object.keys(ledger).reduce((s,k)=>s+(parseFloat(ledger[k])||0),0);
+          entry.costPrice = match._incGST;
+          if(match.unit)     entry.unit     = match.unit;
+          if(match.caseSize != null) entry.caseSize = match.caseSize;
           dirty = true;
         }
       }
@@ -11828,6 +11914,357 @@ function saveManualInvoice() {
   resetInvoiceModal();
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// r82 — STOCK ADJUSTMENTS (one-sided stock movements)
+// ═══════════════════════════════════════════════════════════════════════════
+// Stock that moved with no supplier invoice: a transfer to/from another venue, wastage,
+// breakage, staff drinks, promo, samples. Recorded at THIS venue only — Jeremy usually audits
+// one side of a transfer, so a two-venue symmetrical model would be unusable for the common
+// case. `mirrorOf` is written as null from day one so optional mirroring to a second venue can
+// be added later without reshaping anything.
+//
+// WHY THIS REACHES VARIANCE AND THE MANUAL-INVOICE WORKAROUND DID NOT — two fields:
+//   • `_cleanName` — the delivery→purchase merge reads it FIRST and skips the fuzzy
+//     word-overlap match entirely. Manual lines had no `_cleanName`, so every name went
+//     through a matching lottery.
+//   • `_incGST`   — the field the merge actually reads for cost. Manual lines stored `price`,
+//     which is never read anywhere, so every manual cost silently came through as 0.
+// Plus: an adjustment ALSO writes session.purchases (with the r77 byRef ledger), so it
+// survives the period closing. A delivery-only write is invisible the moment the period is
+// finalised, because a closed period reads its frozen snapshot and never scans deliveries.
+
+const ADJUSTMENT_REASONS = [
+  { id:'transfer_out', label:'Transfer out',  dir:-1, hint:'Sent to another venue' },
+  { id:'transfer_in',  label:'Transfer in',   dir: 1, hint:'Received from another venue' },
+  { id:'wastage',      label:'Wastage',       dir:-1, hint:'Spoiled, expired, spilled' },
+  { id:'breakage',     label:'Breakage',      dir:-1, hint:'Dropped or damaged' },
+  { id:'staff',        label:'Staff',         dir:-1, hint:'Staff drinks / meals' },
+  { id:'promo',        label:'Promotional',   dir:-1, hint:'Comps, giveaways, events' },
+  { id:'sample',       label:'Sample',        dir:-1, hint:'Tastings, supplier samples' },
+  { id:'other',        label:'Other',         dir:-1, hint:'Anything else — use the note' },
+];
+function adjReason(id) { return ADJUSTMENT_REASONS.find(r => r.id === id) || null; }
+function adjReasonLabel(id) { const r = adjReason(id); return r ? r.label : (id || 'Adjustment'); }
+
+// The base (non-case) unit an adjustment is stored in. Deliberately narrow: the
+// delivery→purchase merge only distinguishes kegs from everything else, and countToUnits
+// treats bottles/cans/units identically — so offering 'Litres' here would create a unit the
+// merge cannot expand. Cases are handled separately and always expanded before storage.
+function adjBaseUnit(prod) {
+  const s = (prod && prod.soldAs) || '';
+  if (s === 'Kegs') return 'Kegs';
+  if (s === 'Cans') return 'Cans';
+  return 'Bottles';
+}
+
+let _saLineSeq = 0;   // monotonic: removing a row must not renumber the survivors
+
+function openStockAdjustment() {
+  const c = activeClient;
+  if (!c) { alert('Select a client first.'); return; }
+  if (!(c.products || []).length) {
+    alert('This venue has no products yet. Add the catalogue first — an adjustment can only move stock that exists in it.');
+    return;
+  }
+  // r82 FIX 5 — refuse BEFORE the user fills anything in. Same helper and the same wording
+  // as every other write path (r80), so there is one message for "there is no open period".
+  if (refuseWriteNoOpenPeriod(c, 'This adjustment')) return;
+
+  const rs = document.getElementById('sa-reason');
+  if (rs) rs.innerHTML = ADJUSTMENT_REASONS.map(r =>
+    `<option value="${r.id}">${r.label} — ${r.hint}</option>`).join('');
+  const dt = document.getElementById('sa-date');
+  // ALWAYS a real date. saveManualInvoice's 'Today' sentinel is unparseable by design
+  // (parseFlexDate returns null without a year), which is how a delivery loses its date branch.
+  if (dt) dt.value = new Date().toISOString().slice(0, 10);
+  const note = document.getElementById('sa-note'); if (note) note.value = '';
+  document.getElementById('sa-line-list').innerHTML = '';
+  _saLineSeq = 0;
+  saReasonChanged();
+  saAddLine();
+  openModal('stockAdjustmentModal');
+}
+
+// Direction defaults from the reason but stays overridable — a "transfer" can go either way
+// and only the user knows which.
+function saReasonChanged() {
+  const r = adjReason(document.getElementById('sa-reason')?.value);
+  saSetDirection(r ? r.dir : -1);
+}
+
+function saSetDirection(dir) {
+  const d = Number(dir) === 1 ? 1 : -1;
+  const hid = document.getElementById('sa-direction');
+  if (hid) hid.value = String(d);
+  const outB = document.getElementById('sa-dir-out-btn');
+  const inB  = document.getElementById('sa-dir-in-btn');
+  if (outB) outB.className = 'sa-dir-btn' + (d === -1 ? ' on-out' : '');
+  if (inB)  inB.className  = 'sa-dir-btn' + (d ===  1 ? ' on-in'  : '');
+  saUpdateTotals();
+}
+
+function saAddLine() {
+  const list = document.getElementById('sa-line-list');
+  if (!list) return;
+  const i = _saLineSeq++;
+  const prods = [...(activeClient?.products || [])]
+    .sort((a, b) => String(a.n || a.name || '').localeCompare(String(b.n || b.name || '')));
+  // A HARD catalogue picker — a <select> bound to real catalogue names, not the free-text
+  // datalist the manual-invoice form uses. A datalist only SUGGESTS: it happily accepts a typo
+  // that then has to survive the fuzzy matcher. Nothing here can be unmatched by construction,
+  // and saveStockAdjustment still refuses a blank row.
+  const opts = ['<option value="">— select a product —</option>'].concat(
+    prods.map(p => {
+      const nm = (p.n || p.name || '');
+      return `<option value="${nm.replace(/"/g, '&quot;')}">${rptEsc(nm)}</option>`;
+    })).join('');
+  const div = document.createElement('div');
+  div.className = 'sa-line';
+  div.id = 'sa-row-' + i;
+  div.innerHTML = `
+    <select id="sa-prod-${i}" onchange="saLineProductChanged(${i})" style="background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-ui);outline:none;">${opts}</select>
+    <input type="number" id="sa-qty-${i}" placeholder="Qty" min="0" step="any" oninput="saUpdateTotals()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-mono);outline:none;text-align:right;">
+    <select id="sa-unit-${i}" onchange="saSyncUnitRow(${i});saUpdateTotals()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-ui);outline:none;"></select>
+    <input type="number" id="sa-pack-${i}" placeholder="pack" min="1" step="1" oninput="saUpdateTotals()" title="Units per case — required when the unit is Cases" style="background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-mono);outline:none;text-align:right;visibility:hidden;">
+    <input type="number" id="sa-cost-${i}" placeholder="0.00" min="0" step="0.01" oninput="saUpdateTotals()" title="Cost per unit — optional, may be 0 or unknown" style="background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-mono);outline:none;text-align:right;">
+    <span class="sa-line-total" id="sa-lt-${i}">$0.00</span>
+    <button class="ing-remove" onclick="document.getElementById('sa-row-${i}').remove();saUpdateTotals()">×</button>`;
+  list.appendChild(div);
+  saLineProductChanged(i);
+}
+
+// Rebuild the row around the chosen product: the unit choice is restricted to that product's
+// OWN base unit plus Cases, so a keg can never be booked as a bottle.
+function saLineProductChanged(i) {
+  const sel  = document.getElementById('sa-prod-' + i);
+  const unit = document.getElementById('sa-unit-' + i);
+  const pack = document.getElementById('sa-pack-' + i);
+  const cost = document.getElementById('sa-cost-' + i);
+  if (!sel || !unit) return;
+  const prod = adjFindProduct(sel.value);
+  const base = adjBaseUnit(prod);
+  const keep = unit.value;
+  unit.innerHTML = [base, 'Cases'].map(u => `<option value="${u}">${u}</option>`).join('');
+  if (keep === 'Cases') unit.value = 'Cases';
+  if (pack) {
+    // Pre-filled from the catalogue when known, ALWAYS editable, and never silently defaulted.
+    // countToUnits and the delivery merge both fall back to `caseSize || 12`, which is a silent
+    // 12x on a product whose real pack is 6 or 24 — saveStockAdjustment refuses a Cases line
+    // without a confirmed pack rather than let that fallback fire.
+    const known = prod ? (parseInt(prod.caseSize) || parseCaseSize(prod.n || prod.name || '') || 0) : 0;
+    pack.value = known > 0 ? String(known) : '';
+  }
+  if (cost && !cost.value && prod && parseFloat(prod.costPrice) > 0) {
+    cost.value = parseFloat(prod.costPrice).toFixed(2);
+  }
+  saSyncUnitRow(i);
+  saUpdateTotals();
+}
+
+function saSyncUnitRow(i) {
+  const unit = document.getElementById('sa-unit-' + i);
+  const pack = document.getElementById('sa-pack-' + i);
+  if (!unit || !pack) return;
+  pack.style.visibility = unit.value === 'Cases' ? 'visible' : 'hidden';
+}
+
+// Catalogue lookup by exact name, on the same `p.n || p.name` key everything else uses.
+function adjFindProduct(name) {
+  const want = String(name || '').trim();
+  if (!want) return null;
+  return (activeClient?.products || []).find(p => (p.n || p.name || '') === want) || null;
+}
+
+// Read one row into a normalised shape. `problem` is a human sentence when the row cannot be
+// saved; the caller refuses on the first one. Returns null for a completely untouched row.
+function saReadLine(row) {
+  const i    = row.id.replace('sa-row-', '');
+  const sel  = document.getElementById('sa-prod-' + i);
+  const qtyE = document.getElementById('sa-qty-' + i);
+  const unitE= document.getElementById('sa-unit-' + i);
+  const packE= document.getElementById('sa-pack-' + i);
+  const costE= document.getElementById('sa-cost-' + i);
+  const rawName = (sel?.value || '').trim();
+  const rawQty  = (qtyE?.value || '').trim();
+  if (!rawName && !rawQty) return null;                    // untouched row — ignore
+  if (!rawName) return { problem: 'One line has a quantity but no product. Pick a product from the list, or remove the line.' };
+
+  // HARD catalogue binding: refuse anything that does not resolve to a real product.
+  const prod = adjFindProduct(rawName);
+  if (!prod) return { problem: `"${rawName}" is not in this venue's catalogue. Pick a product from the list — an adjustment can only move stock the catalogue knows about.` };
+
+  const qty = parseFloat(rawQty);
+  if (!Number.isFinite(qty) || qty <= 0) return { problem: `Enter a quantity greater than zero for ${rawName}. Use the Stock IN / Stock OUT toggle for direction — do not type a minus sign.` };
+
+  const unit = unitE?.value || adjBaseUnit(prod);
+  let packSize = 1;
+  if (unit === 'Cases') {
+    packSize = parseInt(packE?.value, 10);
+    if (!Number.isFinite(packSize) || packSize <= 0 || packSize > 500 || String(packE?.value || '').indexOf('.') >= 0) {
+      return { problem: `Confirm how many units are in a case of ${rawName} (a whole number, 1–500). Without it the pack size would be guessed at 12, which silently multiplies the quantity.` };
+    }
+  }
+  const cost = parseFloat(costE?.value);
+  return {
+    prod, name: (prod.n || prod.name || ''),
+    unitsQty: qty * packSize,                 // ALWAYS expanded to base units before storage
+    caseQty:  unit === 'Cases' ? qty : null,
+    packSize, unit,
+    baseUnit: adjBaseUnit(prod),
+    cost: Number.isFinite(cost) && cost > 0 ? cost : 0,
+  };
+}
+
+function saUpdateTotals() {
+  const dir  = Number(document.getElementById('sa-direction')?.value) === 1 ? 1 : -1;
+  const rows = Array.from(document.querySelectorAll('#sa-line-list .sa-line'));
+  let value = 0, lines = 0, units = 0;
+  rows.forEach(row => {
+    const i = row.id.replace('sa-row-', '');
+    const parsed = saReadLine(row);
+    const lt = document.getElementById('sa-lt-' + i);
+    if (!parsed || parsed.problem) { if (lt) lt.textContent = '—'; return; }
+    const v = parsed.unitsQty * parsed.cost;
+    value += v; lines++; units += parsed.unitsQty;
+    if (lt) lt.textContent = (dir < 0 ? '-$' : '$') + v.toFixed(2);
+  });
+  const el = document.getElementById('sa-summary');
+  if (!el) return;
+  const target = importTargetSession(activeClient).session;
+  const word   = dir < 0 ? 'leaving' : 'arriving at';
+  el.innerHTML = lines
+    ? `<div style="display:flex;justify-content:space-between;"><span>${lines} line${lines !== 1 ? 's' : ''} · ${(dir < 0 ? '-' : '+') + units}
+         unit${Math.abs(units) !== 1 ? 's' : ''} ${word} the venue</span>
+       <span style="font-family:var(--font-mono);color:${dir < 0 ? 'var(--red)' : 'var(--green)'};font-weight:700;">${dir < 0 ? '-' : '+'}$${value.toFixed(2)}</span></div>
+       <div style="font-size:11px;color:var(--text3);margin-top:6px;">Books to <strong>${target ? rptEsc(periodDisplayName(target)) : '—'}</strong>. Variance updates immediately.</div>`
+    : `<span style="color:var(--text3);">Add at least one product.</span>`;
+}
+
+function saveStockAdjustment() {
+  const c = activeClient;
+  if (!c) { alert('Select a client first.'); return; }
+
+  // r82 FIX 5 — the period could have been closed from another surface while this form sat
+  // open, so the open-time refusal is re-tested here. Same helper, same wording (r80).
+  if (refuseWriteNoOpenPeriod(c, 'This adjustment')) return;
+  const target = importTargetSession(c).session;
+  if (!target) { alert('There is no audit period to book this adjustment into. Finalise a stocktake to start the first period.'); return; }
+
+  const reasonId = document.getElementById('sa-reason')?.value || '';
+  if (!adjReason(reasonId)) { alert('Choose a reason for this adjustment.'); return; }
+  const direction = Number(document.getElementById('sa-direction')?.value) === 1 ? 1 : -1;
+  const note      = (document.getElementById('sa-note')?.value || '').trim();
+  const dateVal   = document.getElementById('sa-date')?.value || '';
+
+  // ALWAYS year-stamped — never the 'Today' sentinel, which parseFlexDate rejects by design.
+  const when = dateVal ? new Date(dateVal) : new Date();
+  const displayDate = when.toLocaleDateString('en-NZ', { day:'numeric', month:'short', year:'numeric' });
+
+  const rows = Array.from(document.querySelectorAll('#sa-line-list .sa-line'));
+  const parsedLines = [];
+  for (const row of rows) {
+    const parsed = saReadLine(row);
+    if (!parsed) continue;
+    if (parsed.problem) { alert(parsed.problem); return; }   // refuse — never a partial save
+    parsedLines.push(parsed);
+  }
+  if (!parsedLines.length) { alert('Add at least one product to this adjustment.'); return; }
+
+  const reasonLabel = adjReasonLabel(reasonId);
+  const invRef = 'ADJ-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+
+  // The delivery line shape. `_cleanName` and `_incGST` are the two fields that make this
+  // reach variance where the manual-invoice path did not — see the note at the top.
+  // Quantities are stored ALREADY EXPANDED into base units with a base unit label, so the
+  // merge's `caseSize || 12` fallback can never fire and the live path, the frozen path and
+  // session.purchases all agree on one number.
+  const lines = parsedLines.map(p => ({
+    _cleanName: p.name,
+    name:       p.name,
+    qty:        direction * p.unitsQty,
+    unit:       p.baseUnit,
+    caseSize:   p.packSize,
+    caseQty:    p.caseQty,
+    _incGST:    p.cost,
+  }));
+  const total = direction * parsedLines.reduce((s, p) => s + p.unitsQty * p.cost, 0);
+
+  // r82 FIX 5 — inherit the existing pre-commit warning surface (duplicate / date checks).
+  const warn = validateInvoiceImport(c, {
+    ref: invRef, supplier: 'Stock adjustment — ' + reasonLabel, total,
+    date: displayDate, itemCount: lines.length, surface: 'manual',
+  });
+  if (warn.level === 'warn' || warn.level === 'block') {
+    if (!confirm(`Check this adjustment before recording it:\n\n${invoiceWarningConfirmText(warn)}\n\nRecord anyway?`)) return;
+  }
+
+  if (!c.deliveries) c.deliveries = [];
+  c.deliveries.unshift({
+    s: 'Stock adjustment — ' + reasonLabel,
+    d: displayDate,
+    r: invRef,
+    // r81's isAdjustmentDelivery() has been waiting for exactly this field: with `kind` set it
+    // starts returning true, so an adjustment's valuation is kept out of the catalogue cost.
+    kind:      'adjustment',
+    reason:    reasonId,
+    note:      note,
+    direction: direction,
+    // Written from day one so optional mirroring to a second venue can find and unlink its
+    // twin later without a data migration. Always null for a one-sided movement.
+    mirrorOf:  null,
+    i: lines.length,
+    t: '$' + total.toFixed(2),
+    st: 'Adjustment',
+    sc: 'chip-amber',
+    lines,
+    periodId: target.id,
+  });
+
+  // r82 FIX 4 — ALSO write session.purchases, with the r77 byRef ledger. Without this the
+  // adjustment is delivery-only and dies the moment the period is finalised: a closed period
+  // reads its frozen `purchases` snapshot and never scans client.deliveries again.
+  if (!target.purchases) target.purchases = {};
+  const restated = new Set();
+  lines.forEach(l => {
+    const key = l._cleanName;
+    const existing = target.purchases[key];
+    const first = !restated.has(key);
+    restated.add(key);
+    if (!existing) {
+      target.purchases[key] = {
+        qty: l.qty, unit: l.unit, costPrice: l._incGST,
+        supplier: 'Stock adjustment — ' + reasonLabel,
+        invoiceRef: invRef, originalName: l.name, caseSize: l.caseSize,
+        // Kept on the ENTRY (not just the delivery) so the frozen branch, which never sees
+        // client.deliveries again, can still label the popover row with the reason.
+        reason: reasonId,
+        // Marks the entry for r81's catalogue write-back gate. The live merge stamps this
+        // too, but the FROZEN branch spreads this entry verbatim — so it must be here for the
+        // protection to survive the period closing.
+        _adjustment: true,
+        byRef: { [invRef]: l.qty },
+      };
+      return;
+    }
+    let ledger = existing.byRef;
+    if (!ledger || typeof ledger !== 'object') {
+      ledger = {}; ledger[existing.invoiceRef || '_legacy'] = parseFloat(existing.qty) || 0;
+    }
+    if (first) ledger[invRef] = 0;
+    ledger[invRef] = (parseFloat(ledger[invRef]) || 0) + l.qty;
+    existing.byRef = ledger;
+    existing.qty = Object.keys(ledger).reduce((s, k) => s + (parseFloat(ledger[k]) || 0), 0);
+    if (!existing.invoiceRef) existing.invoiceRef = invRef;
+  });
+
+  dbSaveClient(c);
+  dbSaveSession(c, target);
+  closeModal('stockAdjustmentModal');
+  showPersistToast(`✓ ${reasonLabel} recorded — ${lines.length} product${lines.length !== 1 ? 's' : ''}`);
+  renderPage('purchases');
+  if (document.getElementById('page-variances')?.classList.contains('active')) renderVarTable();
+}
+
 // keep old name as alias for any lingering references
 function saveManualPurchase() { saveManualInvoice(); }
 
@@ -14067,7 +14504,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r81';
+const APP_VERSION = '2026-06-10-r82';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();

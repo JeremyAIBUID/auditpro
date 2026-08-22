@@ -64,8 +64,8 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r81` | `index.html:14070` |
-| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r79` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r80 and r81 were desktop-only, so this correctly stays at r79**) |
+| `index.html` | `2026-06-10-r82` | `index.html:14507` |
+| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r79` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r80–r82 were desktop-only, so this correctly stays at r79**) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
   Desktop logs it on load (`[AuditPro] build …`); mobile compares it against
@@ -607,14 +607,77 @@ colours the pill by **cost impact**, so a row with a real dollar loss is never p
   `r.varPctNum || 0`) still prints a figure for suppressed rows. Wiring `varPctValid` through
   `reportRAG`/`fmtPct`/the sort at `:4441` is a follow-up.
 
-### Adjustments must not reprice the catalogue (r81)
+### Stock adjustments — one-sided stock movements (r82)
+The **"⇄ Stock adjustment"** button on Purchases (`index.html:791`) replaces the dead
+"⇄ Transfer stock" button, whose four handlers (`openStockTransfer`,
+`populateTransferProducts`, `addTransferLine`, `confirmStockTransfer`) **were never defined in
+any commit** — it threw on click. Its `#stockTransferModal` markup assumed a **From/To venue
+pair**, which is the wrong model: a movement is usually recorded at ONE venue, with no matching
+entry at the other end and often no second venue in the system. That markup is **deleted**.
+
+**Why this reaches variance and the manual-invoice workaround did not — two fields:**
+- **`_cleanName`** — the delivery→purchase merge reads it FIRST and skips the fuzzy
+  word-overlap match entirely. Manual lines had none, so every name ran a matching lottery.
+- **`_incGST`** — the field the merge actually reads for cost. Manual lines wrote `price`,
+  which nothing reads, so every manual cost silently arrived as **0**.
+
+**Delivery shape** (same `c.deliveries` array, same readers, no migration):
+`kind:'adjustment'` · `reason` · `note` · `direction:-1|1` · `mirrorOf:null` ·
+`st:'Adjustment'` · `sc:'chip-amber'` · `r:'ADJ-'+Date.now()+'-'+random` (globally unique —
+`'AUTO-'+Date.now()` collides within a millisecond) · `periodId` = the **OPEN** session.
+
+- **Direction is a toggle, never a typed minus sign.** The user enters positive quantities and
+  the save multiplies by `direction`. Typing negatives into a `min="0"` box is how the live data
+  ended up with mixed-sign lines.
+- **The product picker is a hard `<select>` bound to the catalogue.** Not the free-text
+  `<datalist>` the manual form uses — a datalist only *suggests*, and accepts a typo that then
+  has to survive the fuzzy matcher. `saveStockAdjustment` refuses any unmatched line.
+- **Cases require a CONFIRMED pack size** (whole, 1–500), pre-filled from `caseSize` but always
+  editable. Quantities are stored **already expanded into base units**, so the live merge, the
+  frozen branch and `session.purchases` all agree and **`caseSize || 12` can never fire**.
+  (The merge prefers `prodMap[name].caseSize` over `line.caseSize`, so storing un-expanded
+  Cases would let the catalogue's pack size override the one the user confirmed.)
+- **It ALSO writes `session.purchases`** with the r77 `byRef` ledger. A delivery-only write is
+  invisible the moment the period is finalised — that is exactly how the original transfer died.
+- **No open period ⇒ refused**, at open time *and* at save time, reusing r80's
+  `refuseWriteNoOpenPeriod` / `noOpenPeriodText` so there is ONE wording. It also runs through
+  `validateInvoiceImport` (`surface:'manual'`) to inherit the r78 warning surface.
+- **Date is always year-stamped** — never `saveManualInvoice`'s `'Today'` sentinel, which
+  `parseFlexDate` rejects by design.
+- **Display:** an amber `⇄ <reason>` chip in purchase history, an amber reason badge on the
+  variance popover row, and a split report footer (`Supplier purchases` / `Stock adjustments` /
+  `NET`) so an adjustment is never summed as a purchase. **`purDetail` RE-PROJECTS each merge
+  line**, so any field the merge attaches must be copied there explicitly or it never reaches
+  the popover.
+- **`mirrorOf` is written as null from day one** so optional mirroring to a second venue can
+  find and unlink its twin later without a data migration.
+
+**Edit/delete (r82 FIX 7):** `d.kind/reason/note/direction/mirrorOf` live on the delivery, which
+`saveEditedInvoice` never rewrites, so they survive an edit for free. Two things did not:
+`saveEditedInvoice` **hardcoded `unit:'Bottles'`** on every edited line (flattening a 50L keg to
+a 750ml bottle and dropping `caseSize`, re-arming the `||12` fallback) — it now carries the
+original line's `unit`/`caseSize` through, matched by row index against `d._editLines`. And it
+stamped `entry.qty` **directly**, bypassing the byRef ledger — it now rewrites this invoice's
+slice, so qty and ledger stay in agreement. A line ADDED during an edit still defaults to
+`Bottles`; the edit form has no product-aware unit picker.
+
+### Adjustments must not reprice the catalogue (r81, corrected in r82)
 `computeVariances` writes an invoice's unit cost back onto `client.products[idx].costPrice`
 (~6521) — permanently, and on into every future period's valuation. A transfer/wastage figure
 landing there would silently redefine the product's cost. `isAdjustmentDelivery(d)` returns true
 for `d.kind === 'adjustment'` (or `d.adjustment === true`); an adjustment line contributes its
-**quantity** but never a cost, stamps `_adjustment` on the merged entry, and the write-back skips
-it. **`d.kind` is not in the data yet** — Build 3 stamps it and this activates with no further
-change; until then it is a no-op.
+**quantity** but never a cost. **r82 activated this** by stamping `d.kind` — and immediately
+exposed that the r81 gate was too broad.
+
+A purchases entry is keyed by **product**, so one entry can be fed by a supplier invoice *and*
+an adjustment in the same period. Gating on `!_adjustment` meant a single wastage line silently
+suppressed a genuine supplier price. The gate now tests **provenance**:
+- `_adjustment` — an adjustment fed this entry (used only to LABEL the popover).
+- `_costFromSupplier` — a real invoice supplied the cost. **This** is what licenses the
+  write-back: `!_adjustment || _costFromSupplier`.
+
+Entries carrying neither flag are ordinary supplier purchases (every pre-r82 entry and every
+frozen snapshot), so they write back exactly as before.
 
 ### Report Purchase History is period-scoped (r81)
 It read `client.deliveries` **globally**, so every report printed every invoice the venue had
@@ -761,16 +824,17 @@ saveToStorage() / resetForNextAudit() / updateCountUI() / editCountItem(idx)
 
 ## Constants in the Desktop App
 ```javascript
-const PROD_SUBCATS            // index.html:5237 — { Spirits:[…], Beer:[…], … }
-const CAT_ORDER_PROD          // :5606 — ['Spirits','Beer','Wine','RTD','Soft drinks','Food','Cocktails','Other']
-const CAT_COLORS_PROD         // :5607 — { Spirits:{bg,text,icon}, … }
-const SUBCAT_ORDER            // :5617
-const SUBCAT_ICONS            // :5622 — { Gin:'🌿', Vodka:'🫧', … }
-const SUBCAT_BREAKDOWN_CATS   // :6083 — new Set(['Spirits'])
-const DENSITY                 // :6107 — { spirits:0.9467, wine:0.9805, beer:1.014, liqueur:1.06 }
-const REPORT_CAT_THRESHOLDS   // :3734
-const VAR_PCT_MIN_EXPECTED    // :6948 — 1 unit; below this no variance % is quoted (r81)
-const APP_VERSION             // :14070
+const PROD_SUBCATS            // index.html:5272 — { Spirits:[…], Beer:[…], … }
+const CAT_ORDER_PROD          // :5641 — ['Spirits','Beer','Wine','RTD','Soft drinks','Food','Cocktails','Other']
+const CAT_COLORS_PROD         // :5642 — { Spirits:{bg,text,icon}, … }
+const SUBCAT_ORDER            // :5652
+const SUBCAT_ICONS            // :5657 — { Gin:'🌿', Vodka:'🫧', … }
+const SUBCAT_BREAKDOWN_CATS   // :6118 — new Set(['Spirits'])
+const DENSITY                 // :6142 — { spirits:0.9467, wine:0.9805, beer:1.014, liqueur:1.06 }
+const REPORT_CAT_THRESHOLDS   // :3755
+const VAR_PCT_MIN_EXPECTED    // :7005 — 1 unit; below this no variance % is quoted (r81)
+const ADJUSTMENT_REASONS      // :11936 — transfer_in/out, wastage, breakage, staff, promo, sample, other (r82)
+const APP_VERSION             // :14507
 ```
 
 ---
