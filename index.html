@@ -174,6 +174,11 @@
   .sa-line{display:grid;grid-template-columns:2.4fr 0.75fr 0.95fr 0.8fr 0.9fr 1fr auto;gap:6px;align-items:center;margin-bottom:6px;}
   .sa-line input,.sa-line select{padding:7px 10px;font-size:12px;width:100%;min-width:0;}
   .sa-line-total{font-family:var(--font-mono);font-size:12px;color:var(--accent);padding:7px 4px;text-align:right;}
+  /* r83 — the product cell holds a search input + its (position:fixed) result list. */
+  .sa-prod-wrap{position:relative;min-width:0;}
+  .sa-pick{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;font-size:12.5px;color:var(--text);border-bottom:1px solid var(--border);background:var(--bg2);}
+  .sa-pick:hover{background:var(--bg3);}
+  .sa-pick-cat{font-size:11px;color:var(--text3);white-space:nowrap;}
   .sa-dir-btn{flex:1;padding:9px 10px;border-radius:9px;font-family:var(--font-ui);font-size:12.5px;font-weight:700;cursor:pointer;border:1px solid var(--border2);background:var(--bg3);color:var(--text3);}
   .sa-dir-btn.on-out{background:rgba(240,80,80,0.14);border-color:rgba(240,80,80,0.4);color:var(--red);}
   .sa-dir-btn.on-in{background:rgba(91,227,180,0.12);border-color:rgba(91,227,180,0.35);color:var(--green);}
@@ -2202,7 +2207,7 @@
 
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
       <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);">Products</div>
-      <div style="font-size:11px;color:var(--text3);">Pick from the catalogue — free text is not accepted</div>
+      <div style="font-size:11px;color:var(--text3);">Search the catalogue — free text is not accepted</div>
     </div>
     <div id="sa-line-head" class="sa-line" style="margin-bottom:4px;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);">
       <div>Product</div><div>Qty</div><div>Unit</div><div>Pack</div><div>Unit cost</div><div style="text-align:right;">Value</div><div></div>
@@ -11958,6 +11963,7 @@ function adjBaseUnit(prod) {
 }
 
 let _saLineSeq = 0;   // monotonic: removing a row must not renumber the survivors
+let _saBound   = {};  // r83 — row seq -> the bound catalogue product OBJECT (see saPickProduct)
 
 function openStockAdjustment() {
   const c = activeClient;
@@ -11980,6 +11986,7 @@ function openStockAdjustment() {
   const note = document.getElementById('sa-note'); if (note) note.value = '';
   document.getElementById('sa-line-list').innerHTML = '';
   _saLineSeq = 0;
+  _saBound   = {};
   saReasonChanged();
   saAddLine();
   openModal('stockAdjustmentModal');
@@ -12007,41 +12014,168 @@ function saAddLine() {
   const list = document.getElementById('sa-line-list');
   if (!list) return;
   const i = _saLineSeq++;
-  const prods = [...(activeClient?.products || [])]
-    .sort((a, b) => String(a.n || a.name || '').localeCompare(String(b.n || b.name || '')));
-  // A HARD catalogue picker — a <select> bound to real catalogue names, not the free-text
-  // datalist the manual-invoice form uses. A datalist only SUGGESTS: it happily accepts a typo
-  // that then has to survive the fuzzy matcher. Nothing here can be unmatched by construction,
-  // and saveStockAdjustment still refuses a blank row.
-  const opts = ['<option value="">— select a product —</option>'].concat(
-    prods.map(p => {
-      const nm = (p.n || p.name || '');
-      return `<option value="${nm.replace(/"/g, '&quot;')}">${rptEsc(nm)}</option>`;
-    })).join('');
+  // A HARD catalogue picker — r82 used a <select>, which does not scale past a couple of
+  // hundred products and is worst at exactly the case an adjustment usually records: a product
+  // that has never been on site. r83 replaces it with the desktop's existing type-ahead
+  // (see saProductSearch) WITHOUT weakening the guarantee: the row is bound by CLICKING a
+  // result, never by parsing the typed string, and saReadLine refuses an unbound row. It is
+  // still not the free-text datalist the manual-invoice form uses — a datalist only SUGGESTS,
+  // and happily accepts a typo that then has to survive the fuzzy matcher.
   const div = document.createElement('div');
   div.className = 'sa-line';
   div.id = 'sa-row-' + i;
   div.innerHTML = `
-    <select id="sa-prod-${i}" onchange="saLineProductChanged(${i})" style="background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-ui);outline:none;">${opts}</select>
+    <div class="sa-prod-wrap">
+      <input type="text" id="sa-prod-${i}" placeholder="Search the catalogue…" autocomplete="off"
+        oninput="saProductSearch(${i},this.value)" onfocus="saProductSearch(${i},this.value)"
+        style="background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-ui);outline:none;">
+      <input type="hidden" id="sa-prodkey-${i}" value="">
+      <div id="sa-prodlist-${i}" style="display:none;"></div>
+    </div>
     <input type="number" id="sa-qty-${i}" placeholder="Qty" min="0" step="any" oninput="saUpdateTotals()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-mono);outline:none;text-align:right;">
     <select id="sa-unit-${i}" onchange="saSyncUnitRow(${i});saUpdateTotals()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-ui);outline:none;"></select>
     <input type="number" id="sa-pack-${i}" placeholder="pack" min="1" step="1" oninput="saUpdateTotals()" title="Units per case — required when the unit is Cases" style="background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-mono);outline:none;text-align:right;visibility:hidden;">
     <input type="number" id="sa-cost-${i}" placeholder="0.00" min="0" step="0.01" oninput="saUpdateTotals()" title="Cost per unit — optional, may be 0 or unknown" style="background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);font-family:var(--font-mono);outline:none;text-align:right;">
     <span class="sa-line-total" id="sa-lt-${i}">$0.00</span>
-    <button class="ing-remove" onclick="document.getElementById('sa-row-${i}').remove();saUpdateTotals()">×</button>`;
+    <button class="ing-remove" onclick="saRemoveLine(${i})">×</button>`;
   list.appendChild(div);
   saLineProductChanged(i);
+}
+
+// Removing a row must drop its _saBound entry with it. _saLineSeq is monotonic so the seq is
+// never reused, but a live binding to a row the user has deleted is a lie either way.
+function saRemoveLine(i) {
+  const row = document.getElementById('sa-row-' + i);
+  if (row) row.remove();
+  delete _saBound[i];
+  saUpdateTotals();
+}
+
+// ─── r83 — ADJUSTMENT PRODUCT TYPE-AHEAD ─────────
+// The same autocomplete the desktop already runs at #manual-product (r50) and in the invoice
+// review modal (filterInvNameList): the r42 token match (every whitespace-separated token must
+// appear in the name), up to 8 rows, getBoundingClientRect + position:fixed so the list escapes
+// BOTH scroll containers it sits inside (#sa-line-list and the modal), auto-flip-up when short
+// of room below, and the DEFERRED setTimeout document click-away — never onblur, which fires
+// before the click and eats the selection.
+//
+// r82's HARD MATCH GUARANTEE survives the loss of the <select>. A row is bound ONLY by clicking
+// a result, which dispatches saPickProduct(row, indexIntoCatalogue) — an INDEX, never the name
+// interpolated into the onclick attribute (a name carrying a quote breaks that: the bug r71
+// fixed on mobile). Typing anything other than the bound product's canonical name unbinds the
+// row on the spot, and saReadLine refuses an unbound row, so free text can never be saved.
+
+// The binding is the product OBJECT. The hidden #sa-prodkey-N carries its canonical name purely
+// as a re-resolve fallback: a Supabase reload replaces client.products wholesale, and a held
+// reference would then be an orphan (the r83 form of pitfall #2 — indexOf/identity goes stale).
+function saBoundProduct(i) {
+  const prods = activeClient?.products || [];
+  const held  = _saBound[i];
+  if (held && prods.indexOf(held) >= 0) return held;
+  const key = (document.getElementById('sa-prodkey-' + i)?.value || '').trim();
+  if (!key) return null;
+  const re = adjFindProduct(key);
+  if (re) _saBound[i] = re; else delete _saBound[i];
+  return re;
+}
+
+// FIX 5 — one open list at a time. Every row has its own ids, so nothing cross-talks; this only
+// stops two lists hanging over each other after a click straight from one row into another.
+function saCloseProdLists(exceptI) {
+  document.querySelectorAll('#sa-line-list [id^="sa-prodlist-"]').forEach(el => {
+    if (el.id !== 'sa-prodlist-' + exceptI) el.style.display = 'none';
+  });
+}
+
+// Red border = something is typed that is not bound to a catalogue product, i.e. this row will
+// be refused on save. Silent while the field is empty (an untouched row is simply ignored).
+function saMarkProdBinding(i) {
+  const inputEl = document.getElementById('sa-prod-' + i);
+  if (!inputEl) return;
+  const typed = (inputEl.value || '').trim();
+  inputEl.style.borderColor = (typed && !saBoundProduct(i)) ? 'var(--red)' : 'var(--border2)';
+}
+
+function saProductSearch(i, query) {
+  const inputEl = document.getElementById('sa-prod-' + i);
+  const listEl  = document.getElementById('sa-prodlist-' + i);
+  if (!inputEl || !listEl) return;
+
+  // Any divergence from the bound product's canonical name unbinds the row. The unit and pack
+  // fields are deliberately LEFT ALONE here — rebuilding them on every keystroke would wipe a
+  // confirmed pack size mid-type. They are repopulated when a product is picked (FIX 4).
+  const typed = (inputEl.value || '').trim();
+  const held  = _saBound[i];
+  if (held && typed !== (held.n || held.name || '')) {
+    delete _saBound[i];
+    const key = document.getElementById('sa-prodkey-' + i);
+    if (key) key.value = '';
+  }
+  saMarkProdBinding(i);
+  saUpdateTotals();
+  saCloseProdLists(i);
+
+  // FIX 2 — the WHOLE venue catalogue. Never narrowed to products with stock on hand or to
+  // products that have been counted: reaching one that has NEVER been on site is the point.
+  const q    = String(query || '').toLowerCase().trim();
+  const toks = q.split(/\s+/).filter(Boolean);
+  const cand = [];
+  (activeClient?.products || []).forEach((p, idx) => {
+    if (!p) return;
+    const nm = String(p.n || p.name || '');
+    if (!nm) return;
+    const ln = nm.toLowerCase();
+    if (toks.length && !toks.every(t => ln.includes(t))) return;   // r42 token match
+    cand.push({ p, idx, nm });
+  });
+  cand.sort((a, b) => a.nm.localeCompare(b.nm));
+  const matches = cand.slice(0, 8);
+  if (!matches.length) { listEl.style.display = 'none'; return; }
+
+  const rect  = inputEl.getBoundingClientRect();
+  const openUp = (window.innerHeight - rect.bottom) < 220;
+  const width  = Math.max(60, Math.min(Math.max(rect.width, 260), window.innerWidth - rect.left - 12));
+  listEl.style.cssText = `display:block;position:fixed;width:${width}px;left:${rect.left}px;z-index:9999;max-height:220px;overflow-y:auto;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.4);${openUp ? `bottom:${window.innerHeight - rect.top}px;top:auto;` : `top:${rect.bottom}px;bottom:auto;`}`;
+
+  listEl.innerHTML = matches.map(m =>
+    `<div class="sa-pick" onclick="saPickProduct(${i},${m.idx})"><span>${rptEsc(m.nm)}</span><span class="sa-pick-cat">${rptEsc(m.p.cat || '')}</span></div>`).join('');
+
+  setTimeout(() => {
+    const close = (e) => {
+      if (!listEl.contains(e.target) && e.target !== inputEl) {
+        listEl.style.display = 'none';
+        document.removeEventListener('click', close);
+      }
+    };
+    document.addEventListener('click', close);
+  }, 100);
+}
+
+// The ONE place a row becomes bound. `idx` indexes activeClient.products directly.
+function saPickProduct(i, idx) {
+  const prod = (activeClient?.products || [])[idx];
+  if (!prod) return;                     // catalogue moved under the open modal — stay unbound
+  const name    = (prod.n || prod.name || '');
+  const inputEl = document.getElementById('sa-prod-' + i);
+  const keyEl   = document.getElementById('sa-prodkey-' + i);
+  const listEl  = document.getElementById('sa-prodlist-' + i);
+  _saBound[i] = prod;
+  if (inputEl) inputEl.value = name;
+  if (keyEl)   keyEl.value   = name;
+  if (listEl)  listEl.style.display = 'none';
+  saMarkProdBinding(i);
+  saLineProductChanged(i);               // FIX 4 — units come from the product just picked
+  document.getElementById('sa-qty-' + i)?.focus();
 }
 
 // Rebuild the row around the chosen product: the unit choice is restricted to that product's
 // OWN base unit plus Cases, so a keg can never be booked as a bottle.
 function saLineProductChanged(i) {
-  const sel  = document.getElementById('sa-prod-' + i);
   const unit = document.getElementById('sa-unit-' + i);
   const pack = document.getElementById('sa-pack-' + i);
   const cost = document.getElementById('sa-cost-' + i);
-  if (!sel || !unit) return;
-  const prod = adjFindProduct(sel.value);
+  if (!unit) return;
+  const prod = saBoundProduct(i);
   const base = adjBaseUnit(prod);
   const keep = unit.value;
   unit.innerHTML = [base, 'Cases'].map(u => `<option value="${u}">${u}</option>`).join('');
@@ -12054,8 +12188,9 @@ function saLineProductChanged(i) {
     const known = prod ? (parseInt(prod.caseSize) || parseCaseSize(prod.n || prod.name || '') || 0) : 0;
     pack.value = known > 0 ? String(known) : '';
   }
-  if (cost && !cost.value && prod && parseFloat(prod.costPrice) > 0) {
-    cost.value = parseFloat(prod.costPrice).toFixed(2);
+  if (cost) {
+    const cp = prod ? parseFloat(prod.costPrice) : NaN;
+    cost.value = Number.isFinite(cp) && cp > 0 ? cp.toFixed(2) : '';
   }
   saSyncUnitRow(i);
   saUpdateTotals();
@@ -12069,29 +12204,36 @@ function saSyncUnitRow(i) {
 }
 
 // Catalogue lookup by exact name, on the same `p.n || p.name` key everything else uses.
+// r83 — reads now go through saBoundProduct(); this stays as the canonical-name resolver.
 function adjFindProduct(name) {
   const want = String(name || '').trim();
   if (!want) return null;
-  return (activeClient?.products || []).find(p => (p.n || p.name || '') === want) || null;
+  return (activeClient?.products || []).find(p => p && (p.n || p.name || '') === want) || null;
 }
 
 // Read one row into a normalised shape. `problem` is a human sentence when the row cannot be
 // saved; the caller refuses on the first one. Returns null for a completely untouched row.
 function saReadLine(row) {
   const i    = row.id.replace('sa-row-', '');
-  const sel  = document.getElementById('sa-prod-' + i);
+  const inpE = document.getElementById('sa-prod-' + i);
   const qtyE = document.getElementById('sa-qty-' + i);
   const unitE= document.getElementById('sa-unit-' + i);
   const packE= document.getElementById('sa-pack-' + i);
   const costE= document.getElementById('sa-cost-' + i);
-  const rawName = (sel?.value || '').trim();
-  const rawQty  = (qtyE?.value || '').trim();
-  if (!rawName && !rawQty) return null;                    // untouched row — ignore
-  if (!rawName) return { problem: 'One line has a quantity but no product. Pick a product from the list, or remove the line.' };
+  const typed  = (inpE?.value || '').trim();
+  const rawQty = (qtyE?.value || '').trim();
+  if (!typed && !rawQty) return null;                      // untouched row — ignore
 
-  // HARD catalogue binding: refuse anything that does not resolve to a real product.
-  const prod = adjFindProduct(rawName);
-  if (!prod) return { problem: `"${rawName}" is not in this venue's catalogue. Pick a product from the list — an adjustment can only move stock the catalogue knows about.` };
+  // HARD catalogue binding (r82, preserved through r83's type-ahead): the row is only ever
+  // bound by CLICKING a search result, never by matching the typed string. Free text that was
+  // never picked from the list resolves to nothing and is refused here, exactly as the old
+  // <select> made structurally impossible.
+  const prod = saBoundProduct(i);
+  if (!prod) {
+    if (!typed) return { problem: 'One line has a quantity but no product. Search for a product and pick it from the list, or remove the line.' };
+    return { problem: `"${typed}" is not in this venue's catalogue. Search for the product and pick it from the list — an adjustment can only move stock the catalogue knows about.` };
+  }
+  const rawName = (prod.n || prod.name || '');
 
   const qty = parseFloat(rawQty);
   if (!Number.isFinite(qty) || qty <= 0) return { problem: `Enter a quantity greater than zero for ${rawName}. Use the Stock IN / Stock OUT toggle for direction — do not type a minus sign.` };
@@ -14504,7 +14646,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r82';
+const APP_VERSION = '2026-06-10-r83';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();

@@ -64,8 +64,8 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r82` | `index.html:14507` |
-| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r79` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r80–r82 were desktop-only, so this correctly stays at r79**) |
+| `index.html` | `2026-06-10-r83` | `index.html:14649` |
+| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r79` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r80–r83 were desktop-only, so this correctly stays at r79**) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
   Desktop logs it on load (`[AuditPro] build …`); mobile compares it against
@@ -629,9 +629,10 @@ entry at the other end and often no second venue in the system. That markup is *
 - **Direction is a toggle, never a typed minus sign.** The user enters positive quantities and
   the save multiplies by `direction`. Typing negatives into a `min="0"` box is how the live data
   ended up with mixed-sign lines.
-- **The product picker is a hard `<select>` bound to the catalogue.** Not the free-text
-  `<datalist>` the manual form uses — a datalist only *suggests*, and accepts a typo that then
-  has to survive the fuzzy matcher. `saveStockAdjustment` refuses any unmatched line.
+- **The product picker is HARD-BOUND to the catalogue.** Not the free-text `<datalist>` the
+  manual form uses — a datalist only *suggests*, and accepts a typo that then has to survive the
+  fuzzy matcher. `saveStockAdjustment` refuses any unmatched line. (r82 enforced this with a
+  `<select>`; **r83 replaced that with a type-ahead** — see below — without weakening it.)
 - **Cases require a CONFIRMED pack size** (whole, 1–500), pre-filled from `caseSize` but always
   editable. Quantities are stored **already expanded into base units**, so the live merge, the
   frozen branch and `session.purchases` all agree and **`caseSize || 12` can never fire**.
@@ -651,6 +652,34 @@ entry at the other end and often no second venue in the system. That markup is *
   the popover.
 - **`mirrorOf` is written as null from day one** so optional mirroring to a second venue can
   find and unlink its twin later without a data migration.
+
+### Adjustment product type-ahead (r83)
+r82's `<select>` did not scale, and was worst at the case an adjustment most often records: a
+product that exists in the catalogue but has **never been on site**. It is now the same
+autocomplete the desktop already runs at `#manual-product` (r50) and in the invoice review modal
+(`filterInvNameList`) — r42 token match (every whitespace token must appear in the name), <= 8
+rows, name + muted category, `getBoundingClientRect` + `position:fixed` so the list escapes the
+two scroll containers it sits inside, auto-flip-up under 220px of room, and the **deferred
+`setTimeout` document click-away** (`onblur` fires before the click and eats the selection).
+
+- **The hard-match guarantee is structural, not a string comparison.** A row is bound ONLY by
+  clicking a result -> `saPickProduct(rowSeq, indexIntoCatalogue)`. The dispatch carries an
+  **INDEX**, never the name interpolated into the `onclick` attribute — a name containing a
+  quote breaks that (the bug r71 fixed on mobile).
+- `_saBound[rowSeq]` holds the product **OBJECT**; hidden `#sa-prodkey-N` holds its canonical
+  name purely so `saBoundProduct()` can re-resolve after a Supabase reload swaps
+  `client.products` wholesale (pitfall #2). Typing anything other than the bound canonical name
+  unbinds the row on the spot (red border), and **`saReadLine` refuses an unbound row** — so
+  free text, *including a typed string that exactly equals a catalogue name*, is never savable.
+- Searches the **whole** `activeClient.products` — never narrowed by stock on hand or by having
+  been counted.
+- Per-row ids (`sa-prod-N` / `sa-prodkey-N` / `sa-prodlist-N`) keep multi-line rows independent;
+  `saCloseProdLists(exceptN)` keeps one list open at a time. `saRemoveLine(N)` drops the binding
+  with the row.
+- **Unit cost is re-derived on every pick**, like the pack size. r82's `!cost.value` guard only
+  fired on a fresh row, so re-picking left the PREVIOUS product's cost behind — pick a $210 keg,
+  correct it to a $2.10 can, and 48 cans were valued at $210 each. A search box makes re-picking
+  the normal way to use the form, so that trap had to go.
 
 **Edit/delete (r82 FIX 7):** `d.kind/reason/note/direction/mirrorOf` live on the delivery, which
 `saveEditedInvoice` never rewrites, so they survive an edit for free. Two things did not:
@@ -794,6 +823,11 @@ rejectMobileCount() / renderMobileCounts()
 // Suppliers / Sales
 renderSupplierList(q) / openSupplierDetail(name)
 confirmZeroSales() / confirmSalesImport(id) / buildSalesDepletion(c, sess, prodMap)
+
+// Stock adjustments (r82 / r83)
+openStockAdjustment() / saAddLine() / saRemoveLine(i) / saveStockAdjustment()
+saProductSearch(i, q) / saPickProduct(i, catalogueIdx) / saBoundProduct(i)   // r83 type-ahead
+saCloseProdLists(exceptI) / saMarkProdBinding(i) / saLineProductChanged(i) / saReadLine(row)
 ```
 
 **Dead code — do not "wire up":** `finalisePage_lock()` (index.html:3166) and
@@ -834,7 +868,7 @@ const DENSITY                 // :6142 — { spirits:0.9467, wine:0.9805, beer:1
 const REPORT_CAT_THRESHOLDS   // :3755
 const VAR_PCT_MIN_EXPECTED    // :7005 — 1 unit; below this no variance % is quoted (r81)
 const ADJUSTMENT_REASONS      // :11936 — transfer_in/out, wastage, breakage, staff, promo, sample, other (r82)
-const APP_VERSION             // :14507
+const APP_VERSION             // :14649
 ```
 
 ---
