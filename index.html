@@ -2301,8 +2301,8 @@
       <div style="font-size:10px;color:var(--text3);margin-bottom:10px;">Optional — set these for any vessel type. A product sold as bottles or cans can still be delivered and scanned as a case.</div>
       <div class="form-row" style="margin-bottom:0;">
         <div class="form-group" style="margin-bottom:0;">
-          <label>Units per case</label>
-          <input type="number" id="pf-casesize" placeholder="e.g. 12" min="1" style="font-family:var(--font-mono);">
+          <label id="pf-casesize-label">Units per case</label>
+          <input type="number" id="pf-casesize" placeholder="e.g. 12" min="1" max="500" step="1" style="font-family:var(--font-mono);" oninput="pfMarkCaseSize()">
         </div>
         <div class="form-group" style="margin-bottom:0;">
           <label>Case barcode (carton)</label>
@@ -2476,6 +2476,21 @@ function unionBarcodes(...prods) {
   const out = [];
   for(const p of prods) { if(p) out.push(...productBarcodes(p)); }
   return [...new Set(out.filter(Boolean))];
+}
+
+// ─── CASE vs UNIT SCAN (r85 — the desktop half of r74) ─────────────────
+// productBarcodes() folds barcodes[] + barcode + caseBarcode into ONE flat match set, so a
+// scanned CARTON DOES find its product — but the match alone cannot say WHICH field hit.
+// Mobile grew this discriminator in r74; the desktop never had one, so scanning a case here
+// added ONE BASE UNIT: a silent undercount, failing in the opposite direction to the old
+// mobile bug (which inflated). It MUST test caseBarcode explicitly and FIRST — every merge
+// path unions the case code INTO barcodes[], so an "is it in barcodes[]?" test reads true
+// for BOTH kinds. No caseBarcode ⇒ always 'unit'.
+function barcodeMatchKind(p, scannedCode) {
+  if(!p) return 'unit';
+  const cb = normalizeBarcode(p.caseBarcode);
+  if(cb && cb === normalizeBarcode(scannedCode)) return 'case';
+  return 'unit';
 }
 
 function getMasterProduct(name) {
@@ -5171,6 +5186,7 @@ function snapshotCaseFields() {
   const cs = document.getElementById('pf-casesize');
   const cb = document.getElementById('pf-casebarcode');
   _caseFieldSnapshot = { size: cs ? cs.value : null, barcode: cb ? cb.value : null };
+  pfMarkCaseSize();   // r85 — clear/repaint the required flag for whatever just loaded
 }
 
 // Opens the shared product modal in "add new" mode: blank fields, default vessel/units,
@@ -5270,8 +5286,25 @@ function updateProdSoldAs() {
 
   if(vesselDiv) vesselDiv.style.display = noVesselNeeded ? 'none' : 'block';
 
+  // r85 — keep the pack-size requirement visible as the vessel type changes.
+  pfMarkCaseSize();
+
   // Keep the (empty-state only) serve-size suggestions in step with category/vessel.
   renderProdServeHint(cat);
+}
+
+// r85 — a product sold as Cases MUST carry a pack size (saveProduct refuses otherwise; see
+// there for why). Mark the label required and red-border an unusable value so the rule is
+// visible BEFORE the save, not only in the refusal. PURELY PRESENTATIONAL: it never reads a
+// field into the product and never writes one, so r73's snapshot preservation is untouched.
+function pfMarkCaseSize() {
+  const soldAs  = document.getElementById('pf-soldas')?.value || '';
+  const csLabel = document.getElementById('pf-casesize-label');
+  const csInput = document.getElementById('pf-casesize');
+  const needed  = soldAs === 'Cases';
+  if(csLabel) csLabel.textContent = needed ? 'Units per case *' : 'Units per case';
+  if(csInput) csInput.style.borderColor =
+    (needed && validPackSize(csInput.value) === null) ? 'var(--red)' : '';
 }
 
 const PROD_SUBCATS = {
@@ -5507,11 +5540,36 @@ async function saveProduct() {
   const cbRaw     = cbEl ? String(cbEl.value).trim() : '';
   const csTouched = !!csEl && _caseFieldSnapshot.size    !== null && csRaw !== String(_caseFieldSnapshot.size).trim();
   const cbTouched = !!cbEl && _caseFieldSnapshot.barcode !== null && cbRaw !== String(_caseFieldSnapshot.barcode).trim();
-  const caseSize  = csTouched ? (parseInt(csRaw) || null)
+  // r85 — validPackSize, not parseInt: `parseInt('12.5')` is 12, so a typed 12.5 was stored
+  // as a CONFIRMED pack size of 12 — the exact silent-truncation this revision exists to end,
+  // and it slipped past the Cases guard below because the truncation happened first. null now,
+  // which the guard refuses for a Cases product and which leaves a blank (never a wrong
+  // number) on any other. The three r73 branches are otherwise untouched.
+  const caseSize  = csTouched ? validPackSize(csRaw)
                               : (prevProd ? (prevProd.caseSize != null ? prevProd.caseSize : null)
-                                          : (parseInt(csRaw) || null));
+                                          : validPackSize(csRaw));
   const caseBc    = cbTouched ? cbRaw
                               : (prevProd ? (prevProd.caseBarcode || '') : cbRaw);
+
+  // r85 — a Cases product with NO pack size is the state that made the live corruption
+  // possible: LINDAUER BRUT 200ml existed as a Cases product with caseSize null, so every
+  // count of it in cases had to be guessed at (and was, at 12). Refuse to SAVE that
+  // combination. This adds a requirement for ONE soldAs value only — caseSize stays OPTIONAL
+  // for every other vessel type (r73: a bottle-sold product can still arrive in a carton) —
+  // and it validates the RESOLVED value above, so an untouched legacy row carrying an
+  // unusable stored size has to be corrected rather than silently re-saved. It only ever
+  // refuses; it never writes a value, so r73's preserve/clear semantics are unchanged.
+  if(soldAs === 'Cases' && validPackSize(caseSize) === null) {
+    alert(
+      '"Units per case" is required when the vessel type is Cases.\n\n' +
+      'Enter a whole number between 1 and 500 (e.g. 24). Nothing has been saved.\n\n' +
+      'Without it, every count of this product in cases has to be guessed — which is ' +
+      'exactly how a 4-pack ended up stored as 48 bottles.'
+    );
+    const csFocus = document.getElementById('pf-casesize');
+    if(csFocus) { csFocus.style.borderColor = 'var(--red)'; csFocus.focus(); }
+    return;
+  }
   // r44 — multi-barcode: the pf-barcode field accepts several codes. r49 — split on any
   // run of whitespace, commas, semicolons OR hyphens so "123456789 - 987654321" (or a
   // plain space) becomes two codes instead of one malformed string. Barcodes are numeric,
@@ -13890,15 +13948,32 @@ function processDesktopBarcode(code) {
   // Search products by barcode
   const allProds = [...(c?.products||[]), ...masterProducts];
   // r44 — match against ANY of the product's barcodes (incl. case barcode), normalised.
-  const prod = allProds.find(p => productBarcodes(p).includes(normalizeBarcode(code)));
+  const bc   = normalizeBarcode(code);
+  const prod = allProds.find(p => productBarcodes(p).includes(bc));
 
   if(prod) {
     // Known product — beep success, add to count
     playBeep('success');
-    const loc = document.getElementById('manual-location')?.value || 'Main bar';
-    addRow(prod.n || prod.name, loc, '1', prod.soldAs || 'Bottles');
+    const loc  = document.getElementById('manual-location')?.value || 'Main bar';
+    const name = prod.n || prod.name;
+    // r85 — CASE-AWARE. productBarcodes() folds caseBarcode into the flat match set, so a
+    // scanned CARTON landed here and booked ONE BASE UNIT: a live undercount, and the exact
+    // mirror of the r74 mobile bug. barcodeMatchKind says which code actually hit, so a case
+    // scan becomes a Cases row with the pack size pre-filled into r84's Pack cell. When the
+    // size is unknown the cell stays EMPTY and red-bordered and finaliseStocktake refuses —
+    // it is never guessed at 12, which would inflate the line instead of shrinking it.
+    const kind = barcodeMatchKind(prod, bc);
+    const cs   = kind === 'case' ? validPackSize(prod.caseSize) : null;
+    if(kind === 'case') {
+      addRow(name, loc, '1', 'Cases', cs);
+      showPersistToast(cs !== null
+        ? '📦 Case barcode · ' + name + ' · 1 case ×' + cs
+        : '📦 Case barcode · ' + name + ' — no pack size on file. Type units per case in the Pack column.');
+    } else {
+      addRow(name, loc, '1', prod.soldAs || 'Bottles');
+    }
     updateSessionLines();
-    flashScannerZone('var(--green)');
+    flashScannerZone(kind === 'case' && cs === null ? 'var(--amber)' : 'var(--green)');
   } else {
     // Unknown barcode — beep alert, show creation panel
     playBeep('unknown');
@@ -14034,11 +14109,15 @@ function addStockItem(){
   document.getElementById('manual-product').value='';document.getElementById('manual-qty').value='';
   updateSessionLines();
 }
-function addRow(product, location, qty, unit) {
+function addRow(product, location, qty, unit, caseSize) {
   // r84 — pre-fill the Pack cell from the catalogue. Unknown stays EMPTY and red-bordered:
   // an empty field the user must fill is recoverable, a guessed 12 is not.
+  // r85 — an explicit `caseSize` wins over that lookup. A case-barcode scan resolves the
+  // size from the product it actually matched, which may be a MASTER row this venue has no
+  // products[] entry for — the lookup below would find nothing and leave the cell blank.
+  // Both routes go through validPackSize, so an unknown is still EMPTY, never a 12.
   const _prod   = (activeClient?.products || []).find(p => p && (p.n || p.name) === product);
-  const knownCS = _prod ? (parseInt(_prod.caseSize) || 0) : 0;
+  const knownCS = validPackSize(caseSize != null ? caseSize : (_prod ? _prod.caseSize : null));
   const isCases = unit === 'Cases';
   const tr = document.createElement('tr');
   tr.innerHTML = `
@@ -14058,7 +14137,7 @@ function addRow(product, location, qty, unit) {
       </select>
     </td>
     <td style="padding:4px 6px;">
-      <input type="number" class="stk-pack" value="${knownCS > 0 ? knownCS : ''}" min="1" max="500" step="1" placeholder="pack"
+      <input type="number" class="stk-pack" value="${knownCS !== null ? knownCS : ''}" min="1" max="500" step="1" placeholder="pack"
         title="Units per case — required when the unit is Cases"
         style="width:62px;background:var(--bg3);border:1px solid var(--border2);border-radius:7px;padding:4px 8px;color:var(--text);font-family:var(--font-mono);font-size:13px;font-weight:600;outline:none;text-align:right;visibility:${isCases ? 'visible' : 'hidden'};"
         oninput="stkMarkPack(this);updateSessionLines()">
@@ -14108,10 +14187,17 @@ function stkMarkPack(pack) {
 
 // The pack size for a 'Cases' count row, or null when none has been CONFIRMED. There is no 12.
 //  1. r.caseSize — typed into the row's Pack cell, already validated by readCountRow.
-//  2. A MOBILE row falls back to the catalogue value. The phone only offers Cases when
-//     caseSize is set (r38 applyCaseOption disables the option otherwise) and labels it
-//     'Cases (×24)', so the stored number IS the one the counter was shown. Desktop rows get
-//     no such fallback — the Pack cell is their confirmation surface.
+//  2. A MOBILE row falls back to the catalogue value. The premise survives r85, but its
+//     mechanism changed: the phone used to DISABLE Cases when caseSize was unknown (r38),
+//     which is precisely why an unguarded desktop count got made instead. It now OFFERS
+//     Cases and PROMPTS for the size, writing the confirmed number back to the product
+//     before the line is committed. Either way a mobile 'Cases' line only exists for a
+//     product whose caseSize was confirmed, labelled 'Cases (×24)' with the number the
+//     counter was shown. One gap: if the desktop loaded BEFORE the phone wrote the size
+//     back, its in-memory catalogue is stale and this returns null — finaliseStocktake
+//     then refuses BY NAME and a reload fixes it. Refusing is the safe failure; guessing
+//     is not. Desktop rows get no fallback at all — the Pack cell is their confirmation
+//     surface.
 //  3. Otherwise null, and the caller refuses.
 function resolveRowCaseSize(r, prodByName) {
   const confirmed = validPackSize(r && r.caseSize);
@@ -14751,7 +14837,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r84';
+const APP_VERSION = '2026-06-10-r85';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();

@@ -64,8 +64,8 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r84` | `index.html:14754` |
-| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r79` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r80–r84 were desktop-only, so this correctly stays at r79**) |
+| `index.html` | `2026-06-10-r85` | `index.html:14840` |
+| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r85` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; r80–r84 were desktop-only — **r85 is the first shared revision since r79**) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
   Desktop logs it on load (`[AuditPro] build …`); mobile compares it against
@@ -438,20 +438,21 @@ live corruption invisible — LINDAUER BRUT 200ml (no `caseSize`) counted as "4 
 as `{"qty":56,"unit":"Bottles"}`, already 8 + 4×12, with no trace a case was involved, and the
 error then propagated into the next period's `opening` through rollover's deep copy.
 
-- **`validPackSize(raw)`** (`index.html:14079`) is the ONE rule, identical to r75 (mobile
-  barcode link), r79 (mobile add-product) and r82 (stock adjustment): a **whole number, > 0,
+- **`validPackSize(raw)`** (`index.html:14158`) is the ONE rule: a **whole number, > 0,
   ≤ 500**. Returns the number or **null** — never `''`, never `NaN`, so nothing downstream can
-  `|| 12` its way past a blank.
+  `|| 12` its way past a blank. **r85 gave mobile a byte-identical twin** (`mobile.html:2270`)
+  and routed r75 (barcode link) and r79 (add-product) through it, so the rule now exists in
+  exactly two places instead of five hand-written copies.
 - The desktop count row has a **Pack cell** (6th column, inserted BEFORE the actions cell so
   `cells[0..3]` keep their indices for `readCountRow` and `buildCombinedTable`). Revealed by
-  `stkSyncUnitRow` (`:14090`) exactly when the unit is `Cases` — r82's `saSyncUnitRow` pattern,
+  `stkSyncUnitRow` (`:14169`) exactly when the unit is `Cases` — r82's `saSyncUnitRow` pattern,
   walking the row instead of an id because count rows carry no ids. `visibility`, not
   `display`, so the column never reflows mid-count. Pre-filled from the catalogue; **empty and
   red-bordered when unknown**. `addRow` calls `stkMarkPack` after appending so the initial
   paint and every later edit go through the same rule.
 - **`readCountRow` reports `caseSize` ONLY for a `Cases` row.** The cell stays pre-filled behind
   a Bottles row, and reporting that would claim a confirmation the user never made.
-- **`resolveRowCaseSize(r, prodByName)`** (`:14116`) — `r.caseSize` first; a **mobile** row falls
+- **`resolveRowCaseSize(r, prodByName)`** (`:14202`) — `r.caseSize` first; a **mobile** row falls
   back to the catalogue (the phone only offers `Cases` when `caseSize` is set — r38
   `applyCaseOption` — and labels it `Cases (×24)`, so the stored number IS what the counter
   saw); otherwise **null**. There is no 12.
@@ -465,6 +466,73 @@ error then propagated into the next period's `opening` through rollover's deep c
 - **`#manual-unit` (`index.html:668`) lost its `Cases` option.** `addStockItem` passes
   `hit.soldAs || manualUnit` and a catalogue product ALWAYS has a `soldAs`, so that dropdown is
   never consulted — offering `Cases` there implied a control that does not exist.
+
+### Closing the last three pack-size holes (r85)
+r84 fixed the desktop **count row**. Three ways to create the same corruption remained, all
+confirmed by diagnostic, and one of them was the desktop's own scanner.
+
+**FIX 1 — a `Cases` product cannot be saved without a pack size.** `saveProduct` accepted
+`soldAs:'Cases'` with `caseSize` null; that is the state LINDAUER BRUT 200ml was in, and it is
+what forced every count of it to be a guess. The refusal validates the **resolved** value, so a
+legacy row with an unusable stored size must be corrected rather than silently re-saved.
+- **r73's snapshot semantics are untouched.** The three branches (untouched → keep stored;
+  deliberately emptied → clear; never rendered → preserve) are unchanged; r85 only **refuses**,
+  it never writes. `caseSize` stays **optional for every other vessel type** — a bottle-sold
+  product can still arrive in a carton.
+- `parseInt(csRaw) || null` became `validPackSize(csRaw)`. **`parseInt('12.5')` is 12**, so a
+  typed 12.5 was stored as a *confirmed* pack size of 12 — and the truncation happened BEFORE
+  the new guard, so the guard would have passed it. Found by the harness, not by reading.
+- `pfMarkCaseSize()` marks the label `Units per case *` and red-borders an unusable value while
+  the modal is open. Purely presentational — it reads no field into the product.
+
+**FIX 2 — mobile RELAXES the Cases refusal and prompts instead.** This is the counter-intuitive
+one. r38 **disabled** the Cases option whenever `caseSize` was unknown; that never stopped
+anyone counting cases, it just moved the count to the unguarded desktop, where the missing size
+defaulted to 12. `applyCaseOption` now leaves Cases **selectable for every product** and labels
+it `Cases (set size)`; `countUnitChanged(which)` (wired to `#scan-unit`/`#search-unit`) opens
+`promptPackSize` on selection, and **cancel or an invalid entry reverts to the base unit**.
+- A valid entry goes through `savePackSize(product, cs)` — a **minimal patch**, `{n, name,
+  caseSize}` and nothing else. `caseSize` is already in `pushProductToSupabase`'s blank-guard
+  list (r79), so this can only ever SET a size, never erase one.
+- `applyCaseOption` still **never auto-selects** Cases, and still snaps back a selection carried
+  over from the previous product.
+- Cost: **zero taps when the size is known, one when it isn't.**
+
+**FIX 3 — the 📦 CASE badge is a tap target.** It displayed the pack size read-only and
+committed it unshown, which is exactly wrong for a product that arrives in several pack sizes:
+scan the 24 carton, tap, type 6. It is now a `<button>` (44px) calling `editScanPackSize()`,
+pre-filled with the current size, and it **selects Cases** on a valid entry so the number typed
+is the number the line is expanded by. `setScanCaseBadge(caseSize, isCase)` has three states —
+confirmed size / no size yet (amber) / hidden. **`isCase` gates it**: without that second
+argument a unit scan of any product that merely *has* a `caseSize` would have painted a CASE
+badge over a Bottles line. No `casePacks[]` array — that is a schema migration for later.
+
+**FIX 4 — `barcodeMatchKind` desktop parity.** Mobile grew the case/unit discriminator in r74;
+`index.html` had **zero** occurrences of it, while `productBarcodes()` folded `caseBarcode` into
+the flat match set — so a scanned CARTON matched the product and booked **one base unit**. A
+live undercount, failing in the **opposite** direction to the old mobile bug.
+- Ported verbatim; it must test `caseBarcode` **explicitly and FIRST** (every merge path unions
+  the case code INTO `barcodes[]`, so an "is it in `barcodes[]`?" test reads true for both).
+- `processDesktopBarcode` now adds a **Cases row with the pack size pre-filled** into r84's Pack
+  cell. Unknown ⇒ the cell stays **empty and red-bordered** and `finaliseStocktake` refuses;
+  it is never guessed at 12.
+- **`addRow(product, location, qty, unit, caseSize)` gained an optional 5th argument.** A case
+  scan can match a **master** product this venue has no `products[]` row for, and `addRow`'s
+  catalogue lookup would find nothing and leave the cell blank. Both routes go through
+  `validPackSize`.
+
+**The last gate on each side.** `finaliseStocktake` refuses a `Cases` row that resolves to null
+(r84, unchanged); mobile's `addItem` refuses a `Cases` line whose product has no confirmed size.
+Neither guesses.
+
+**Fast mode was NOT given a prompt** — it is explicitly no-interaction, and warn-and-book-base-
+units is correct there. Its validity *rule* was switched to `validPackSize` so a malformed size
+books base units instead of being refused downstream by `addItem` and losing the line.
+
+**Verified by a 66-check harness** (34 desktop / 32 mobile) running the **real** scripts in a
+node `vm` against a DOM stub built from the real markup — including end-to-end
+`addRow → readCountRow → resolveRowCaseSize → finaliseStocktake` arithmetic (4 cases of 4 + 8
+singles = **24**, where the live bug stored 56) and every r73 preservation branch.
 
 **STILL CARRYING `|| 12` — deliberately, do NOT "finish the job" without a harness:**
 `countToUnits` (`:6228`), the live delivery merge (`:6464`), `fallbackSessionPurchases`
@@ -482,9 +550,12 @@ before and after the period closes, and a pack size confirmed in the invoice rev
 ### Case handling
 `unionBarcodes()` flattens `barcode`, `barcodes[]` **and** `caseBarcode` into one flat match
 set — so a case barcode matches but carries no signal on its own. **The discriminator must test
-`caseBarcode` explicitly**, or a case scan books 1 bottle (the r74 bug). `applyCaseOption()`
-only **enables** the Cases option, it never selects it — and `countToUnits`' `caseSize || 12`
-fallback turns an unguarded `Cases` selection into a silent 12× inflation.
+`caseBarcode` explicitly**, or a case scan books 1 bottle (the r74 bug on mobile, the r85 bug on
+desktop). `barcodeMatchKind()` now exists in **both** files. `applyCaseOption()` still never
+selects the Cases option — but since r85 it no longer **disables** it either: it prompts for the
+pack size instead. `countToUnits`' `caseSize || 12` fallback turns an unguarded `Cases`
+selection into a silent 12× inflation, which is why every path that can select `Cases` confirms
+the size first.
 
 ---
 
@@ -851,9 +922,11 @@ clearStagedCount()
 // Deliveries / periods
 resolveDeliveryPeriod(c, d) / deliveriesForSession(c, sess)
 
-// Count rows / pack size (r84)
-addRow(product, location, qty, unit) / readCountRow(tr) / removeRow(btn)
+// Count rows / pack size (r84 / r85)
+addRow(product, location, qty, unit, caseSize) / readCountRow(tr) / removeRow(btn)
 validPackSize(raw) / stkSyncUnitRow(sel) / stkMarkPack(pack) / resolveRowCaseSize(r, prodByName)
+barcodeMatchKind(p, scannedCode)   // r85 — desktop parity with r74; test caseBarcode FIRST
+pfMarkCaseSize()                   // r85 — 'Units per case *' + red border while the modal is open
 
 // Products
 renderProducts(c, query) / editProduct(idx) / deleteProduct(idx) / saveProduct()
@@ -891,6 +964,8 @@ saCloseProdLists(exceptI) / saMarkProdBinding(i) / saLineProductChanged(i) / saR
 ```javascript
 processBarcode(barcode)         // Match barcode → product, case, link mode, or create
 unionBarcodes(...prods)         // Flatten barcode + barcodes[] + caseBarcode into a match set
+validPackSize(raw) / promptPackSize(product, current) / savePackSize(product, cs)  // r85
+countUnitChanged(which) / editScanPackSize()   // r85 — the two Cases capture surfaces
 showScanResult(product, kind)   // Scan result card (kind distinguishes unit vs case)
 applyCaseOption(selectId, prod) // ENABLE the Cases option (never auto-selects it)
 setScanCaseBadge(caseSize)
@@ -939,7 +1014,9 @@ const APP_VERSION             // :14754
 8. **Writes must use `currentSession()`, reads may use `viewedSession()`** — never the reverse.
 9. **Never write to a closed period** — reopen it, amend, re-close (oldest-first).
 10. **`countToUnits`' `caseSize || 12`** silently 12×'s any entry whose unit is `'Cases'` —
-    store base units, never `'Cases'`, when synthesising an entry.
+    store base units, never `'Cases'`, when synthesising an entry. Every path that can SELECT
+    `Cases` must confirm the pack size first (r84 desktop count row, r85 everywhere else);
+    `validPackSize` is the one rule and it returns **null**, never a fallback.
 11. **Mobile product pushes must be minimal patches keyed by name**, or they duplicate rows and
     erase desktop-only fields.
 12. **`clients = []` at boot** — there is no hardcoded demo data; everything loads from Supabase.

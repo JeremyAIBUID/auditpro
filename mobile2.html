@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r79';
+const APP_VERSION = '3.8-2026-06-10-r85';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -449,8 +449,12 @@ select.inp-m{cursor:pointer;}
         </div>
         <!-- r74 — shown by setScanCaseBadge() when the code scanned was the product's
              CASE barcode, so a case scan is obvious at a glance and can't be mistaken
-             for a single-unit scan. -->
-        <div id="scan-case-badge" style="display:none;margin-top:6px;padding:4px 9px;border-radius:8px;background:rgba(200,240,100,0.14);border:1px solid rgba(200,240,100,0.4);color:var(--accent);font-family:var(--font-ui);font-size:12px;font-weight:700;letter-spacing:0.5px;">📦 CASE</div>
+             for a single-unit scan.
+             r85 — it is now a BUTTON. The pack size used to be displayed read-only and
+             committed unshown, which is exactly wrong for a product that arrives in more
+             than one pack size: scan the 24 carton, tap, type 6. Same prompt as the unit
+             selector. 44px min so it is a real tap target, not a decoration. -->
+        <button type="button" id="scan-case-badge" onclick="editScanPackSize()" style="display:none;align-items:center;min-height:44px;margin-top:6px;padding:6px 12px;border-radius:8px;background:rgba(200,240,100,0.14);border:1px solid rgba(200,240,100,0.4);color:var(--accent);font-family:var(--font-ui);font-size:12px;font-weight:700;letter-spacing:0.5px;cursor:pointer;touch-action:manipulation;">📦 CASE</button>
       </div>
       <div class="fraction-row" id="scan-fracs" style="display:none;">
         <button class="frac-btn" onclick="setScanQty(1)">1</button>
@@ -461,7 +465,7 @@ select.inp-m{cursor:pointer;}
       <div class="qty-row" id="scan-qty-row" style="display:none;">
         <button class="qty-btn" onclick="adjustQty(-1)">−</button>
         <input class="qty-input" type="number" id="scan-qty" value="1" min="0" step="1" inputmode="numeric" pattern="[0-9]*">
-        <select class="unit-select" id="scan-unit"><option>Bottles</option><option>Cans</option><option>Cases</option><option>Kegs</option><option>Kg</option><option>Litres</option></select>
+        <select class="unit-select" id="scan-unit" onchange="countUnitChanged('scan')"><option>Bottles</option><option>Cans</option><option>Cases</option><option>Kegs</option><option>Kg</option><option>Litres</option></select>
         <button class="qty-btn" onclick="adjustQty(1)">+</button>
       </div>
       <!-- r72 — divert a scanned product to the scale without re-searching (mirrors the
@@ -521,7 +525,7 @@ select.inp-m{cursor:pointer;}
       <div class="qty-row" id="search-qty-row" style="display:none;">
         <button class="qty-btn" onclick="adjustSearchQty(-1)">−</button>
         <input class="qty-input" type="number" id="search-qty" value="1" min="0" step="1" inputmode="numeric" pattern="[0-9]*">
-        <select class="unit-select" id="search-unit"><option>Bottles</option><option>Cans</option><option>Cases</option><option>Kegs</option><option>Kg</option><option>Litres</option></select>
+        <select class="unit-select" id="search-unit" onchange="countUnitChanged('search')"><option>Bottles</option><option>Cans</option><option>Cases</option><option>Kegs</option><option>Kg</option><option>Litres</option></select>
         <button class="qty-btn" onclick="adjustSearchQty(1)">+</button>
       </div>
       <!-- r71 — divert an already-selected product to the scale without re-searching.
@@ -1816,10 +1820,11 @@ function saveMobileProduct() {
   // r79 — CASE SIZE, the one gap that yields a WRONG number instead of a missing one.
   // Validation is the r75 link-mode rule verbatim: whole number, > 0, ≤ 500 — refuse
   // rather than store something countToUnits will silently turn into 12.
+  // r85 — "verbatim" is now literal: it calls validPackSize, the one shared rule.
   let caseSize = null;
   if(soldAs === 'Cases') {
-    caseSize = parseFloat(document.getElementById('mp-casesize')?.value) || 0;
-    if(!(caseSize > 0) || caseSize !== Math.round(caseSize) || caseSize > 500) {
+    caseSize = validPackSize(document.getElementById('mp-casesize')?.value);
+    if(caseSize === null) {
       toast('⚠ Enter units per case (a whole number, e.g. 24)');
       document.getElementById('mp-casesize')?.focus();
       return;
@@ -2256,6 +2261,51 @@ function productBarcodes(p) {
   if(p.caseBarcode) out.push(p.caseBarcode);
   return [...new Set(out.map(b => normalizeBarcode(b)).filter(Boolean))];
 }
+// --- PACK SIZE (r85) -----------------------------
+// The ONE pack-size rule on the phone, identical to desktop r84 and to the inline checks
+// r75 (barcode link) and r79 (add product) grew independently: a whole number, greater than
+// zero, at most 500. Returns the number or null — never '', never NaN — so nothing
+// downstream can `|| 12` its way past a blank. Both of those older call sites now route
+// through it, so the rule cannot drift between the three places that capture a pack size.
+function validPackSize(raw) {
+  const t = String(raw == null ? '' : raw).trim();
+  if(!t || t.indexOf('.') >= 0) return null;
+  const n = parseInt(t, 10);
+  if(!Number.isFinite(n) || n <= 0 || n > 500) return null;
+  return n;
+}
+
+// The ONE pack-size question, lifted out of r75's link flow so the unit selector, the case
+// badge and the link flow all ask it the same way. Returns a validated number, or null when
+// cancelled or invalid — the caller then REFUSES. Nothing here ever guesses.
+function promptPackSize(product, current) {
+  const name = (product && (product.n || product.name)) || 'this product';
+  const ans  = prompt('How many units in ONE case of ' + name + '?',
+                      (current === 0 || current) ? String(current) : '');
+  if(ans === null) return null;                         // cancelled
+  const cs = validPackSize(ans);
+  if(cs === null) { toast('⚠ Enter a whole case size (e.g. 24) — nothing saved'); return null; }
+  return cs;
+}
+
+// Persist a confirmed pack size. MINIMAL PATCH ONLY: pushProductToSupabase spreads
+// {...cur, ...prod} onto the stored row and finds it by NAME, so it must be handed n/name
+// plus the single field being changed — a fuller object blanks every desktop-only field the
+// phone doesn't model (this is how caseSize/caseBarcode were wiped before r73). caseSize is
+// in its blank-guard list (r79), so this can only ever SET a size, never erase one.
+// saveToStorage() only persists _userAdded products, so for a catalogue product the local
+// carrier is the in-memory PRODUCTS entry (good for this session) and Supabase is what makes
+// it durable — the same arrangement r75's link flow uses.
+async function savePackSize(product, cs) {
+  const n = validPackSize(cs);
+  if(!product || n === null) return;
+  const name = product.n || product.name || '';
+  product.caseSize = n;
+  saveToStorage();
+  if(!name) { toast('⚠ Pack size kept on this phone only — that product has no name'); return; }
+  await pushProductToSupabase({ n: name, name: name, caseSize: n });
+}
+
 // Union two+ products' barcode lists into a deduped, normalised array (primary first).
 function unionBarcodes(...prods) {
   const out = [];
@@ -2433,15 +2483,12 @@ async function linkBarcodeToProduct(idx) {
     // A case barcode with no case size is worse than no link: r74 warns on every future
     // scan, and countToUnits'/desktop's `caseSize || 12` fallback would inflate a line 12×.
     // So capture the size here and refuse to store the code without one.
-    let cs = parseFloat(prod.caseSize) || 0;
-    if(!(cs > 0)) {
-      const ans = prompt('How many units in ONE case of ' + name + '?', '');
-      if(ans === null) return;                    // prompt cancelled — stay in link mode
-      cs = parseFloat(ans) || 0;
-      if(!(cs > 0) || cs !== Math.round(cs) || cs > 500) {
-        toast('⚠ Enter a whole case size (e.g. 24) — nothing linked');
-        return;
-      }
+    // r85 — this block is where promptPackSize/validPackSize came FROM; it now calls them,
+    // so the link flow, the unit selector and the case badge cannot drift apart.
+    let cs = validPackSize(prod.caseSize);
+    if(cs === null) {
+      cs = promptPackSize(prod, '');
+      if(cs === null) return;   // cancelled or invalid — nothing linked, still in link mode
     }
     if(prod.caseBarcode && normalizeBarcode(prod.caseBarcode) !== code &&
        !confirm(name + ' already has case barcode ' + prod.caseBarcode + '.\n\nReplace it with ' + code + '?')) return;
@@ -2678,34 +2725,92 @@ function applyDefaultUnit(selectId, product) {
   if([...sel.options].some(o => o.value === want)) sel.value = want;
 }
 
-// Offer "Cases" in a unit <select> only when the product defines a case size, and
-// label it with that size. Without a caseSize the option is disabled so a case can't
-// be counted for a product that has no defined case quantity — and any stale "Cases"
-// selection carried over from a previous product is snapped back to its base unit.
+// Label the "Cases" option in a unit <select> with the product's pack size.
+// r85 — RELAXED, and this is the counter-intuitive half of the fix. r38 DISABLED the
+// option whenever caseSize was unknown, which never stopped anyone counting cases: it just
+// pushed the count onto the desktop, which had no such guard and defaulted the missing size
+// to 12. That is exactly how the live LINDAUER line was created. Cases now stays SELECTABLE
+// for every product; choosing it for a product with no confirmed size opens the prompt (see
+// countUnitChanged) and the number is written back to the product before any line is
+// committed. Cost: zero taps when the size is known, one when it isn't.
+// The option is still never AUTO-selected — counting in cases stays a deliberate switch —
+// and a "Cases" selection carried over from the PREVIOUS product is still snapped back,
+// because that is not a choice anyone made for THIS one.
 function applyCaseOption(selectId, product) {
   const sel = document.getElementById(selectId);
   if(!sel) return;
   const opt = [...sel.options].find(o => o.value === 'Cases' || o.textContent.indexOf('Cases') === 0);
   if(!opt) return;
-  const cs = parseFloat(product && product.caseSize) || 0;
-  opt.value = 'Cases'; // pin the value so the changing label can't alter what gets stored
-  if(cs > 0) {
-    opt.disabled    = false;
-    opt.textContent = 'Cases (×' + cs + ')';
-  } else {
-    opt.disabled    = true;
-    opt.textContent = 'Cases';
-    if(sel.value === 'Cases') sel.value = defaultCountUnit(product);
+  const cs = validPackSize(product && product.caseSize);
+  opt.value    = 'Cases'; // pin the value so the changing label can't alter what gets stored
+  opt.disabled = false;
+  opt.textContent = cs !== null ? 'Cases (×' + cs + ')' : 'Cases (set size)';
+  if(cs === null && sel.value === 'Cases') sel.value = defaultCountUnit(product);
+}
+
+// r85 — the Cases branch of the unit selector, wired to #scan-unit and #search-unit.
+// Selecting Cases for a product with no confirmed pack size asks for it once. Cancel or an
+// invalid entry REVERTS to the base unit: a Cases line whose size nobody confirmed is what
+// the desktop's `caseSize || 12` used to turn into a silent 12× inflation.
+function countUnitChanged(which) {
+  const sel  = document.getElementById(which + '-unit');
+  const prod = which === 'scan' ? scannedProduct : searchProduct;
+  if(!sel) return;
+  // The badge tracks what this LINE will commit, not what was scanned — switching away
+  // from Cases makes the pack size irrelevant to it, so it stops claiming one.
+  if(sel.value !== 'Cases') { if(which === 'scan') setScanCaseBadge(0); return; }
+  if(!prod) return;
+  let cs = validPackSize(prod.caseSize);
+  if(cs === null) {
+    cs = promptPackSize(prod, '');
+    if(cs === null) {
+      sel.value = defaultCountUnit(prod);
+      applyCaseOption(which + '-unit', prod);
+      if(which === 'scan') setScanCaseBadge(0);
+      return;
+    }
+    savePackSize(prod, cs);           // fire-and-forget: it never throws, and toasts itself
   }
+  applyCaseOption(which + '-unit', prod);   // relabel 'Cases (×N)'
+  sel.value = 'Cases';                      // applyCaseOption's snap-back cannot fire now
+  if(which === 'scan') setScanCaseBadge(cs, true);
+}
+
+// r85 — the case badge is a tap target (see the markup). Same prompt, pre-filled with the
+// current size, so a product that arrives in several pack sizes is one tap away from the
+// right one. Editing it selects Cases, so the number the user just typed is the number the
+// committed line is expanded by. No casePacks[] array — that is a schema migration.
+function editScanPackSize() {
+  const prod = scannedProduct;
+  if(!prod) return;
+  const cur = validPackSize(prod.caseSize);
+  const cs  = promptPackSize(prod, cur !== null ? cur : '');
+  if(cs === null) return;              // cancelled or invalid — the line is untouched
+  savePackSize(prod, cs);
+  applyCaseOption('scan-unit', prod);
+  const sel = document.getElementById('scan-unit');
+  if(sel) sel.value = 'Cases';
+  setScanCaseBadge(cs, true);
+  toast('📦 ' + (prod.n || prod.name) + ' · 1 case = ' + cs, true);
 }
 
 // r74 — paint (or clear) the "this was a case barcode" badge on the scan result card.
-function setScanCaseBadge(caseSize) {
+// r85 — three states, and the badge is now a tappable button:
+//   * a case line with a confirmed size  → '📦 CASE ×N · tap to change'
+//   * a case line with no size yet       → '📦 CASE · tap to set pack size' (amber)
+//   * anything else                      → hidden
+// The second argument is what makes the no-size state reachable; without it a zero size
+// still hides the badge, so the two existing setScanCaseBadge(0) hide calls are unchanged.
+function setScanCaseBadge(caseSize, isCase) {
   const el = document.getElementById('scan-case-badge');
   if(!el) return;
-  const cs = parseFloat(caseSize) || 0;
-  if(cs > 0) { el.textContent = '📦 CASE ×' + cs; el.style.display = 'inline-block'; }
-  else       { el.style.display = 'none'; }
+  const cs = validPackSize(caseSize);
+  if(!isCase) { el.style.display = 'none'; return; }   // not a case line — say nothing
+  el.style.display     = 'inline-flex';
+  el.textContent       = cs !== null ? '📦 CASE ×' + cs + ' · tap to change'
+                                     : '📦 CASE · tap to set pack size';
+  el.style.borderColor = cs !== null ? 'rgba(200,240,100,0.4)' : 'rgba(240,192,64,0.6)';
+  el.style.color       = cs !== null ? 'var(--accent)' : 'var(--amber)';
 }
 
 // `kind` ('unit' | 'case') comes from barcodeMatchKind — which of the product's codes was
@@ -2760,15 +2865,18 @@ function showScanResult(product, kind) {
   // HARD GUARD: a case scan with no usable caseSize must NOT select Cases. applyCaseOption
   // would snap it back anyway, and if it ever stuck, countToUnits' `caseSize || 12`
   // fallback would silently inflate that line 12×. Fall back to the base unit and warn.
-  const _cs      = parseFloat(product.caseSize) || 0;
-  const _isCase  = kind === 'case' && _cs > 0;
-  const _caseWarn= kind === 'case' && _cs <= 0;
+  // r85 — the guard is unchanged (no confirmed size ⇒ Cases is NOT preselected), but the
+  // dead end is gone: the badge now shows for a case scan either way, and tapping it is the
+  // one tap that turns the unknown into a confirmed size and switches the line to Cases.
+  const _cs      = validPackSize(product.caseSize);
+  const _isCase  = kind === 'case' && _cs !== null;
+  const _caseWarn= kind === 'case' && _cs === null;
   if(_isCase) {
     const sel = document.getElementById('scan-unit');
     const opt = sel && [...sel.options].find(o => o.value === 'Cases');
     if(sel && opt && !opt.disabled) sel.value = 'Cases';
   }
-  setScanCaseBadge(_isCase ? _cs : 0);
+  setScanCaseBadge(_cs, kind === 'case');
   // Guarantee the qty pad is actually on-screen no matter what fed the scan (camera or
   // plug-in scanner) or which tab was active. Mirror showUnknownBarcode: force the scan
   // tab visible, stop any live camera (its feed sits above the pad and would cover it),
@@ -2779,7 +2887,7 @@ function showScanResult(product, kind) {
   if(_camZone) _camZone.style.display = 'none';
   setTimeout(() => document.getElementById('scan-result')?.scrollIntoView({ behavior:'smooth', block:'center' }), 100);
   // One toast only — the case warning must not be overwritten by the generic "Scanned:".
-  if(_caseWarn) toast('⚠ Case barcode — no case size set for ' + product.name + '. Counting single units — set the case size in products.');
+  if(_caseWarn) toast('⚠ Case barcode — no pack size for ' + product.name + '. Tap the 📦 CASE badge to set it, or count single units.');
   else          toast((_isCase ? '📦 CASE ×' + _cs + ' · ' : 'Scanned: ') + product.name, true);
 }
 
@@ -3575,6 +3683,15 @@ function playBeep(type) {
 // ─── ADD ITEM CORE ───────────────────────────────
 function addItem(product, qty, unit, method) {
   if(!currentArea) { toast('Select an area first'); return; }
+  // r85 — LAST GATE. A 'Cases' line carries no pack size of its own: the desktop expands it
+  // using the product's caseSize, and with none confirmed finaliseStocktake refuses the whole
+  // count (r84). Every path that can select Cases confirms the size first — countUnitChanged,
+  // editScanPackSize, the r74 case scan, fast mode — so arriving here without one means a
+  // path was missed. Refuse the line rather than commit one that cannot be expanded.
+  if((unit || '') === 'Cases' && validPackSize(product && product.caseSize) === null) {
+    toast('⚠ No pack size for ' + ((product && product.name) || 'this product') + ' — pick Cases again to set units per case');
+    return;
+  }
   if(!session.counts[currentArea]) session.counts[currentArea] = [];
   // Always push a NEW entry — every capture (weigh or unit-count) is its own line
   // so each can be re-checked / removed individually. Desktop sums per product
@@ -3868,10 +3985,15 @@ processBarcode = function(barcode) {
     // bottle. Route through the same default-unit logic the result card uses, and use
     // Cases when the code scanned was the CASE barcode — but only when caseSize is
     // usable, or countToUnits' `caseSize || 12` fallback would inflate the line 12×.
+    // r85 — the BEHAVIOUR here is deliberately untouched (fast mode never prompts: warn and
+    // book base units), but the validity RULE is now validPackSize, the same one addItem's
+    // gate and the desktop use. Left on parseFloat, a malformed size like 24.5 passed here
+    // and was then refused downstream — fast mode would have lost the line instead of
+    // booking base units, which is the one thing this branch must never do.
     const kind = barcodeMatchKind(product, bc);
-    const cs   = parseFloat(product.caseSize) || 0;
-    const warn = kind === 'case' && cs <= 0;
-    const unit = (kind === 'case' && cs > 0) ? 'Cases' : defaultCountUnit(product);
+    const cs   = validPackSize(product.caseSize);
+    const warn = kind === 'case' && cs === null;
+    const unit = (kind === 'case' && cs !== null) ? 'Cases' : defaultCountUnit(product);
     addItem(product, 1, unit, 'scan');
     // addItem toasts on success, so the warning has to land AFTER it or it's overwritten.
     if (warn) toast('⚠ Case barcode — no case size for ' + product.name + '. Added 1 ' + unit + ' — set the case size in products.');
