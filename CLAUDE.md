@@ -64,8 +64,8 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r83` | `index.html:14649` |
-| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r79` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r80–r83 were desktop-only, so this correctly stays at r79**) |
+| `index.html` | `2026-06-10-r84` | `index.html:14754` |
+| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r79` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r80–r84 were desktop-only, so this correctly stays at r79**) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
   Desktop logs it on load (`[AuditPro] build …`); mobile compares it against
@@ -429,6 +429,55 @@ delete it back out. The live September 2026 period hit exactly this.
 ```
 
 **Density values:** Spirits 0.9467 · Wine 0.9805 · Beer/Cider 1.014 · Liqueur 1.06
+
+### Case handling — a pack size is CONFIRMED, never decided (r84)
+**There were SIX independent `|| 12` fallbacks.** `countToUnits` is only one of them, and for
+the count path it never even fires: **`finaliseStocktake` expands `Cases` to base units and
+RELABELS the entry to a base unit** before `countToUnits` ever sees it. That is what made the
+live corruption invisible — LINDAUER BRUT 200ml (no `caseSize`) counted as "4 cases" was stored
+as `{"qty":56,"unit":"Bottles"}`, already 8 + 4×12, with no trace a case was involved, and the
+error then propagated into the next period's `opening` through rollover's deep copy.
+
+- **`validPackSize(raw)`** (`index.html:14079`) is the ONE rule, identical to r75 (mobile
+  barcode link), r79 (mobile add-product) and r82 (stock adjustment): a **whole number, > 0,
+  ≤ 500**. Returns the number or **null** — never `''`, never `NaN`, so nothing downstream can
+  `|| 12` its way past a blank.
+- The desktop count row has a **Pack cell** (6th column, inserted BEFORE the actions cell so
+  `cells[0..3]` keep their indices for `readCountRow` and `buildCombinedTable`). Revealed by
+  `stkSyncUnitRow` (`:14090`) exactly when the unit is `Cases` — r82's `saSyncUnitRow` pattern,
+  walking the row instead of an id because count rows carry no ids. `visibility`, not
+  `display`, so the column never reflows mid-count. Pre-filled from the catalogue; **empty and
+  red-bordered when unknown**. `addRow` calls `stkMarkPack` after appending so the initial
+  paint and every later edit go through the same rule.
+- **`readCountRow` reports `caseSize` ONLY for a `Cases` row.** The cell stays pre-filled behind
+  a Bottles row, and reporting that would claim a confirmation the user never made.
+- **`resolveRowCaseSize(r, prodByName)`** (`:14116`) — `r.caseSize` first; a **mobile** row falls
+  back to the catalogue (the phone only offers `Cases` when `caseSize` is set — r38
+  `applyCaseOption` — and labels it `Cases (×24)`, so the stored number IS what the counter
+  saw); otherwise **null**. There is no 12.
+- **`finaliseStocktake` REFUSES** when any `Cases` row resolves to null, names the offending
+  products, and writes nothing. It does not guess and it does not partially save.
+- **Provenance (`_caseSize`, `_caseQty`, `_caseMixed`)** is written onto the closing entry.
+  **Nothing computes from them.** They exist because the relabel destroys the evidence: "56
+  Bottles" with no `_caseQty` is a genuine 56-bottle count; with `_caseQty` 4 / `_caseSize` 4 it
+  is four cases of four plus eight singles. `_caseMixed` marks a product counted at two
+  different pack sizes across areas, where a single `_caseSize` would be the same quiet lie.
+- **`#manual-unit` (`index.html:668`) lost its `Cases` option.** `addStockItem` passes
+  `hit.soldAs || manualUnit` and a catalogue product ALWAYS has a `soldAs`, so that dropdown is
+  never consulted — offering `Cases` there implied a control that does not exist.
+
+**STILL CARRYING `|| 12` — deliberately, do NOT "finish the job" without a harness:**
+`countToUnits` (`:6228`), the live delivery merge (`:6464`), `fallbackSessionPurchases`
+(`:6527`), the frozen closed branch (`:6556`), `sessionOverallVariancePct` (`:4168`). **All five
+read FROZEN history**; `:6556` exists specifically to expand pre-r55 sessions still holding raw
+`unit:'Cases'` entries. Changing them silently RE-VALUES closed periods. That is a separate
+build gated on a before/after harness over every stored period.
+
+**Known inconsistency (not fixed here):** the live merge (`:6464`) prefers
+`prodMap[name].caseSize` **over** `line.caseSize`, while the frozen and fallback branches
+(`:6527`/`:6556`) prefer `entry.caseSize` **first** — so the same invoice can expand differently
+before and after the period closes, and a pack size confirmed in the invoice review modal
+(`:11625` resolves it onto the line) is discarded by the live path.
 
 ### Case handling
 `unionBarcodes()` flattens `barcode`, `barcodes[]` **and** `caseBarcode` into one flat match
@@ -802,6 +851,10 @@ clearStagedCount()
 // Deliveries / periods
 resolveDeliveryPeriod(c, d) / deliveriesForSession(c, sess)
 
+// Count rows / pack size (r84)
+addRow(product, location, qty, unit) / readCountRow(tr) / removeRow(btn)
+validPackSize(raw) / stkSyncUnitRow(sel) / stkMarkPack(pack) / resolveRowCaseSize(r, prodByName)
+
 // Products
 renderProducts(c, query) / editProduct(idx) / deleteProduct(idx) / saveProduct()
 addToMasterCatalogue(p) / getMasterProduct(name) / masterSlug(name) / syncMasterToClient(c)
@@ -868,7 +921,7 @@ const DENSITY                 // :6142 — { spirits:0.9467, wine:0.9805, beer:1
 const REPORT_CAT_THRESHOLDS   // :3755
 const VAR_PCT_MIN_EXPECTED    // :7005 — 1 unit; below this no variance % is quoted (r81)
 const ADJUSTMENT_REASONS      // :11936 — transfer_in/out, wastage, breakage, staff, promo, sample, other (r82)
-const APP_VERSION             // :14649
+const APP_VERSION             // :14754
 ```
 
 ---
