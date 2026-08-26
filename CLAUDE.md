@@ -64,7 +64,7 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r86` | `index.html:14971` |
+| `index.html` | `2026-06-10-r87` | `index.html:15091` |
 | `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r85` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86 is desktop-only**, so mobile correctly still reads r85) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
@@ -534,13 +534,11 @@ node `vm` against a DOM stub built from the real markup — including end-to-end
 `addRow → readCountRow → resolveRowCaseSize → finaliseStocktake` arithmetic (4 cases of 4 + 8
 singles = **24**, where the live bug stored 56) and every r73 preservation branch.
 
-**STILL CARRYING `|| 12` — deliberately, do NOT "finish the job" without a harness:**
-`countToUnits` (`:6286`), the live delivery merge (`:6535`), `fallbackSessionPurchases`
-(`:6601`), the frozen closed branch (`:6634`), `sessionOverallVariancePct` (`:4183`). **All five
-read FROZEN history**; `:6634` exists specifically to expand pre-r55 sessions still holding raw
-`unit:'Cases'` entries. Changing them silently RE-VALUES closed periods. That is a separate
-build gated on a before/after harness over every stored period. **r86 changed the ORDER of the
-operands at `:6535` but not the terminal fallback** — see below.
+**The five terminal `|| 12` fallbacks were REMOVED in r87** — `countToUnits`, the live
+delivery merge, `fallbackSessionPurchases`, the frozen closed branch and
+`sessionOverallVariancePct`. **All five read FROZEN history**, which is exactly why the removal
+was gated on a before/after harness over every stored period: changing them can silently
+RE-VALUE closed periods. That gate has now been run — see the r87 section below.
 
 ### Pack size: one precedence order, and a mandatory field (r86)
 Two related invoice defects, both confirmed by diagnostic before the fix and re-measured after.
@@ -598,6 +596,75 @@ runs import → compute → **finalise** → recompute and asserts the purchase 
 and cost impact are unchanged by closing, plus r56/r57 expansion, r77 idempotency, r78/r80
 guards, r81/r82 signed adjustments and the cost write-back gate, r83's hard catalogue binding,
 r84/r85 pack-size rules and the period lifecycle.
+
+### The terminal `|| 12` is gone — ×1 and a flag, never a guess (r87)
+
+The five history-reading sites r84–r86 deliberately left alone now resolve through **one**
+helper. `resolvePackSize(stamped, catalogue, nameForParse)` (`index.html:14410`) applies r86's
+precedence — **stamped size → catalogue `caseSize` → parsed from the name → ×1** — running every
+candidate through `validPackSize`, and returns **`{ cs, unknown }`**.
+
+- **Why ×1 and not 12.** 12 has never once been right in the two real corruptions found:
+  LINDAUER BRUT 200ml was a 4-pack (r84), the review-modal case a 6-pack (r86). A guessed 12 on
+  a 4-pack overstates purchases by 200% and reads as a *plausible* number, so nobody looks at
+  it. ×1 UNDER-states — and an under-count carrying a visible badge is recoverable: the user
+  sets the pack size and the number corrects itself. A silent ×12 is not, because nothing ever
+  says it happened.
+- **`unknown` must never be inferred from `cs === 1`** — a confirmed pack size of 1 is legal.
+- **A malformed STORED value falls THROUGH to the next candidate** rather than being coerced.
+  Plain `||` would have multiplied by the string `'12.5'`; `parseInt` would have truncated it to
+  12 (the r85 `saveProduct` trap). Live-measured: a stored `12.5` produced **12.5 units** pre-r87.
+- **`countToUnits(entry, prod, packOut)` gained an OPTIONAL third argument.** Pass `{}` and it
+  comes back with `.unknown`. All six existing two-arg call sites are unaffected.
+- **An unexpanded case supplies QUANTITY but never a per-unit COST** — the same abstention r81
+  applies to an adjustment (`costUnusable = lineIsAdj || packUnknown`). With `cs = 1`,
+  `cost / caseSize` is the whole CASE price; asserting that as the per-unit cost would value
+  every opening and closing BOTTLE at a case price, and the catalogue write-back would make it
+  permanent.
+- **The flag is visible without a click.** `packUnknown` / `packUnknownWhere`
+  (`purchases` / `opening count` / `closing count`) ride on the variance row →
+  an amber `📦 ?` badge on the purchases **cell**, a per-line chip plus an explainer inside the
+  popover, and a `Pack ?` badge with a legend on the **PDF report**. `PACK_UNKNOWN_TITLE`
+  (`:7303`) is the ONE wording, so the table and the popover can never disagree. The entry flag
+  is **sticky** — a later well-formed line does not clear it — and survives the freeze, so a
+  period closed while a line was unexpanded keeps saying so.
+
+**Measured impact on live data: ONE product.** The real `computeVariances` was run from the
+pre-r87 and post-r87 builds against the live `ap_clients` + `ap_audit_sessions` rows, all 3
+stored periods **twice each** (as stored, and forced `reopened` so the live-merge branch is
+exercised): **12,324 field comparisons across 316 rows, and every value move is on
+`CHURCH ROAD CHARDONNAY`** — the `TRANSFER` delivery line `{qty:1, unit:'Cases'}` with no pack
+size on the line, none in the catalogue (`caseSize: null`) and none in the name.
+`purUnits 12 → 1`, `expectedNum 14.49 → 3.49`, `varMl −7120 → 1130`, `varPctNum −65.5% → +43.1%`.
+
+- **Only in the REOPENED run.** September's frozen `purchases` already stores
+  `{qty: 12, unit: 'Bottles'}` — the old guess was baked in at freeze time as base units, so the
+  frozen branch never case-expands and reads identically in both builds. **r87 does not
+  retroactively correct stored history**; it changes what that period recomputes to if it is
+  ever reopened. The 12 is still sitting in the September snapshot.
+- **DOLLAR fields moved: 0.** The money invariant holds on live data.
+
+**The money invariant is NOT universal — know the second regime.** r86's cancel-out
+(`qty × cs` up, `cost ÷ cs` down) applies only where the pack size **resolves**. Because r87
+abstains from a per-unit cost when it does not, an **unresolvable *priced*** case line moves
+`costPrice`, `costImpact` and `varVal`. Measured synthetically: a $120 case → pre-r87
+`costPrice 10 / costImpact −120`, post-r87 `0 / 0`, with the row flagged. **No such line exists
+in live data today** (the one unresolvable line is priced 0), which is why the live diff shows
+zero dollar movement. The abstention is deliberate and protective — section S of the harness
+confirms stock is then valued at the **product** cost, not the case price, and that the
+catalogue is **not** repriced.
+
+**Verified by `verify-r87.js`** — a four-part suite (scratchpad, not committed; the repo tracks
+no harnesses): **161** core regression checks (the resolver rule, r56/r57, r77, r78, r80–r86,
+the lifecycle, and `sessionOverallVariancePct`'s newly-added name-parse candidate), the
+**live-data dual-build gate** above, the money-invariant measurement across both regimes, and
+**32** render-surface checks driving the real `renderVarTable` / `calculateReportData` /
+`renderReportDocument` — including a clean-venue **negative control**, because a badge that
+always renders means nothing. `node --check` passes on all script blocks; brace balance 0.
+
+**Harness lesson:** the r86 impact script hardcoded 13 field names and the variance row has
+**19** numeric fields — it would have missed a move in `varMl`, which is precisely a field a
+pack-size change moves. **Auto-derive the field list from the union of keys in both builds.**
 
 ### Case handling
 `unionBarcodes()` flattens `barcode`, `barcodes[]` **and** `caseBarcode` into one flat match
@@ -989,7 +1056,10 @@ invMarkCaseSize(id, i)             // presentational: red border + 'Units per ca
 // Products
 renderProducts(c, query) / editProduct(idx) / deleteProduct(idx) / saveProduct()
 addToMasterCatalogue(p) / getMasterProduct(name) / masterSlug(name) / syncMasterToClient(c)
-countToUnits(entry, prod)   // Count entry → units (multiplies 'cases' by caseSize||12)
+countToUnits(entry, prod, packOut)  // Count entry → units. packOut is an OPTIONAL out-param:
+                            // pass {} and it returns with .unknown set when a Cases entry had
+                            // no resolvable pack size (r87). Two-arg calls still work.
+resolvePackSize(stamped, catalogue, nameForParse)  // r87 — the ONE precedence order, → {cs, unknown}
 
 // Variance
 computeVariances(client, session=null) / renderVarTable() / downloadVariancePDF()
@@ -1053,8 +1123,9 @@ const SUBCAT_BREAKDOWN_CATS   // :6181 — new Set(['Spirits'])
 const DENSITY                 // :6205 — { spirits:0.9467, wine:0.9805, beer:1.014, liqueur:1.06 }
 const REPORT_CAT_THRESHOLDS   // :3755
 const VAR_PCT_MIN_EXPECTED    // :7088 — 1 unit; below this no variance % is quoted (r81)
+const PACK_UNKNOWN_TITLE      // :7303 — the ONE unexpanded-case wording (r87)
 const ADJUSTMENT_REASONS      // :12130 — transfer_in/out, wastage, breakage, staff, promo, sample, other (r82)
-const APP_VERSION             // :14971
+const APP_VERSION             // :15091
 ```
 
 ---
@@ -1071,10 +1142,12 @@ const APP_VERSION             // :14971
 7. **`_cleanName` is cached in `_invoiceDataStore`** — `openInvoiceReviewModal()` re-matches fresh.
 8. **Writes must use `currentSession()`, reads may use `viewedSession()`** — never the reverse.
 9. **Never write to a closed period** — reopen it, amend, re-close (oldest-first).
-10. **`countToUnits`' `caseSize || 12`** silently 12×'s any entry whose unit is `'Cases'` —
-    store base units, never `'Cases'`, when synthesising an entry. Every path that can SELECT
-    `Cases` must confirm the pack size first (r84 desktop count row, r85 everywhere else);
-    `validPackSize` is the one rule and it returns **null**, never a fallback.
+10. **A `'Cases'` entry with no confirmed pack size now expands ×1 and raises a flag** (r87)
+    — it no longer silently 12×'s. Still store base units, never `'Cases'`, when synthesising an
+    entry: ×1 UNDER-states, which is visible and recoverable, but it is not correct. Every path
+    that can SELECT `Cases` must confirm the pack size first (r84 desktop count row, r85
+    everywhere else); `validPackSize` is the one rule and it returns **null**, never a fallback.
+    **Never infer "unknown" from `cs === 1`** — a confirmed pack size of 1 is legal.
 11. **Mobile product pushes must be minimal patches keyed by name**, or they duplicate rows and
     erase desktop-only fields.
 12. **`clients = []` at boot** — there is no hardcoded demo data; everything loads from Supabase.

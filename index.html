@@ -3874,6 +3874,9 @@ function calculateReportData(client, session) {
       actualVal:   actual    * cost,
       actualGP, idealGP, gpGap,
       salesRev: r.salesRev || 0,
+      // r87 FIX 2 — a printed report is where a wrong purchase figure does the most damage,
+      // because the reader has no popover to open. Carried through to the page-7 flags.
+      packUnknown: !!r.packUnknown,
       noSalesNow:  sold <= 0,
       noSalesPrev: prevSalesQty(r.p) <= 0,
       idealVal:    (sold / periodDays) * REPORT_PAR_DAYS * cost, // par-level holding value
@@ -4180,7 +4183,12 @@ function sessionOverallVariancePct(client, session) {
     let purUnits = 0;
     if (purEntry) {
       const u  = (purEntry.unit || '').toLowerCase();
-      const cs = purEntry.caseSize || prod.caseSize || 12;
+      // r87 — the last `|| 12`. Also brought onto the SHARED precedence order: this site
+      // was the only one of the five with no parse-from-the-name step, so it could guess 12
+      // for a line the other four resolved from "24x330ml". Now identical to them, ending
+      // in ×1 rather than a guess. This function returns a single aggregate %, so there is
+      // no row to badge — computeVariances is the surface that carries the flag.
+      const cs = resolvePackSize(purEntry.caseSize, prod.caseSize, purEntry.originalName || name).cs;
       const q  = parseFloat(purEntry.qty) || 0;
       purUnits = (u === 'cases' || u === 'car') ? q * cs : q;
     }
@@ -4505,6 +4513,9 @@ function renderReportDocument(client, meta, data) {
       const flags = [];
       if (p.deadStock) flags.push('<span class="rpt-badge rag-red">Dead</span>');
       if (p.slowMover) flags.push('<span class="rpt-badge rag-amber">Slow</span>');
+      // r87 FIX 2 — an unexpanded case is a DATA-QUALITY flag, not a performance one, so it
+      // leads: the variance below it cannot be trusted until the pack size is set.
+      if (p.packUnknown) flags.unshift('<span class="rpt-badge rag-amber">Pack ?</span>');
       if (p.gain)      flags.push('<span class="rpt-badge rag-green">Gain</span>');
       if (p.gpIssue)   flags.push('<span class="rpt-badge rag-red">GP</span>');
       flags.push(`<span class="rpt-badge ${ragClass(p.rag)}">${ragLabel(p.rag)}</span>`);
@@ -4526,6 +4537,7 @@ function renderReportDocument(client, meta, data) {
   const p7 = `<div class="rpt-page">
     <h2>Full product detail</h2>
     <p class="rpt-muted" style="font-size:10.5px;">Sorted by category, then variance % (worst surplus to worst loss). Units shown for quantities.</p>
+    ${data.products.some(p => p.packUnknown) ? `<p class="rpt-muted" style="font-size:10.5px;color:#9a6a00;"><strong>Pack ?</strong> — this product has no confirmed units-per-case, so each case was counted as 1 unit. Purchases and variance are UNDER-stated for these lines until “Units per case” is set on the product.</p>` : ''}
     <table class="rpt-table">
       <thead><tr><th>Product</th><th style="width:46px;">Cat</th><th class="num" style="width:42px;">Open</th><th class="num" style="width:44px;">Purch</th><th class="num" style="width:42px;">Exp</th><th class="num" style="width:48px;">Actual</th><th class="num" style="width:50px;">Var %</th><th class="num" style="width:46px;">Act GP</th><th class="num" style="width:52px;">Ideal GP</th><th class="num" style="width:48px;">GP gap</th><th style="width:96px;">Flags</th></tr></thead>
       <tbody>${detailBody}</tbody>
@@ -6250,7 +6262,11 @@ function isWeighedEntry(entry) {
 // Whole-unit portion (bottles/cans/cases/kegs/etc): counted as units.
 // A single product may carry BOTH (e.g. full sealed bottles + one open weighed bottle).
 // entry = {qty, unit, method, weights?[netG…], netWeightG?, ...}
-function countToUnits(entry, prod) {
+// r87 — `packOut` is an OPTIONAL out-parameter: pass `{}` and it comes back with
+// `unknown: true` when a 'Cases' entry had no resolvable pack size and was expanded ×1.
+// An out-param rather than a return-shape change so all six existing call sites keep
+// working untouched, and rather than module state so nothing leaks between calls.
+function countToUnits(entry, prod, packOut) {
   if (!entry) return 0;
   const unitVol = prod.unitVol || 750;
   if (!(unitVol > 0)) return 0;        // guard: can't convert without a bottle volume
@@ -6283,7 +6299,18 @@ function countToUnits(entry, prod) {
   const qty  = parseFloat(entry.qty) || 0;
   if (qty > 0 && unit !== 'g') {
     switch (unit) {
-      case 'cases':  units += qty * (prod.caseSize || 12); break;
+      // r87 — no `|| 12`. Precedence matches the four purchase sites (stamped → catalogue
+      // → parsed from the name); an unresolvable size expands ×1 and REPORTS it through
+      // packOut so the caller can flag the row rather than quietly inflating a count.
+      // Since r84 finaliseStocktake expands 'Cases' to base units and RELABELS the entry
+      // before storing it, so a post-r84 count never reaches here — this branch exists for
+      // pre-r84 entries and for the `opening` copies rollover deep-copied from them.
+      case 'cases': {
+        const pk = resolvePackSize(entry.caseSize, prod.caseSize, prod.n || prod.name || '');
+        if (pk.unknown && packOut) packOut.unknown = true;
+        units += qty * pk.cs;
+        break;
+      }
       case 'kegs':   units += qty;            break;        // kegs stay as keg units
       case 'litres': units += (qty * 1000) / unitVol; break;
       case 'ml':     units += qty / unitVol;  break;
@@ -6516,44 +6543,51 @@ function computeVariances(client, session = null) {
       if(!name) return;
       const rawQty = parseFloat(line.qty) || 1;
       const lineUnit = (line.unit || '').toLowerCase();
+      const isCaseLine = (lineUnit === 'cases' || lineUnit === 'car' || lineUnit === 'cartons' || lineUnit === 'ctn');
       // Expand cases/cartons into individual bottles.
       //
-      // r86 FIX 2 — ONE PRECEDENCE ORDER, shared by all three purchase-expansion sites:
-      //     stamped size on the line/entry → catalogue caseSize → parsed from the name → 12
-      // The three are: THIS live merge, fallbackSessionPurchases (~6600) and the frozen
-      // closed branch (~6630). This site used to read the CATALOGUE first, so the size the
-      // user confirmed in the invoice review modal — resolved onto the delivery line by
-      // r57 — was DISCARDED in favour of whatever the catalogue happened to hold. The
-      // other two have always read the stamped size first, so the SAME invoice expanded
-      // one way while its period was open and another way once it closed: finalising a
-      // period could silently move its purchase units. A reviewed pack size is a
-      // per-invoice fact the user confirmed for THIS line; the catalogue value is only a
-      // default. The fact wins, exactly as it does for a r82 stock adjustment.
-      // The terminal `|| 12` STAYS (r86 FIX 3). It is one of five history-reading
-      // fallbacks; removing them re-values closed periods and is a separate build gated
-      // on a before/after diff over every stored period.
-      const caseSize = line.caseSize || (prodMap[name] && prodMap[name].caseSize) || parseCaseSize(line.name || '') || 12;
-      const qty = (lineUnit === 'cases' || lineUnit === 'car' || lineUnit === 'cartons' || lineUnit === 'ctn')
-        ? rawQty * caseSize
-        : rawQty;
+      // r86 FIX 2 — ONE PRECEDENCE ORDER, now shared by all FIVE pack-size sites:
+      //     stamped size on the line/entry → catalogue caseSize → parsed from the name → ×1
+      // The five are: THIS live merge, fallbackSessionPurchases (~6640), the frozen closed
+      // branch (~6675), countToUnits (~6300) and sessionOverallVariancePct (~4185). This
+      // site used to read the CATALOGUE first, so the size the user confirmed in the
+      // invoice review modal — resolved onto the delivery line by r57 — was DISCARDED in
+      // favour of whatever the catalogue happened to hold, and the same invoice expanded
+      // one way while its period was open and another way once it closed.
+      //
+      // r87 — the terminal `|| 12` is GONE. resolvePackSize returns { cs, unknown }; an
+      // unresolvable size expands ×1 and raises `unknown`, stamped onto the entry AND onto
+      // this popover line so the under-count is VISIBLE rather than a silent ×12.
+      const pack        = resolvePackSize(line.caseSize, prodMap[name] && prodMap[name].caseSize, line.name || '');
+      const caseSize    = pack.cs;
+      const packUnknown = isCaseLine && pack.unknown;
+      const qty = isCaseLine ? rawQty * caseSize : rawQty;
       const cost = parseFloat(line._incGST || line.unitPrice || 0);
       // Per-unit cost (divide by caseSize if line price was per-case)
-      const unitCost = (lineUnit === 'cases' || lineUnit === 'car' || lineUnit === 'cartons' || lineUnit === 'ctn') && cost > 0
-        ? cost / caseSize
-        : cost;
+      const unitCost = isCaseLine && cost > 0 ? cost / caseSize : cost;
       // r81 FIX 5 — a transfer/wastage valuation is NOT a supplier price. An adjustment
       // contributes its QUANTITY to the merge (that is the whole point) but never supplies a
       // cost, and stamps the entry so the catalogue write-back below can skip it.
       const lineIsAdj = isAdjustmentDelivery(del);
+      // r87 — an UNEXPANDED case line contributes its QUANTITY but never a per-unit COST —
+      // the same abstention r81 applies to an adjustment, for the same reason. With cs = 1
+      // `cost / caseSize` is the whole CASE price; asserting that as the per-unit cost would
+      // make latestCostPrice value every opening and closing BOTTLE at a case price, and the
+      // catalogue write-back below would then make it permanent. The per-unit cost is
+      // exactly as unknown as the pack size, so we decline to state either.
+      const costUnusable = lineIsAdj || packUnknown;
       if(!deliveryPurchases[name]) {
-        deliveryPurchases[name] = { qty: 0, costPrice: lineIsAdj ? 0 : (unitCost || cost), unit: lineUnit === 'keg' || lineUnit === 'kegs' ? 'Kegs' : 'Bottles', invoiceRef: del.r, lines: [] };
+        deliveryPurchases[name] = { qty: 0, costPrice: costUnusable ? 0 : (unitCost || cost), unit: lineUnit === 'keg' || lineUnit === 'kegs' ? 'Kegs' : 'Bottles', invoiceRef: del.r, lines: [] };
       }
       // `_adjustment` records that an adjustment fed this entry (used to LABEL the popover).
       // `_costFromSupplier` records that a real invoice supplied the cost — that, not the
       // presence of an adjustment, is what licenses the catalogue write-back below. One entry
       // can legitimately carry both when a delivery and a wastage line hit the same product.
       if(lineIsAdj) deliveryPurchases[name]._adjustment = true;
-      if(unitCost > 0 && !lineIsAdj) {
+      // r87 — sticky: once ANY line of this entry went in unexpanded, the entry's total is
+      // partly a ×1, and the row says so. A later well-formed line does not clear it.
+      if(packUnknown) deliveryPurchases[name]._packUnknown = true;
+      if(unitCost > 0 && !costUnusable) {
         deliveryPurchases[name].costPrice = unitCost;
         deliveryPurchases[name]._costFromSupplier = true;
       }
@@ -6569,6 +6603,9 @@ function computeVariances(client, session = null) {
         // purchase. Present only on adjustments; renderVarTable styles the row off it.
         adj:    lineIsAdj ? adjReasonLabel(del.reason) : null,
         note:   lineIsAdj ? (del.note || '') : '',
+        // r87 — per-LINE, so a popover listing three invoices marks only the one that
+        // could not be expanded. purDetail re-projects, so this must be copied there too.
+        packUnknown: packUnknown,
       });
     });
   });
@@ -6596,20 +6633,27 @@ function computeVariances(client, session = null) {
     const prod = prodMap[name] || {};
     // r86 FIX 2 — the SHARED precedence order, identical to the live merge above and the
     // frozen branch below: stamped size on the entry → catalogue caseSize → parsed from
-    // the name → 12. entry.caseSize is the reviewed pack size (applyInvoiceToProducts
+    // the name → (r87) ×1. entry.caseSize is the reviewed pack size (applyInvoiceToProducts
     // stamps caseQty onto the purchases entry), so the user's confirmation leads here too.
-    const cs = entry.caseSize || prod.caseSize || parseCaseSize(entry.originalName || name) || 12;
+    // Unlike the live merge this branch never divides a price — the entry's costPrice was
+    // resolved to a PER-UNIT figure at import — so there is no cost to abstain from here.
+    const pk = resolvePackSize(entry.caseSize, prod.caseSize, entry.originalName || name);
+    const cs = pk.cs;
+    const entryPackUnknown = (entryUnit === 'cases' || entryUnit === 'car') && pk.unknown;
     const expandedQty = (entryUnit === 'cases' || entryUnit === 'car') ? (parseFloat(entry.qty)||0) * cs : (parseFloat(entry.qty)||0);
     fallbackSessionPurchases[name] = {
       ...entry,
       qty: expandedQty,
       unit: entryUnit === 'kegs' ? 'Kegs' : 'Bottles',
+      // Sticky through the spread: an entry frozen as unexpanded stays flagged.
+      _packUnknown: entryPackUnknown || !!entry._packUnknown,
       lines: [{
         qty: entry.qty + ' ' + (entry.unit||''),
         date: '—',
         sup: entry.supplier || '—',
         inv: entry.invoiceRef || '—',
         invIdx: (client.deliveries||[]).findIndex(d=>d.r===entry.invoiceRef),
+        packUnknown: entryPackUnknown || !!entry._packUnknown,
       }]
     };
     }
@@ -6628,10 +6672,13 @@ function computeVariances(client, session = null) {
       const entryUnit = (entry.unit || '').toLowerCase();
       const prod = prodMap[name] || {};
       // r86 FIX 2 — the SHARED precedence order (see the live merge ~6520): stamped size
-      // on the entry → catalogue caseSize → parsed from the name → 12. Unchanged here;
-      // it is the live merge that was brought into line with this one, so an invoice now
-      // expands to the same number before and after its period closes.
-      const cs = entry.caseSize || prod.caseSize || parseCaseSize(entry.originalName || name) || 12;
+      // on the entry → catalogue caseSize → parsed from the name → (r87) ×1. r87 also
+      // re-runs every candidate through validPackSize, so a malformed STORED size in a
+      // pre-r55 snapshot (12.5, 0, 501) is now treated as unresolvable and FLAGGED rather
+      // than silently coerced. A resolvable size expands exactly as it always did.
+      const pk = resolvePackSize(entry.caseSize, prod.caseSize, entry.originalName || name);
+      const cs = pk.cs;
+      const entryPackUnknown = (entryUnit === 'cases' || entryUnit === 'car') && pk.unknown;
       const expandedQty = (entryUnit === 'cases' || entryUnit === 'car')
         ? (parseFloat(entry.qty) || 0) * cs
         : (parseFloat(entry.qty) || 0);
@@ -6639,6 +6686,9 @@ function computeVariances(client, session = null) {
         ...entry,
         qty:  expandedQty,
         unit: entryUnit === 'kegs' ? 'Kegs' : (entry.lines ? entry.unit : 'Bottles'),
+        // A period frozen while a line was unexpanded keeps saying so forever — that is
+        // the whole point of flagging rather than guessing.
+        _packUnknown: entryPackUnknown || !!entry._packUnknown,
       };
     });
     mergedPurchases = frozen;
@@ -6668,8 +6718,11 @@ function computeVariances(client, session = null) {
     const serveVol   = prod.serveVol  || (cat === 'Spirits' ? 30 : cat === 'Wine' ? 150 : unitVol);
 
     // ── Opening ──────────────────────────────────────
+    // r87 — packOut catches a legacy 'Cases' count that had no resolvable pack size and was
+    // expanded ×1, so an unexpanded OPENING is as visible as an unexpanded purchase.
+    const openPack   = { unknown: false };
     const openEntry  = (opening  || {})[name];
-    const openUnits  = countToUnits(openEntry,  prod);
+    const openUnits  = countToUnits(openEntry,  prod, openPack);
 
     // ── Purchases ────────────────────────────────────
     const purEntry   = mergedPurchases[name];
@@ -6727,8 +6780,9 @@ function computeVariances(client, session = null) {
     const hasSales = salesDep ? !!depEntry : !!saleData;
 
     // ── Closing (physical count) ──────────────────────
+    const closePack  = { unknown: false };
     const closeEntry = (closing || {})[name];
-    const closeUnits = countToUnits(closeEntry, prod);
+    const closeUnits = countToUnits(closeEntry, prod, closePack);
 
     // ── Core formula ─────────────────────────────────
     // Expected closing = opening + purchases − sales consumed
@@ -6816,12 +6870,16 @@ function computeVariances(client, session = null) {
               // copied explicitly or it never reaches the popover.
               adj:    l.adj  || null,
               note:   l.note || '',
+              // r87 — the ×1 flag is per-line, and this projection is the only route it
+              // has to the popover.
+              packUnknown: !!l.packUnknown,
             }))
           // FROZEN branch — a closed period has no delivery lines, only the session entry.
           // _adjustment/reason are stamped on it at save (and survive the deep clone in
           // freezeSessionSnapshot), so a locked period still shows WHY the stock moved.
           : [{ qty: purUnits + ' ' + (purEntry.unit || unitLabel(prod, purUnits)), date: session?.openDate || '—', sup: purEntry.supplier || 'See invoices', inv: purEntry.invoiceRef || '—', invIdx: -1,
-               adj: purEntry._adjustment ? adjReasonLabel(purEntry.reason) : null, note: '' }]
+               adj: purEntry._adjustment ? adjReasonLabel(purEntry.reason) : null, note: '',
+               packUnknown: !!purEntry._packUnknown }]
         )
       : [];
 
@@ -6869,6 +6927,16 @@ function computeVariances(client, session = null) {
       // consumers keep reading the string o/e/a/v above).
       openNum:     openUnits,
       purUnits,
+      // r87 — TRUE when any part of this row's figures came from a case that could not be
+      // expanded and was counted as 1 unit. Never inferred from a pack size of 1, which is
+      // a legal confirmed value. renderVarTable badges it; calculateReportData carries it
+      // through to the PDF's product-detail flags.
+      packUnknown: !!(purEntry && purEntry._packUnknown) || openPack.unknown || closePack.unknown,
+      packUnknownWhere: [
+        (purEntry && purEntry._packUnknown) ? 'purchases' : null,
+        openPack.unknown  ? 'opening count' : null,
+        closePack.unknown ? 'closing count' : null,
+      ].filter(Boolean),
       salesUnits,
       salesRev,
       expectedNum: expected,
@@ -7229,6 +7297,13 @@ document.addEventListener('click', function(e) {
   }
 });
 
+// r87 FIX 2 — ONE wording for the unexpanded-case warning, shared by the cell badge and
+// the per-line chip so the table and the popover can never say different things. Kept free
+// of double quotes: it is interpolated into a title="…" attribute.
+const PACK_UNKNOWN_TITLE = 'Pack size unknown — this product has no confirmed units-per-case, '
+  + 'so each case was counted as 1 unit. The figure is UNDER-stated. '
+  + 'Set Units per case on the product in the Products catalogue to correct it.';
+
 function renderVarTable() {
   const c = activeClient; if (!c) return;
   if(!DB._ready) {
@@ -7496,16 +7571,32 @@ function renderVarTable() {
             const adjTag = p.adj
               ? `<span class="chip chip-amber" style="padding:1px 7px;font-size:10px;margin-left:6px;" title="${String(p.note||'').replace(/"/g,'&quot;')}">⇄ ${p.adj}</span>`
               : '';
-            return `<div class="pur-popover-row"${p.adj?' style="background:rgba(240,192,64,0.06);border-radius:6px;"':''}><span style="color:${p.adj?'var(--amber)':'var(--text2)'};">${p.sup}${adjTag}</span><span class="td-mono" style="color:var(--text);">${p.qty}</span><span class="td-mono" style="color:var(--text3);">${p.date}</span><span class="td-mono" style="font-size:11px;" ${invLink}>${p.inv||'—'}</span></div>${actionBtns}`;
+            // r87 FIX 2 — an UNEXPANDED case line is marked on the line it happened on, so a
+            // popover listing three invoices points at the one that could not be expanded.
+            const packTag = p.packUnknown
+              ? `<span class="chip chip-amber" style="padding:1px 7px;font-size:10px;margin-left:6px;" title="${PACK_UNKNOWN_TITLE}">📦 pack size unknown</span>`
+              : '';
+            return `<div class="pur-popover-row"${p.adj||p.packUnknown?' style="background:rgba(240,192,64,0.06);border-radius:6px;"':''}><span style="color:${p.adj||p.packUnknown?'var(--amber)':'var(--text2)'};">${p.sup}${adjTag}${packTag}</span><span class="td-mono" style="color:var(--text);">${p.qty}</span><span class="td-mono" style="color:var(--text3);">${p.date}</span><span class="td-mono" style="font-size:11px;" ${invLink}>${p.inv||'—'}</span></div>${actionBtns}`;
           }).join('')
         : `<div style="font-size:12px;color:var(--text3);padding:4px 0;">No purchases this period</div>`;
+      // r87 FIX 2 — a full-width explainer inside the popover. The per-line chip says WHICH
+      // line; this says what it means and what to do about it, in the one place a user is
+      // already looking when a purchase figure surprises them.
+      const packNote = r.packUnknown
+        ? `<div style="margin-top:8px;padding:7px 9px;border-radius:7px;background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.22);font-size:11px;color:var(--amber);line-height:1.45;">📦 <strong>Pack size unknown</strong> — ${r.packUnknownWhere && r.packUnknownWhere.length ? r.packUnknownWhere.join(' and ') + ' had' : 'a line had'} a case with no confirmed units-per-case, so <strong>each case was counted as 1 unit</strong>. This UNDER-states stock. Set “Units per case” on the product in the Products catalogue, then re-check this period.</div>`
+        : '';
+      // r87 FIX 2 — the badge rides on the CELL, not just inside the popover, because the
+      // popover is click-to-open and a silent under-count must be visible without one.
+      const packBadge = r.packUnknown
+        ? `<span class="chip chip-amber" style="padding:0 6px;font-size:10px;margin-left:6px;vertical-align:middle;" title="${PACK_UNKNOWN_TITLE}">📦 ?</span>`
+        : '';
       const purCell = `
         <td class="pur-cell" onclick="togglePurPopover('${popId}',event)">
-          <span class="pur-vol">${r.purchaseVol||'0ml'}</span>
+          <span class="pur-vol">${r.purchaseVol||'0ml'}</span>${packBadge}
           <div class="pur-popover" id="${popId}">
             <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:6px;">Purchase detail</div>
             <div class="pur-popover-header"><span>Supplier</span><span>Qty</span><span>Date</span><span>Invoice</span></div>
-            ${purRows}
+            ${purRows}${packNote}
           </div>
         </td>`;
 
@@ -14294,6 +14385,35 @@ function validPackSize(raw) {
   return n;
 }
 
+// ─── r87 — THE TERMINAL `|| 12` IS GONE: ×1 AND A FLAG, NEVER A GUESS ───────
+// Five sites resolved a pack size and ended `|| 12`. Unlike r84–r86's capture surfaces,
+// all five READ STORED HISTORY, so a wrong 12 is not a transient display slip — it is
+// baked into expected stock and, through freezeSessionSnapshot, into a locked period.
+//
+// 12 has never once been right in the two real corruptions found: LINDAUER BRUT 200ml was
+// a 4-pack (r84) and the review-modal case was a 6-pack (r86). A guessed 12 on a 4-pack
+// overstates purchases by 200% and reads as a perfectly plausible number, so nobody ever
+// looks at it. ×1 UNDERSTATES — and an under-count carrying a "pack size unknown" badge is
+// recoverable: the user sees it, sets the pack size, and the number corrects itself. A
+// silent ×12 is not recoverable, because nothing ever says it happened.
+//
+// Precedence is r86's, unchanged:
+//     stamped size on the line/entry → catalogue caseSize → parsed from the name → ×1
+//
+// Every candidate goes through validPackSize, so a malformed STORED value (12.5, 0, 501,
+// '') is UNRESOLVABLE and falls through to the next candidate instead of being coerced.
+// Plain `||` would have multiplied by the string '12.5'; parseInt would have truncated it
+// to 12 — the trap r85 found in saveProduct.
+//
+// Returns { cs, unknown }. `unknown` is what the caller flags; it must never be inferred
+// from `cs === 1`, because a genuine confirmed pack size of 1 is a legal value.
+function resolvePackSize(stamped, catalogue, nameForParse) {
+  const cs = validPackSize(stamped)
+          || validPackSize(catalogue)
+          || validPackSize(parseCaseSize(nameForParse || ''));
+  return cs ? { cs, unknown: false } : { cs: 1, unknown: true };
+}
+
 // Reveal the Pack cell exactly when the row's unit is Cases — r82's saSyncUnitRow pattern,
 // walking the row instead of an id because count rows carry no ids. `visibility` (not
 // `display`) so the column never reflows as units change down a long count.
@@ -14968,7 +15088,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r86';
+const APP_VERSION = '2026-06-10-r87';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
