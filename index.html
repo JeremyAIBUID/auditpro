@@ -6516,10 +6516,23 @@ function computeVariances(client, session = null) {
       if(!name) return;
       const rawQty = parseFloat(line.qty) || 1;
       const lineUnit = (line.unit || '').toLowerCase();
-      // Expand cases/cartons into individual bottles using product's caseSize.
-      // Fallback is 12 (r56) — matches countToUnits (~5886) and the session path (~6154)
-      // so a Cases line with no resolvable caseSize expands sensibly instead of ×1 (no-op).
-      const caseSize = (prodMap[name] && prodMap[name].caseSize) || parseCaseSize(line.name || '') || line.caseSize || 12;
+      // Expand cases/cartons into individual bottles.
+      //
+      // r86 FIX 2 — ONE PRECEDENCE ORDER, shared by all three purchase-expansion sites:
+      //     stamped size on the line/entry → catalogue caseSize → parsed from the name → 12
+      // The three are: THIS live merge, fallbackSessionPurchases (~6600) and the frozen
+      // closed branch (~6630). This site used to read the CATALOGUE first, so the size the
+      // user confirmed in the invoice review modal — resolved onto the delivery line by
+      // r57 — was DISCARDED in favour of whatever the catalogue happened to hold. The
+      // other two have always read the stamped size first, so the SAME invoice expanded
+      // one way while its period was open and another way once it closed: finalising a
+      // period could silently move its purchase units. A reviewed pack size is a
+      // per-invoice fact the user confirmed for THIS line; the catalogue value is only a
+      // default. The fact wins, exactly as it does for a r82 stock adjustment.
+      // The terminal `|| 12` STAYS (r86 FIX 3). It is one of five history-reading
+      // fallbacks; removing them re-values closed periods and is a separate build gated
+      // on a before/after diff over every stored period.
+      const caseSize = line.caseSize || (prodMap[name] && prodMap[name].caseSize) || parseCaseSize(line.name || '') || 12;
       const qty = (lineUnit === 'cases' || lineUnit === 'car' || lineUnit === 'cartons' || lineUnit === 'ctn')
         ? rawQty * caseSize
         : rawQty;
@@ -6581,7 +6594,10 @@ function computeVariances(client, session = null) {
     // Expand cases into units for session purchases
     const entryUnit = (entry.unit||'').toLowerCase();
     const prod = prodMap[name] || {};
-    // Use stored caseSize from import, then product caseSize, then parse from name, then default 12
+    // r86 FIX 2 — the SHARED precedence order, identical to the live merge above and the
+    // frozen branch below: stamped size on the entry → catalogue caseSize → parsed from
+    // the name → 12. entry.caseSize is the reviewed pack size (applyInvoiceToProducts
+    // stamps caseQty onto the purchases entry), so the user's confirmation leads here too.
     const cs = entry.caseSize || prod.caseSize || parseCaseSize(entry.originalName || name) || 12;
     const expandedQty = (entryUnit === 'cases' || entryUnit === 'car') ? (parseFloat(entry.qty)||0) * cs : (parseFloat(entry.qty)||0);
     fallbackSessionPurchases[name] = {
@@ -6611,6 +6627,10 @@ function computeVariances(client, session = null) {
     Object.entries(sessionPurchases).forEach(([name, entry]) => {
       const entryUnit = (entry.unit || '').toLowerCase();
       const prod = prodMap[name] || {};
+      // r86 FIX 2 — the SHARED precedence order (see the live merge ~6520): stamped size
+      // on the entry → catalogue caseSize → parsed from the name → 12. Unchanged here;
+      // it is the live merge that was brought into line with this one, so an invoice now
+      // expands to the same number before and after its period closes.
       const cs = entry.caseSize || prod.caseSize || parseCaseSize(entry.originalName || name) || 12;
       const expandedQty = (entryUnit === 'cases' || entryUnit === 'car')
         ? (parseFloat(entry.qty) || 0) * cs
@@ -10869,7 +10889,14 @@ function openInvoiceReviewModal(id) {
 
   document.getElementById('irm-title').textContent     = `${supplier} · ${date} · ${ref}`;
   document.getElementById('irm-subtitle').textContent  = `${rows.length} items — ${updateCount} matched · ${newRows.length} new`;
-  document.getElementById('irm-confirm-btn').onclick   = async () => { closeModal('invoiceReviewModal'); await applyInvoiceToProducts(id); };
+  // r86 FIX 1 — validate BEFORE closing, so the offending "Units per case" fields are
+  // still on screen (and freshly red-bordered) when the refusal names their lines.
+  // applyInvoiceToProducts repeats the check as the backstop for every other route.
+  document.getElementById('irm-confirm-btn').onclick   = async () => {
+    if(invRefuseUnconfirmedPack(id)) return;
+    closeModal('invoiceReviewModal');
+    await applyInvoiceToProducts(id);
+  };
 
   // r78 — import warnings, pinned above the scrolling row list. The modal is a REUSED
   // SINGLETON (same class of bug as the mobile weigh panel), so this must be written
@@ -10889,7 +10916,12 @@ function openInvoiceReviewModal(id) {
   // are the whole surface.
 
   // Initial validation check
-  setTimeout(() => checkInvoiceReady(id, rows.length), 100);
+  setTimeout(() => {
+    checkInvoiceReady(id, rows.length);
+    // r86 FIX 1 — paint the pack-size requirement on first render through the SAME helper
+    // every later edit runs, so the initial state can never disagree with the refusal.
+    for(let i = 0; i < rows.length; i++) invMarkCaseSize(id, i);
+  }, 100);
 
   // Build enrichment rows for ALL products — matched ones collapsed
   const body = document.getElementById('irm-body');
@@ -10981,8 +11013,10 @@ function openInvoiceReviewModal(id) {
           </div>
         </div>
         <div id="${id}-casesize-wrap-${globalIdx}" style="${r.unit==='Cases'||r.unit==='CAR'||(r.caseSize||r.existing?.caseSize||0)>1?'':'display:none;'}">
-          <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Units per case</div>
+          <div id="${id}-casesize-lbl-${globalIdx}" style="font-size:10px;color:var(--text3);margin-bottom:4px;">Units per case</div>
           <input id="${id}-casesize-${globalIdx}" type="number" value="${r.caseSize||r.existing?.caseSize||parseCaseSize(r.name)||''}" placeholder="e.g. 12"
+            min="1" max="500" step="1" title="Units per case — required while this line is set to split into individual units"
+            oninput="invMarkCaseSize('${id}',${globalIdx})"
             style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-mono);font-size:13px;outline:none;">
         </div>
         <div>
@@ -10996,7 +11030,7 @@ function openInvoiceReviewModal(id) {
 
       <!-- Case split option -->
       <div id="${id}-casesplit-wrap-${globalIdx}" style="display:${r.unit==='Cases'||r.unit==='CAR'||(r.caseSize||r.existing?.caseSize||0)>1?'flex':'none'};align-items:center;gap:8px;padding:8px 10px;background:rgba(200,240,100,0.05);border:1px solid rgba(200,240,100,0.15);border-radius:8px;margin-bottom:10px;">
-        <input type="checkbox" id="${id}-casesplit-${globalIdx}" checked style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer;">
+        <input type="checkbox" id="${id}-casesplit-${globalIdx}" checked onchange="invMarkCaseSize('${id}',${globalIdx})" style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer;">
         <label for="${id}-casesplit-${globalIdx}" style="font-size:12px;color:var(--text2);cursor:pointer;">Split into individual units — cost ÷ case size</label>
       </div>
 
@@ -11096,6 +11130,9 @@ function updateInvCaseSize(id, i) {
   const isCase = soldas?.value === 'Cases';
   if(wrap)  wrap.style.display  = isCase ? 'block' : 'none';
   if(split) split.style.display = isCase ? 'flex'  : 'none';
+  // r86 FIX 1 — the split control just appeared or vanished, so the pack-size field's
+  // required-ness changed with it. Same helper as the initial paint and every keystroke.
+  invMarkCaseSize(id, i);
 }
 
 // Parse case size from name e.g. "12x745ml" → 12, "24x330" → 24
@@ -11105,6 +11142,92 @@ function parseCaseSize(name) {
   if(!name) return null;
   const m = String(name).match(/(\d+)\s*[xX×]\s*\d+/);
   return m ? parseInt(m[1]) : null;
+}
+
+// ─── r86 FIX 1 — A TICKED CASE SPLIT MUST CARRY A CONFIRMED PACK SIZE ────────
+// "Split into individual units — cost ÷ case size" is the control that turns "4 cases"
+// into base units, and the divisor is the "Units per case" field beside it. That field
+// was shown and editable but never REQUIRED, so a case line could be committed with it
+// blank: r57's split gate (`caseQty > 1`) then quietly no-oped, the line was stored as a
+// raw Cases line with caseSize 0, and the two readers disagreed about what it meant —
+// the live merge guessed 12 while the frozen snapshot expanded ×1. Same invoice, two
+// numbers, decided by nothing more than whether the period happened to still be open.
+//
+// The rule is validPackSize (r84/r85, and r75/r79/r82 before it): a whole number, > 0,
+// <= 500. It returns null, never a fallback, so nothing downstream can `|| 12` its way
+// past a blank. This does not GUESS and it does not partially import — the same posture
+// as finaliseStocktake's Cases refusal (r84).
+
+// Is this row actually splitting? The checkbox is hardcoded-checked on EVERY rendered
+// row, including hidden plain-bottle lines, so "checked" alone means nothing. The wrap's
+// visibility is what the user was actually shown — set at render from the case-shaped
+// test, and kept in step with the "Sold as" dropdown by updateInvCaseSize thereafter.
+function invSplitLineIsSplitting(id, i) {
+  const splitEl = document.getElementById(`${id}-casesplit-${i}`);
+  if(!splitEl || !splitEl.checked) return false;
+  const wrapEl = document.getElementById(`${id}-casesplit-wrap-${i}`);
+  if(wrapEl && wrapEl.style.display === 'none') return false;
+  return true;
+}
+
+// The rows the review modal rendered for this card. globalIdx in openInvoiceReviewModal
+// is a straight index into res._invoiceData, so element ids and row indices agree.
+function invReviewRows(id) {
+  const res = document.getElementById(id + '-results');
+  if(res && res._invoiceData) return res._invoiceData;
+  const stored = getInvoiceData(id);
+  return (stored && stored.rows) || [];
+}
+
+// The offending lines — [{ i, name }] — so the refusal can NAME them rather than guess a
+// size. Empty ⇒ nothing to refuse. A row with no casesize input (quick import, or a dump
+// card whose modal was never opened) is skipped: the field stays optional there, and
+// there is no ticked checkbox to honour.
+function invSplitPackErrors(id, rows) {
+  const bad = [];
+  (rows || []).forEach((item, i) => {
+    if(!invSplitLineIsSplitting(id, i)) return;
+    const csEl = document.getElementById(`${id}-casesize-${i}`);
+    if(!csEl) return;
+    if(validPackSize(csEl.value) !== null) return;
+    const nameEl = document.getElementById(`${id}-name-${i}`);
+    const shown  = (nameEl && nameEl.value.trim()) || item._cleanName || item.name || '';
+    bad.push({ i, name: shown || ('Line ' + (i + 1)) });
+  });
+  return bad;
+}
+
+// ONE wording, ONE decision point — the r80 `noOpenPeriodText` pattern. Returns TRUE when
+// it refused, so both call sites (the modal confirm button, which runs it BEFORE closing
+// so the marked fields are still on screen, and applyInvoiceToProducts, the backstop
+// every import route funnels through) read the same way and say the same thing.
+function invRefuseUnconfirmedPack(id) {
+  const bad = invSplitPackErrors(id, invReviewRows(id));
+  if(!bad.length) return false;
+  const many = bad.length > 1;
+  alert('Pack size required — nothing was imported.\n\n'
+      + bad.length + (many ? ' lines are' : ' line is')
+      + ' set to split into individual units, but ' + (many ? 'have' : 'has')
+      + ' no confirmed "Units per case":\n\n'
+      + bad.map(b => '  • ' + b.name).join('\n')
+      + '\n\nEnter a whole number from 1 to 500, or untick "Split into individual units" on '
+      + (many ? 'those lines' : 'that line') + '.');
+  bad.forEach(b => invMarkCaseSize(id, b.i));
+  console.warn('[AuditPro] r86 — import refused, unconfirmed pack size on a ticked split:',
+               bad.map(b => b.name));
+  return true;
+}
+
+// Red-border an unusable pack size while the modal is open, and mark the label required.
+// Purely presentational — mirrors pfMarkCaseSize (r85) and stkMarkPack (r84); it reads no
+// field into the import and decides nothing.
+function invMarkCaseSize(id, i) {
+  const csEl = document.getElementById(`${id}-casesize-${i}`);
+  if(!csEl) return;
+  const needed = invSplitLineIsSplitting(id, i);
+  csEl.style.borderColor = (needed && validPackSize(csEl.value) === null) ? 'var(--red)' : 'var(--border2)';
+  const lblEl = document.getElementById(`${id}-casesize-lbl-${i}`);
+  if(lblEl) lblEl.textContent = needed ? 'Units per case *' : 'Units per case';
 }
 
 function toggleInvoiceRow(id, i) {
@@ -11240,6 +11363,14 @@ function applyInvoiceToProducts(id) {
   // delivery), so a refused import leaves nothing behind at all. It returns FALSE so
   // applyDumpEnrichment can bail before it pushes its own delivery + archive row.
   if(refuseWriteNoOpenPeriod(c, 'This invoice')) return false;
+
+  // r86 FIX 1 — HARD REFUSAL. A line ticked to split into individual units must carry a
+  // confirmed pack size, because that number IS both the multiplier and the divisor. Sits
+  // with the r80 refusal, above every write, so a refused import leaves nothing behind at
+  // all. Returns FALSE for the same reason r80's does: applyDumpEnrichment tests
+  // `=== false` and must bail before it pushes its own delivery + archive row. FALSE
+  // remains the ONE refusal signal — success and the other early aborts return undefined.
+  if(invRefuseUnconfirmedPack(id)) return false;
 
   // r78 — BACKSTOP. This is the single choke point every import route funnels through
   // (quick import, review-modal confirm, and the dump path), so one guard here covers all
@@ -14837,7 +14968,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r85';
+const APP_VERSION = '2026-06-10-r86';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();

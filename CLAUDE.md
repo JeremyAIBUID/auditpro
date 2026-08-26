@@ -64,8 +64,8 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r85` | `index.html:14840` |
-| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r85` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; r80–r84 were desktop-only — **r85 is the first shared revision since r79**) |
+| `index.html` | `2026-06-10-r86` | `index.html:14971` |
+| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r85` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86 is desktop-only**, so mobile correctly still reads r85) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
   Desktop logs it on load (`[AuditPro] build …`); mobile compares it against
@@ -438,21 +438,21 @@ live corruption invisible — LINDAUER BRUT 200ml (no `caseSize`) counted as "4 
 as `{"qty":56,"unit":"Bottles"}`, already 8 + 4×12, with no trace a case was involved, and the
 error then propagated into the next period's `opening` through rollover's deep copy.
 
-- **`validPackSize(raw)`** (`index.html:14158`) is the ONE rule: a **whole number, > 0,
+- **`validPackSize(raw)`** (`index.html:14289`) is the ONE rule: a **whole number, > 0,
   ≤ 500**. Returns the number or **null** — never `''`, never `NaN`, so nothing downstream can
   `|| 12` its way past a blank. **r85 gave mobile a byte-identical twin** (`mobile.html:2270`)
   and routed r75 (barcode link) and r79 (add-product) through it, so the rule now exists in
   exactly two places instead of five hand-written copies.
 - The desktop count row has a **Pack cell** (6th column, inserted BEFORE the actions cell so
   `cells[0..3]` keep their indices for `readCountRow` and `buildCombinedTable`). Revealed by
-  `stkSyncUnitRow` (`:14169`) exactly when the unit is `Cases` — r82's `saSyncUnitRow` pattern,
+  `stkSyncUnitRow` (`:14300`) exactly when the unit is `Cases` — r82's `saSyncUnitRow` pattern,
   walking the row instead of an id because count rows carry no ids. `visibility`, not
   `display`, so the column never reflows mid-count. Pre-filled from the catalogue; **empty and
   red-bordered when unknown**. `addRow` calls `stkMarkPack` after appending so the initial
   paint and every later edit go through the same rule.
 - **`readCountRow` reports `caseSize` ONLY for a `Cases` row.** The cell stays pre-filled behind
   a Bottles row, and reporting that would claim a confirmation the user never made.
-- **`resolveRowCaseSize(r, prodByName)`** (`:14202`) — `r.caseSize` first; a **mobile** row falls
+- **`resolveRowCaseSize(r, prodByName)`** (`:14333`) — `r.caseSize` first; a **mobile** row falls
   back to the catalogue (the phone only offers `Cases` when `caseSize` is set — r38
   `applyCaseOption` — and labels it `Cases (×24)`, so the stored number IS what the counter
   saw); otherwise **null**. There is no 12.
@@ -535,17 +535,69 @@ node `vm` against a DOM stub built from the real markup — including end-to-end
 singles = **24**, where the live bug stored 56) and every r73 preservation branch.
 
 **STILL CARRYING `|| 12` — deliberately, do NOT "finish the job" without a harness:**
-`countToUnits` (`:6228`), the live delivery merge (`:6464`), `fallbackSessionPurchases`
-(`:6527`), the frozen closed branch (`:6556`), `sessionOverallVariancePct` (`:4168`). **All five
-read FROZEN history**; `:6556` exists specifically to expand pre-r55 sessions still holding raw
+`countToUnits` (`:6286`), the live delivery merge (`:6535`), `fallbackSessionPurchases`
+(`:6601`), the frozen closed branch (`:6634`), `sessionOverallVariancePct` (`:4183`). **All five
+read FROZEN history**; `:6634` exists specifically to expand pre-r55 sessions still holding raw
 `unit:'Cases'` entries. Changing them silently RE-VALUES closed periods. That is a separate
-build gated on a before/after harness over every stored period.
+build gated on a before/after harness over every stored period. **r86 changed the ORDER of the
+operands at `:6535` but not the terminal fallback** — see below.
 
-**Known inconsistency (not fixed here):** the live merge (`:6464`) prefers
-`prodMap[name].caseSize` **over** `line.caseSize`, while the frozen and fallback branches
-(`:6527`/`:6556`) prefer `entry.caseSize` **first** — so the same invoice can expand differently
-before and after the period closes, and a pack size confirmed in the invoice review modal
-(`:11625` resolves it onto the line) is discarded by the live path.
+### Pack size: one precedence order, and a mandatory field (r86)
+Two related invoice defects, both confirmed by diagnostic before the fix and re-measured after.
+
+**FIX 1 — the review modal's pack size is MANDATORY when the split checkbox is ticked.**
+"Split into individual units — cost ÷ case size" IS the multiplier and the divisor, but "Units
+per case" beside it was optional. Left blank, r57's `caseQty > 1` gate quietly no-oped: the line
+stored as raw `Cases` with `caseSize` 0, and the two readers then disagreed about what it meant
+— the live merge guessed **12**, the frozen snapshot expanded **×1**. Same invoice, two numbers,
+decided by whether the period happened to still be open.
+- `validPackSize` is the rule, unchanged (whole, > 0, ≤ 500, returns **null**). The refusal
+  **names the offending lines** and writes nothing — the r84 `finaliseStocktake` posture.
+- **`invRefuseUnconfirmedPack(id)` is the ONE decision point and the ONE wording** (the r80
+  `noOpenPeriodText` pattern), called from two places: the modal's confirm button, **before**
+  `closeModal` so the red-bordered fields are still on screen; and `applyInvoiceToProducts`,
+  the choke point every import route funnels through. It returns **`false`** on refusal, so
+  r80's "`false` is the ONE refusal signal" contract still holds and `applyDumpEnrichment`
+  bails on `=== false` exactly as before.
+- **"Ticked" means the control was actually OFFERED.** The checkbox is hardcoded-`checked` on
+  every rendered row, including hidden plain-bottle lines, so `invSplitLineIsSplitting` tests
+  the **wrap's visibility** as well. Unticked ⇒ the field stays optional, as before.
+- `invMarkCaseSize` is presentational only (red border + `Units per case *`), and runs on
+  first paint, on every keystroke, on the checkbox, and from `updateInvCaseSize` — one helper,
+  so the paint can never disagree with the refusal.
+- **Not covered, deliberately:** quick import and an un-reviewed dump card have no checkbox to
+  honour, so nothing is refused there. A visible-but-UNTICKED `Cases` row can still reach the
+  live merge's terminal 12 — narrowing that is a scope change, not this build.
+
+**FIX 2 — the precedence inversion is gone.** All three purchase-expansion sites now read:
+
+> **stamped size on the line/entry → catalogue `caseSize` → parsed from the name → 12**
+
+`:6535` (live merge) used to put **prodMap FIRST**, so r57's carefully-resolved reviewed size
+was discarded in favour of the catalogue's; `:6601`/`:6634` have always read the stamped size
+first. The reviewed value is a per-invoice fact the user confirmed for THIS line — the same
+reasoning that makes a r82 adjustment store its confirmed size. **Total line value is invariant
+under the pack size** (`qty × cs` up, `cost ÷ cs` down), so the flip moves UNITS, never money.
+
+**FIX 3 — the terminal `|| 12` was NOT removed** at any of the five history-reading sites. Only
+the operand ORDER at `:6535` changed.
+
+**Measured impact on live data: ZERO.** The real `computeVariances` was run from the pre-r86 and
+post-r86 builds against the live `ap_clients` + `ap_audit_sessions` rows, for all 3 stored
+periods **twice each** — as stored, and with the status forced to `reopened` so the live-merge
+branch is exercised — diffing 11 numeric fields across 158 variance rows: **0 fields moved.**
+Every stored case line either carries a `line.caseSize` equal to the catalogue's (12=12, 10=10)
+or has no catalogue value at all. `CHURCH ROAD CHARDONNAY` on the `TRANSFER` delivery has no
+size anywhere and still lands on the terminal 12 — a pre-existing guess, untouched here.
+
+**Verified by a 108-check harness** (`verify-r86.js`) running the **real** desktop script in a
+node `vm` against a DOM stub, plus a second context booting the **pre-r86 snapshot** so
+"previously 12" is measured rather than asserted: reviewed 6 vs catalogue 12 gives **48 units
+pre / 24 post**, and identical numbers in both builds wherever no reviewed size exists. It also
+runs import → compute → **finalise** → recompute and asserts the purchase units, expected stock
+and cost impact are unchanged by closing, plus r56/r57 expansion, r77 idempotency, r78/r80
+guards, r81/r82 signed adjustments and the cost write-back gate, r83's hard catalogue binding,
+r84/r85 pack-size rules and the period lifecycle.
 
 ### Case handling
 `unionBarcodes()` flattens `barcode`, `barcodes[]` **and** `caseBarcode` into one flat match
@@ -928,6 +980,12 @@ validPackSize(raw) / stkSyncUnitRow(sel) / stkMarkPack(pack) / resolveRowCaseSiz
 barcodeMatchKind(p, scannedCode)   // r85 — desktop parity with r74; test caseBarcode FIRST
 pfMarkCaseSize()                   // r85 — 'Units per case *' + red border while the modal is open
 
+// Invoice review — mandatory pack size on a ticked split (r86)
+invSplitLineIsSplitting(id, i)     // checked AND the split wrap is actually visible
+invReviewRows(id) / invSplitPackErrors(id, rows)     // → [{ i, name }] to NAME the refusal
+invRefuseUnconfirmedPack(id)       // the ONE wording; TRUE = refused (callers return false)
+invMarkCaseSize(id, i)             // presentational: red border + 'Units per case *'
+
 // Products
 renderProducts(c, query) / editProduct(idx) / deleteProduct(idx) / saveProduct()
 addToMasterCatalogue(p) / getMasterProduct(name) / masterSlug(name) / syncMasterToClient(c)
@@ -991,12 +1049,12 @@ const CAT_ORDER_PROD          // :5641 — ['Spirits','Beer','Wine','RTD','Soft 
 const CAT_COLORS_PROD         // :5642 — { Spirits:{bg,text,icon}, … }
 const SUBCAT_ORDER            // :5652
 const SUBCAT_ICONS            // :5657 — { Gin:'🌿', Vodka:'🫧', … }
-const SUBCAT_BREAKDOWN_CATS   // :6118 — new Set(['Spirits'])
-const DENSITY                 // :6142 — { spirits:0.9467, wine:0.9805, beer:1.014, liqueur:1.06 }
+const SUBCAT_BREAKDOWN_CATS   // :6181 — new Set(['Spirits'])
+const DENSITY                 // :6205 — { spirits:0.9467, wine:0.9805, beer:1.014, liqueur:1.06 }
 const REPORT_CAT_THRESHOLDS   // :3755
-const VAR_PCT_MIN_EXPECTED    // :7005 — 1 unit; below this no variance % is quoted (r81)
-const ADJUSTMENT_REASONS      // :11936 — transfer_in/out, wastage, breakage, staff, promo, sample, other (r82)
-const APP_VERSION             // :14754
+const VAR_PCT_MIN_EXPECTED    // :7088 — 1 unit; below this no variance % is quoted (r81)
+const ADJUSTMENT_REASONS      // :12130 — transfer_in/out, wastage, breakage, staff, promo, sample, other (r82)
+const APP_VERSION             // :14971
 ```
 
 ---
