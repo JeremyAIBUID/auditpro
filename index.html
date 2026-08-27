@@ -1046,6 +1046,10 @@
     <div class="page" id="page-variances">
       <!-- Data status banner -->
       <div id="var-data-banner" style="margin-bottom:18px;"></div>
+      <!-- r88 FIX 2 — purchases booked under a name this venue does not stock. They are
+           filtered out of the table below (a row needs a catalogue product), and until now
+           that happened in total silence. -->
+      <div id="var-orphan-banner" style="margin-bottom:18px;"></div>
 
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
         <div id="var-strip" style="flex:1;"></div>
@@ -5635,6 +5639,15 @@ async function saveProduct() {
     } else if(prev.costHistory) {
       prod.costHistory = prev.costHistory;
     }
+    // r88 — saveProduct rebuilds the whole object, so a field it does not list is dropped
+    // (that is how r79's _userAdded self-clears). supplierCodeFrom must NOT self-clear
+    // while the code itself is unchanged, or invFindByCode would silently widen from
+    // "this supplier's 1000276" to "anyone's 1000276". Editing the code to something else
+    // — or clearing it — does drop the stamp, which is correct: we no longer know who
+    // taught us the new value, and an unstamped code is matched supplier-agnostically.
+    if(prev.supplierCodeFrom && prod.supplierCode && invCodeKey(prod.supplierCode) === invCodeKey(prev.supplierCode)) {
+      prod.supplierCodeFrom = prev.supplierCodeFrom;
+    }
     c.products[prodEditIdx] = prod;
     addToMasterCatalogue(prod);
     // r44 — 'barcode'/'barcodes' are deliberately NOT in syncFields: a cross-venue edit
@@ -6503,6 +6516,9 @@ function computeVariances(client, session = null) {
   // purchase snapshot (sess.purchases, resolved at finalise — FIX 3) so a later invoice
   // edit/delete can never retroactively move a locked period's numbers.
   const sessionPurchases = purchases || {};
+  // r88 FIX 2 — declared OUTSIDE the isLive branch: it is read after the merge, by both
+  // branches, when the orphan report is assembled.
+  const _orphanCleanNames = {};
   let mergedPurchases;
   if (isLive) {
   const deliveryPurchases = {};
@@ -6521,10 +6537,31 @@ function computeVariances(client, session = null) {
     .replace(/\d+(\.\d+)?\s*(ml|l|lt|ltr|litre|liters?)\b/gi,'')
     .replace(/\s+/g,' ').trim();
 
+  // r88 FIX 2 — lines whose stored _cleanName names nothing this venue stocks, and lines
+  // that could not be bound to the catalogue at all. Both are reported (see orphanPurchases
+  // below); neither is allowed to vanish quietly.
   scopedDeliveries.forEach(del => {
     (del.lines || []).forEach(line => {
-      // Use _cleanName if available, else try to match against catalogue
+      // Use _cleanName if available, else try to match against catalogue.
+      //
+      // r88 FIX 2 — "if available" now means "if it names a product this venue actually
+      // stocks". _cleanName is supposed to BE the catalogue name; when it is not, it is an
+      // orphan key, and every reader downstream — this merge, the catalogue filter below,
+      // the variance table, the report — drops it without a word. That is how $1,164.72 of
+      // Speight's kegs, filed under the MASTER name "Speight's Summit Ultra Lager 50L Keg"
+      // by the leaked match r88 FIX 2(a) removes, showed up nowhere at all.
+      //
+      // The import-side fixes stop NEW orphans being written; this stops an EXISTING one
+      // silently swallowing the line. An unusable name is discarded and the line falls
+      // through to the ordinary fuzzy match below — whose algorithm and tie-break are
+      // untouched (FIX 6). Any line that still cannot be bound is collected into
+      // `orphanLines` and surfaced, never dropped in silence.
       let name = line._cleanName || '';
+      if(name && !prodMap[name]) {
+        if(!_orphanCleanNames[name]) _orphanCleanNames[name] = 0;
+        _orphanCleanNames[name]++;
+        name = '';
+      }
       if(!name) {
         const raw = line.name || '';
         const nn  = normName(raw);
@@ -6696,6 +6733,85 @@ function computeVariances(client, session = null) {
 
   // Collect all product names — only include products in the catalogue
   const catalogueNames = new Set(Object.keys(prodMap));
+  // r88 FIX 2 — the filter below is correct (a variance row needs a catalogue product to
+  // hang unitVol, density and cost off), but it was SILENT. Anything it discards is real
+  // money that was booked and then vanished, so record it and let the Variance page say so.
+  //
+  // NOT every orphan is missing money, and a report that cries wolf gets ignored — which
+  // is how this whole class of defect survived. Live data has three orphan keys in one
+  // period and only ONE of them is real:
+  //   • "Corona Extra 330mL Bottle 24-Pack" 48 — the SAME invoice also wrote
+  //     "CORONA - 330 ml" 48. The stock IS counted; the orphan is a stale twin left by
+  //     the r88 FIX 3 name divergence (one loop keyed on the catalogue name, the other on
+  //     the raw invoice name).
+  //   • "Lion Red 50L Keg" 1 — same shape.
+  //   • "Speight's Summit Ultra Lager 50L Keg" 4 — NO twin. $1,164.72 that is counted
+  //     nowhere at all.
+  // The discriminator is a catalogue-named entry from the SAME invoice carrying the SAME
+  // quantity. Ref alone is not enough (one invoice legitimately carries several products),
+  // and name similarity is not enough (that is the guessing this build removes).
+  //
+  // TWO supersession tests, and NEITHER guesses at names. An invoice REF alone cannot
+  // decide this — one invoice legitimately carries several products, so "some catalogue
+  // entry mentions ref 94774304" is true of the Dashwood wine on the very invoice whose
+  // Speight's keg is genuinely lost.
+  //   (1) SAME REF + SAME QUANTITY under a catalogue name — the stale-twin case above.
+  //   (2) A catalogue-named entry whose line list cites EVERY invoice the orphan's own
+  //       line list cites — i.e. that entry already accounts for all of this orphan's
+  //       contributions. This is what makes the report SELF-HEALING: once a reopened
+  //       period re-derives the kegs from the delivery lines, the recovered entry cites
+  //       the same four invoices plus more, and the dead key stops claiming a loss.
+  const orphanPurchases = [];
+  const twinIndex = {};
+  const refSets = [];
+  Object.entries(mergedPurchases).forEach(([name, entry]) => {
+    if(!catalogueNames.has(name)) return;
+    const ref = (entry && entry.invoiceRef) || '';
+    const qty = parseFloat(entry && entry.qty) || 0;
+    if(ref) twinIndex[ref + '|' + qty] = name;
+    const cited = new Set(((entry && entry.lines) || []).map(l => l && l.inv).filter(Boolean));
+    if(ref) cited.add(ref);
+    if(cited.size) refSets.push({ name, cited });
+  });
+  Object.entries(mergedPurchases).forEach(([name, entry]) => {
+    if(catalogueNames.has(name)) return;
+    const qty  = parseFloat(entry && entry.qty) || 0;
+    const cost = parseFloat(entry && entry.costPrice) || 0;
+    if(!qty && !cost) return;
+    const ref  = (entry && entry.invoiceRef) || '';
+    let twin = ref ? twinIndex[ref + '|' + qty] : undefined;
+    if(!twin) {
+      const mine = new Set(((entry && entry.lines) || []).map(l => l && l.inv).filter(Boolean));
+      if(ref) mine.add(ref);
+      if(mine.size) {
+        const covering = refSets.find(rs => [...mine].every(x => rs.cited.has(x)));
+        if(covering) twin = covering.name;
+      }
+    }
+    orphanPurchases.push({
+      name,
+      qty,
+      unit:  (entry && entry.unit) || '',
+      value: qty * cost,
+      inv:   ref || '—',
+      sup:   (entry && entry.supplier) || '—',
+      // Set ⇒ the same invoice booked the same quantity under a catalogue name, so this
+      // key is a leftover, not a loss. Reported quietly and totalled separately.
+      twin:  twin || null,
+    });
+  });
+  const orphanLost = orphanPurchases.filter(o => !o.twin);
+  if(orphanLost.length) {
+    console.warn('[AuditPro] r88 — ' + orphanLost.length + ' purchase entr'
+      + (orphanLost.length === 1 ? 'y is' : 'ies are')
+      + ' filed under a name this venue does not stock and are counted NOWHERE:', orphanLost);
+  }
+  const orphanTwinned = orphanPurchases.filter(o => o.twin);
+  if(orphanTwinned.length) {
+    console.log('[AuditPro] r88 — ' + orphanTwinned.length + ' stale duplicate purchase key'
+      + (orphanTwinned.length === 1 ? '' : 's') + ' (the same invoice + quantity is already '
+      + 'counted under a catalogue name):', orphanTwinned);
+  }
   const allNames = new Set([
     ...Object.keys(opening  || {}),
     ...Object.keys(closing  || {}),
@@ -6961,6 +7077,11 @@ function computeVariances(client, session = null) {
   // FREEZE it onto the session. Attached as a non-index property: JSON.stringify(rows)
   // and the 4 callers (which only iterate) ignore it.
   rows._resolvedPurchases = mergedPurchases;
+  // r88 FIX 2 — same non-index-property trick: the four callers only iterate, and
+  // JSON.stringify(rows) ignores it. renderVarTable turns this into a visible banner.
+  rows._orphanPurchases = orphanPurchases;
+  rows._orphanLost      = orphanLost;
+  rows._orphanCleanNames = _orphanCleanNames;
   return rows;
 }
 
@@ -7304,6 +7425,59 @@ const PACK_UNKNOWN_TITLE = 'Pack size unknown — this product has no confirmed 
   + 'so each case was counted as 1 unit. The figure is UNDER-stated. '
   + 'Set Units per case on the product in the Products catalogue to correct it.';
 
+// r88 FIX 2 — THE PURCHASES THAT AREN'T THERE. computeVariances only builds rows for
+// products in the venue catalogue, which is right: a row needs a unitVol, a density and a
+// cost to mean anything. What was wrong is that the discard was SILENT — four Speight's
+// kegs worth $1,164.72, booked under a master-catalogue name this venue does not stock,
+// simply were not on the page, and nothing anywhere said so.
+//
+// The import-side gates (FIX 1, 2, 4) stop new orphans being created. This is the read-side
+// half: whatever is already stored gets named, priced and put on screen until it is fixed.
+function renderVarOrphanBanner(computed) {
+  const el = document.getElementById('var-orphan-banner');
+  if(!el) return;
+  const all     = (computed && computed._orphanPurchases) || [];
+  const orphans = all.filter(o => !o.twin);      // the ones that are counted NOWHERE
+  const twins   = all.filter(o => o.twin);       // stale duplicate keys — a tidy-up, not a loss
+  if(!orphans.length && !twins.length) { el.innerHTML = ''; return; }
+  const total = orphans.reduce((s, o) => s + (Number(o.value) || 0), 0);
+  if(!orphans.length) {
+    // Nothing is missing — say so in one quiet line rather than a red alarm, or the real
+    // alarm above stops meaning anything.
+    el.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:9px 14px;font-size:11.5px;color:var(--text3);line-height:1.5;">
+      ℹ ${twins.length} stale duplicate purchase key${twins.length!==1?'s':''} in this period
+      (${twins.map(t => rptEsc(t.name)).join(', ')}) — the same invoice and quantity is already
+      counted under a catalogue name, so no stock is missing. Left over from the pre-r88 name
+      split; harmless, and worth clearing next time the period is reopened.
+    </div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div style="background:rgba(255,107,107,0.07);border:1px solid rgba(255,107,107,0.28);border-radius:10px;padding:12px 16px;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <span style="font-size:13px;font-weight:700;color:var(--red);">⚠ ${orphans.length} purchase${orphans.length!==1?'s':''} not in this variance</span>
+        ${total ? `<span style="font-size:12px;font-family:var(--font-mono);color:var(--red);">$${Math.abs(total).toFixed(2)}</span>` : ''}
+        <span style="font-size:12px;color:var(--text3);">booked under a name this venue does not stock — so no variance row can be built for them</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;">
+        ${orphans.map(o => `<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:11.5px;">
+          <span style="font-family:var(--font-mono);color:var(--text);">${rptEsc(o.name)}</span>
+          <span style="color:var(--text3);">${(Number(o.qty)||0)} ${rptEsc(o.unit||'units')}</span>
+          ${o.value ? `<span style="font-family:var(--font-mono);color:var(--text2);">$${Math.abs(Number(o.value)).toFixed(2)}</span>` : ''}
+          <span style="color:var(--text3);">inv ${rptEsc(o.inv)} · ${rptEsc(o.sup)}</span>
+        </div>`).join('')}
+      </div>
+      <div style="margin-top:9px;font-size:11px;color:var(--text3);line-height:1.5;">
+        Fix it by adding these to the Products catalogue under exactly this name, or by
+        reopening the period and re-importing the invoice against the venue product they
+        really are. Since r88 an import can no longer create one of these.
+        ${twins.length ? `<br>(${twins.length} further duplicate key${twins.length!==1?'s':''} —
+        ${twins.map(t => rptEsc(t.name)).join(', ')} — ${twins.length!==1?'are':'is'} already
+        counted under a catalogue name and cost nothing.)` : ''}
+      </div>
+    </div>`;
+}
+
 function renderVarTable() {
   const c = activeClient; if (!c) return;
   if(!DB._ready) {
@@ -7319,6 +7493,9 @@ function renderVarTable() {
   // active open period merges its own scoped currentDeliveries. Passing viewedSession() when
   // nothing is pinned is identical to the old currentSession() default (no regression).
   const computed = computeVariances(c, viewedSession(c));
+  // r88 FIX 2 — must run BEFORE the empty-state early return below, or a period whose
+  // ONLY purchases are orphaned would show "no variance data yet" and nothing else.
+  renderVarOrphanBanner(computed);
   let rows = computed ? [...computed] : [];
 
   // STAGE 4 PART B (r66) — closing counts are directly amendable ONLY while the viewed
@@ -10719,7 +10896,7 @@ function filterInvNameList(id, idx, query) {
 
   listEl.innerHTML = matches.map(p => {
     const name = p.n||p.name||'';
-    return `<div onclick="var el=document.getElementById('${id}-name-${idx}');el.value='${name.replace(/'/g,"\\'").replace(/"/g,'&quot;')}';el.style.borderColor='var(--border2)';document.getElementById('${id}-namelist-${idx}').style.display='none';checkInvoiceReady('${id}',document.querySelectorAll('[id^=${id}-name-]').length);"
+    return `<div onclick="var el=document.getElementById('${id}-name-${idx}');el.value='${name.replace(/'/g,"\\'").replace(/"/g,'&quot;')}';document.getElementById('${id}-namelist-${idx}').style.display='none';invNameChanged('${id}',${idx},document.querySelectorAll('[id^=${id}-name-]').length);"
       style="padding:8px 12px;cursor:pointer;font-size:13px;color:var(--text);border-bottom:1px solid var(--border);background:var(--bg2);"
       onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='var(--bg2)'">${name}</div>`;
   }).join('');
@@ -10763,72 +10940,188 @@ function manualProductSearch(query) {
   }, 100);
 }
 
+// ─── r88 — ONE INVOICE MATCHER, WITH A CONFIDENCE AND A SUPPLIER CODE ────────
+// The matcher never failed by REFUSING to match. It matched CONFIDENTLY TO THE WRONG
+// PRODUCT and rendered a green "✓ Matched" tick, which is why four separate defects rode
+// undetected through a real audit. The three that are code (the fourth was a catalogue
+// typo) are fixed here; the fuzzy SCORER and its tie-break are deliberately untouched
+// (see the note above invMatchLine).
+//
+// The normaliser, duplicated inline in renderInvoiceResults and openInvoiceReviewModal and
+// drifting between them (the modal compared a RAW lowercase catalogue name against a
+// NORMALISED invoice name at its "exact" step, so that step could never fire), is now one
+// function used by both.
+function invNormName(s) {
+  return String(s == null ? '' : s).toLowerCase().trim()
+    .replace(/'/g,'')                // strip apostrophes: Speight's → Speights
+    .replace(/\b\d+\s*s\b/gi,'')     // pack sizes: 24S, 12S
+    .replace(/\bbtls?\b/gi,'')       // BTL/BTLS
+    .replace(/\bcans?\b/gi,'')       // CAN/CANS
+    .replace(/\bkegs?\b/gi,'')       // KEG/KEGS
+    .replace(/\bcases?\b/gi,'')      // CASE/CASES
+    .replace(/\bcar\b/gi,'')         // CAR
+    .replace(/\brtd\b/gi,'')         // RTD
+    .replace(/\d+(\.\d+)?\s*(ml|l|lt|ltr|litre|liters?)\b/gi,'') // volumes
+    .replace(/\s+/g,' ').trim();
+}
+
+// A supplier product code is an OPAQUE KEY, not a barcode: leading zeros can be
+// significant, so normalizeBarcode's zero-strip must NOT be reused here. Trim, collapse
+// internal whitespace, upper-case (some suppliers mix 'ab1234' / 'AB1234'). '' means "no
+// code" and never matches anything.
+function invCodeKey(raw) {
+  return String(raw == null ? '' : raw).trim().replace(/\s+/g, ' ').toUpperCase();
+}
+function invLineSupplierCode(item)    { return invCodeKey(item && (item.productCode != null ? item.productCode : item.supplierCode)); }
+function invProductSupplierCode(prod) { return invCodeKey(prod && prod.supplierCode); }
+
+// "An exact supplierCode hit cannot be wrong" is true WITHIN A SUPPLIER. Lion's 1000276
+// and some other wholesaler's 1000276 are unrelated strings, so a code learned from Lion
+// is only trusted against a Lion invoice. `supplierCodeFrom` (r88) records which supplier
+// taught us the code; a product without that stamp — every pre-r88 code, and every code
+// typed into the product form by hand — is matched supplier-agnostically, which is still
+// far stronger evidence than any name comparison.
+function invFindByCode(pool, code, supplier) {
+  if(!code) return null;
+  return (pool || []).find(p => {
+    if(invProductSupplierCode(p) !== code) return false;
+    const from = p && p.supplierCodeFrom;
+    return !from || !supplier || sameSupplier(from, supplier);
+  }) || null;
+}
+
+// Match ONE invoice line against THIS VENUE'S catalogue. Returns { prod, kind, score, code }.
+//
+// r88 FIX 2(a) — the master catalogue is NOT consulted here. It used to be, at the "exact"
+// step, which ran BEFORE the venue's own normalised/partial/fuzzy steps: an invoice line
+// reading "Speight's Summit Ultra Lager 50L Keg" hit the master row of that exact name and
+// never got as far as the venue's own "SPEIGHTS SUMMIT ULTRA LOW CARB LAGER". The line then
+// imported under the MASTER name, and computeVariances — which only builds rows for products
+// in the venue catalogue — dropped it without a word. $1,164.72 of kegs.
+// A venue product is always the better answer for that venue's invoice; a master-only
+// resolution is now surfaced as UNMATCHED (invUnmatchedLines) and still supplies
+// density/vessel enrichment through the separate `master` lookup at the call site.
+//
+// r88 FIX 6 — the word-overlap scorer and its tie-break (first-past-the-post on a strict
+// `>`, i.e. array order wins a tie) are copied VERBATIM. The live delivery merge re-runs
+// fuzzy matching on every render, so changing the scorer silently re-values any reopened
+// period and freezeSessionSnapshot then bakes it in. FIX 1 and FIX 2 remove most of the
+// pressure on this path; a tie-break change belongs in its own gated build.
+function invMatchLine(client, item, supplier) {
+  const pool = (client && client.products) || [];
+  const name = String((item && item.name) || '');
+
+  // 1. SUPPLIER CODE (r88 FIX 1) — the strongest signal there is, and the only one stable
+  //    across the wording changes that break every name comparison: Lion's 1000391 covers
+  //    two different descriptions of the same Speight's.
+  const code = invLineSupplierCode(item);
+  if(code) {
+    const byCode = invFindByCode(pool, code, supplier);
+    if(byCode) return { prod: byCode, kind: 'code', score: 1, code };
+  }
+
+  // 2. Barcode (exact, leading zeros stripped — r44 any-barcode match)
+  if(item && item.barcode) {
+    const bc = normalizeBarcode(item.barcode);
+    const byBc = pool.find(p => productBarcodes(p).includes(bc));
+    if(byBc) return { prod: byBc, kind: 'barcode', score: 1, code };
+  }
+
+  const n  = name.toLowerCase().trim();
+  const nn = invNormName(name);
+
+  // 3. Exact name (case-insensitive)
+  let hit = pool.find(p => (p.n||p.name||'').toLowerCase() === n);
+  if(hit) return { prod: hit, kind: 'exact', score: 1, code };
+
+  // 4. Normalised exact — strips volumes and pack sizes, so "CORONA - 330 ml" and
+  //    "CORONA - 355ml" collapse to the same string. Strong, but NOT certain: this is
+  //    where the review flag starts.
+  hit = pool.find(p => invNormName(p.n||p.name||'') === nn && nn.length > 4);
+  if(hit) return { prod: hit, kind: 'normalised', score: 1, code };
+
+  // 5. Partial string containment
+  hit = pool.find(p => {
+    const pn = invNormName(p.n||p.name||'');
+    return pn.length > 6 && nn.length > 6 && (nn.includes(pn) || pn.includes(nn));
+  });
+  if(hit) return { prod: hit, kind: 'partial', score: 1, code };
+
+  // 6. Word overlap — VERBATIM (see FIX 6 above).
+  const invWords = nn.split(' ').filter(w=>w.length>3);
+  let bestMatch = null, bestScore = 0;
+  pool.forEach(p=>{
+    const pn = invNormName(p.n||p.name||'');
+    const catWords = pn.split(' ').filter(w=>w.length>3);
+    const shared = invWords.filter(w=>catWords.includes(w)).length;
+    const score = shared / Math.max(invWords.length, catWords.length);
+    if(shared >= 2 && score > bestScore) { bestScore = score; bestMatch = p; }
+  });
+  if(bestMatch) return { prod: bestMatch, kind: 'fuzzy', score: bestScore, code };
+
+  return { prod: null, kind: '', score: 0, code };
+}
+
+// r88 FIX 5 — CONFIDENCE. A code / barcode / exact-name hit is an identity, not a guess:
+// green and collapsed. Everything else got there by throwing information away (volumes,
+// pack sizes, word order) and is shown AMBER and EXPANDED, naming what it matched and how,
+// so the auditor actually looks at it. A confident-but-wrong match rendered green and
+// collapsed is precisely why the Speight's leak survived a whole audit.
+const INV_CONFIDENT_KINDS = ['code','barcode','exact'];
+function invMatchIsConfident(kind) { return INV_CONFIDENT_KINDS.indexOf(kind) >= 0; }
+function invMatchLabel(kind, score) {
+  if(kind === 'code')       return 'supplier code';
+  if(kind === 'barcode')    return 'barcode';
+  if(kind === 'exact')      return 'exact name';
+  if(kind === 'normalised') return 'name match, volume/pack size ignored';
+  if(kind === 'partial')    return 'partial name';
+  if(kind === 'fuzzy')      return 'word overlap ' + (Number(score)||0).toFixed(2);
+  return 'no match';
+}
+
+// The venue catalogue product with EXACTLY this name (case-insensitive), or null. This is
+// the hard-binding test — the r82/r83 posture, adapted: the invoice modal must still be
+// able to CREATE a product (60 of this venue's products arrived that way), so the field is
+// not restricted to catalogue names outright. It is restricted to a catalogue name OR an
+// explicit "create new product" tick, and nothing else can be committed.
+function invFindCatalogueProduct(name) {
+  const q = String(name == null ? '' : name).trim().toLowerCase();
+  if(!q) return null;
+  return (activeClient?.products || []).find(p => (p.n||p.name||'').toLowerCase() === q) || null;
+}
+
+// r88 FIX 3 — THE ONE NAME an invoice line resolves to. applyInvoiceToProducts read this
+// FOUR times and the four did not agree: two used `_cleanName || item.name`, two fell back
+// to the raw `item.name`. The one the purchase key is built from was a raw-name reader, so
+// on quick import the product was created/updated under its CATALOGUE name while its
+// purchase was filed under the INVOICE name — and computeVariances only builds rows for
+// names that ARE in the catalogue, so that purchase was dropped in silence. Now every
+// reader calls this, and the review modal's input (when open) still wins over both.
+function invResolvedLineName(id, i, item) {
+  const el = document.getElementById(id + '-name-' + i);
+  if(el) return el.value.trim();
+  return (item && (item._cleanName || item.name)) || '';
+}
+
 function renderInvoiceResults(id, invoice, filename) {
   const c   = activeClient;
   const res = document.getElementById(id+'-results');
   if(!res) return;
 
-  // Fuzzy match against client products AND master catalogue
-  function findMatch(name, barcode) {
-    const norm = s => s.toLowerCase().trim()
-      .replace(/'/g,'')                // strip apostrophes: Speight's → Speights
-      .replace(/\b\d+\s*s\b/gi,'')    // pack sizes: 24S, 12S
-      .replace(/\bbtls?\b/gi,'')      // BTL/BTLS
-      .replace(/\bcans?\b/gi,'')      // CAN/CANS
-      .replace(/\bkegs?\b/gi,'')      // KEG/KEGS
-      .replace(/\bcases?\b/gi,'')     // CASE/CASES
-      .replace(/\bcar\b/gi,'')        // CAR
-      .replace(/\brtd\b/gi,'')        // RTD
-      .replace(/\d+(\.\d+)?\s*(ml|l|lt|ltr|litre|liters?)\b/gi,'') // volumes
-      .replace(/\s+/g,' ').trim();
-
-    const n  = name.toLowerCase().trim();
-    const nn = norm(name);
-
-    // 1. Barcode match (strongest)
-    if(barcode) {
-      const bc = normalizeBarcode(barcode);          // r44 — any-barcode match
-      const bm = (c?.products||[]).find(p => productBarcodes(p).includes(bc));
-      if(bm) return bm;
-    }
-
-    // 2. Exact name match
-    let m = (c?.products||[]).find(p=>(p.n||p.name||'').toLowerCase()===n)
-         || getMasterProduct(name);
-    if(m) return m;
-
-    // 3. Normalised exact match
-    m = (c?.products||[]).find(p=>norm(p.n||p.name||'')===nn && nn.length>4)
-     || masterProducts.find(p=>norm(p.n||p.name||'')===nn && nn.length>4);
-    if(m) return m;
-
-    // 4. Partial string match
-    m = (c?.products||[]).find(p=>{
-      const pn=norm(p.n||p.name||'');
-      return pn.length>6 && nn.length>6 && (nn.includes(pn)||pn.includes(nn));
-    }) || masterProducts.find(p=>{
-      const pn=norm(p.n||p.name||'');
-      return pn.length>6 && nn.length>6 && (nn.includes(pn)||pn.includes(nn));
-    });
-    if(m) return m;
-
-    // 5. Word overlap — pick product with highest overlap score
-    const invWords = nn.split(' ').filter(w=>w.length>3);
-    let bestMatch = null, bestScore = 0;
-    (c?.products||[]).forEach(p=>{
-      const pn = norm(p.n||p.name||'');
-      const catWords = pn.split(' ').filter(w=>w.length>3);
-      const shared = invWords.filter(w=>catWords.includes(w)).length;
-      const score = shared / Math.max(invWords.length, catWords.length);
-      if(shared >= 2 && score > bestScore) { bestScore = score; bestMatch = p; }
-    });
-    return bestMatch||null;
-  }
-
+  // r88 — matching now lives in ONE function (invMatchLine), shared with the review
+  // modal, so the card and the modal can never disagree about what a line matched. The
+  // inline copy that used to sit here consulted the MASTER catalogue at its exact-name
+  // step, BEFORE the venue's own normalised/partial/fuzzy steps — see the FIX 2 note on
+  // invMatchLine for what that cost.
   const rows = invoice.items.map(item => {
-    const existing = findMatch(item.name, item.barcode);
+    const mm       = invMatchLine(c, item, invoice.supplier || '');
+    const existing = mm.prod;
     // FIX (r18) — if this line matches no venue product, inherit density/vessel data from
     // the master catalogue (the single source of truth) before falling back to defaults.
+    // r88 FIX 2(b) — the master row is ENRICHMENT ONLY and is never the match: a line that
+    // resolves only to a master product this venue does not stock stays UNMATCHED and has
+    // to be decided by a human, instead of importing under the master's name and then
+    // being dropped, unannounced, by computeVariances' catalogue filter.
     const master   = existing ? null : getMasterProduct(item.name);
     const vol      = parseVolFromName(item.name);
     const exGST    = item.unitPriceExGST || (item.unitPriceIncGST ? item.unitPriceIncGST/1.15 : (item.unitPrice||0)/1.15);
@@ -10837,8 +11130,14 @@ function renderInvoiceResults(id, invoice, filename) {
     return {
       ...item,
       existing,
-      action:     existing ? 'update' : 'add',
-      _cleanName: existing ? (existing.n||existing.name) : '',
+      action:      existing ? 'update' : 'add',
+      _cleanName:  existing ? (existing.n||existing.name) : '',
+      // r88 FIX 5 — how this line was matched, carried onto the row so the card, the
+      // modal and the quick-import gate all read the same verdict.
+      _matchKind:  mm.kind,
+      _matchScore: mm.score,
+      _lineCode:   mm.code,
+      _masterOnly: !existing && !!master,
       _cat:       existing?.cat     || master?.cat     || item.cat || 'Other',
       _unitVol:   existing?.unitVol || master?.unitVol || vol || '',
       _serveVol:  existing?.serveVol|| master?.serveVol|| (item.cat==='Spirits'?30:item.cat==='Wine'?150:''),
@@ -10853,6 +11152,12 @@ function renderInvoiceResults(id, invoice, filename) {
 
   const newCount    = rows.filter(r=>r.action==='add').length;
   const updateCount = rows.filter(r=>r.action==='update').length;
+  // r88 FIX 5 — the two counts that actually decide whether this invoice can be committed
+  // blind. `reviewCount` is the lines the matcher reached by throwing information away
+  // (normalised / partial / word overlap); `masterOnlyCount` is the FIX 2(b) case — a line
+  // whose only home is a master product this venue does not stock.
+  const reviewCount     = rows.filter(r=>r.existing && !invMatchIsConfident(r._matchKind)).length;
+  const masterOnlyCount = rows.filter(r=>r._masterOnly).length;
   const totalIncGST = invoice.invoiceTotal || rows.reduce((s,r)=>s+(r.lineTotal||r._incGST*r.qty||0),0);
   const totalExGST  = invoice.invoiceTotalExGST || totalIncGST/1.15;
   const totalGST    = invoice.invoiceGST || (totalIncGST-totalExGST);
@@ -10895,13 +11200,15 @@ function renderInvoiceResults(id, invoice, filename) {
           ${newCount ? `<span style="font-size:11px;padding:2px 10px;border-radius:20px;background:rgba(200,240,100,0.12);color:var(--accent);font-weight:700;border:1px solid rgba(200,240,100,0.3);">+${newCount} new product${newCount!==1?'s':''}</span>` : ''}
           ${updateCount ? `<span style="font-size:11px;padding:2px 10px;border-radius:20px;background:rgba(240,192,64,0.1);color:var(--amber);font-weight:600;">⚡ ${updateCount} price update${updateCount!==1?'s':''}</span>` : ''}
           ${!hasNew && !updateCount ? `<span style="font-size:11px;color:var(--green);">✓ All products matched</span>` : ''}
+          ${reviewCount ? `<span title="Matched by name similarity, not by supplier code, barcode or exact name — open Review and confirm each one." style="font-size:11px;padding:2px 10px;border-radius:20px;background:rgba(240,192,64,0.14);color:var(--amber);font-weight:700;border:1px solid rgba(240,192,64,0.35);">⚠ ${reviewCount} need${reviewCount!==1?'':'s'} review</span>` : ''}
+          ${masterOnlyCount ? `<span title="These lines only match a product in the SHARED master catalogue, which this venue does not stock. Imported as-is they would be silently dropped from variance." style="font-size:11px;padding:2px 10px;border-radius:20px;background:rgba(255,107,107,0.12);color:var(--red);font-weight:700;border:1px solid rgba(255,107,107,0.3);">✗ ${masterOnlyCount} not stocked here</span>` : ''}
         </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
         ${isDuplicateInvoice(activeClient, invoice.invoiceRef, invoice.invoiceDate, invoice.supplier)
           ? `<span style="font-size:12px;padding:6px 14px;border-radius:8px;background:rgba(91,227,180,0.1);color:var(--green);border:1px solid rgba(91,227,180,0.2);font-weight:600;">✓ Already in purchase history</span>
              <button class="btn btn-secondary" style="font-size:12px;padding:7px 16px;" onclick="openInvoiceReviewModal('${id}')">🔍 Review anyway</button>`
-          : `<button class="btn btn-secondary" style="font-size:12px;padding:7px 16px;" onclick="applyInvoiceToProducts('${id}')">⚡ Quick import</button>
+          : `<button class="btn btn-secondary" style="font-size:12px;padding:7px 16px;${newCount ? 'opacity:0.55;' : ''}" title="${newCount ? 'Some lines are not matched to a catalogue product — open Review to decide each one.' : 'Every line is matched to a catalogue product.'}" onclick="applyInvoiceToProducts('${id}')">⚡ Quick import</button>
              <button class="btn btn-primary" style="font-size:12px;padding:7px 16px;" onclick="openInvoiceReviewModal('${id}')">🔍 Review all ${rows.length} items →</button>`
         }
       </div>
@@ -10915,49 +11222,25 @@ function openInvoiceReviewModal(id) {
   if(!res || !res._invoiceData) return;
   const c = activeClient;
 
-  // Re-run matching with latest logic
-  const norm = s => s.toLowerCase().trim()
-    .replace(/'/g,'').replace(/\b\d+\s*s\b/gi,'')
-    .replace(/\bbtls?\b/gi,'').replace(/\bcans?\b/gi,'')
-    .replace(/\bkegs?\b/gi,'').replace(/\bcases?\b/gi,'')
-    .replace(/\bcar\b/gi,'').replace(/\brtd\b/gi,'')
-    .replace(/\d+(\.\d+)?\s*(ml|l|lt|ltr|litre|liters?)\b/gi,'')
-    .replace(/\s+/g,' ').trim();
-
+  // Re-run matching with the CURRENT catalogue — the card's verdict was computed when the
+  // invoice was parsed and the user may have added or corrected products since (this is
+  // why _cleanName in _invoiceDataStore is stale by design). r88: it runs through the SAME
+  // invMatchLine the card used, so the two surfaces can never disagree. The inline copy
+  // that used to live here also carried a dead step — its "exact" test compared a RAW
+  // lowercase catalogue name against a NORMALISED invoice name, so it could only ever fire
+  // for a name that survived normalisation unchanged.
   const rows = res._invoiceData.map(item => {
-    // Barcode match first
-    let existing = null;
-    if(item.barcode) {
-      const bc = normalizeBarcode(item.barcode);     // r44 — any-barcode match
-      existing = (c?.products||[]).find(p => productBarcodes(p).includes(bc));
-    }
-    if(!existing) {
-      const nn = norm(item.name||'');
-      const invWords = nn.split(' ').filter(w=>w.length>3);
-      // Exact
-      existing = (c?.products||[]).find(p=>(p.n||p.name||'').toLowerCase()===nn);
-      // Normalised exact
-      if(!existing) existing = (c?.products||[]).find(p=>norm(p.n||p.name||'')===nn && nn.length>4);
-      // Partial
-      if(!existing) existing = (c?.products||[]).find(p=>{ const pn=norm(p.n||p.name||''); return pn.length>6&&nn.length>6&&(nn.includes(pn)||pn.includes(nn)); });
-      // Best word overlap
-      if(!existing && invWords.length>=2) {
-        let bestMatch=null,bestScore=0;
-        (c?.products||[]).forEach(p=>{
-          const pn=norm(p.n||p.name||'');
-          const catWords=pn.split(' ').filter(w=>w.length>3);
-          const shared=invWords.filter(w=>catWords.includes(w)).length;
-          const score=shared/Math.max(invWords.length,catWords.length);
-          if(shared>=2&&score>bestScore){bestScore=score;bestMatch=p;}
-        });
-        existing = bestMatch;
-      }
-    }
+    const mm = invMatchLine(c, item, res._invoiceSupplier || '');
+    const existing = mm.prod;
     return {
       ...item,
       existing,
-      action:     existing ? 'update' : 'add',
-      _cleanName: existing ? (existing.n||existing.name) : '',
+      action:      existing ? 'update' : 'add',
+      _cleanName:  existing ? (existing.n||existing.name) : '',
+      _matchKind:  mm.kind,
+      _matchScore: mm.score,
+      _lineCode:   mm.code,
+      _masterOnly: !existing && !!getMasterProduct(item.name),
       ...(existing && {
         _cat:    existing.cat    || item._cat    || item.cat    || 'Other',
         _unitVol:existing.unitVol|| item._unitVol|| item.unitVol|| '',
@@ -10984,6 +11267,10 @@ function openInvoiceReviewModal(id) {
   // still on screen (and freshly red-bordered) when the refusal names their lines.
   // applyInvoiceToProducts repeats the check as the backstop for every other route.
   document.getElementById('irm-confirm-btn').onclick   = async () => {
+    // r88 FIX 4/5 — same reason r86 validates here: the offending fields are still on
+    // screen, freshly marked, when the refusal names their lines. applyInvoiceToProducts
+    // repeats both checks as the backstop for every route that never opens this modal.
+    if(invRefuseUnmatchedLines(id, rows)) return;
     if(invRefuseUnconfirmedPack(id)) return;
     closeModal('invoiceReviewModal');
     await applyInvoiceToProducts(id);
@@ -11008,43 +11295,84 @@ function openInvoiceReviewModal(id) {
 
   // Initial validation check
   setTimeout(() => {
+    // r88 — paint the name binding on first render through the SAME helper every keystroke
+    // runs (the r86 posture), so a row that arrives unmatched already shows its red border
+    // and its "create new product" tick before anyone types.
+    for(let i = 0; i < rows.length; i++) invMarkName(id, i);
     checkInvoiceReady(id, rows.length);
     // r86 FIX 1 — paint the pack-size requirement on first render through the SAME helper
     // every later edit runs, so the initial state can never disagree with the refusal.
     for(let i = 0; i < rows.length; i++) invMarkCaseSize(id, i);
   }, 100);
 
-  // Build enrichment rows for ALL products — matched ones collapsed
+  // Build enrichment rows for ALL products.
+  //
+  // r88 FIX 5 — THREE states, not two. "Matched" used to mean "the matcher returned
+  // something", rendered green and COLLAPSED, which is exactly how four Speight's kegs
+  // matched a product this venue does not stock and nobody looked twice.
+  //   • confident  — supplier code / barcode / exact name: green, collapsed, as before.
+  //   • review     — normalised / partial / word-overlap: AMBER and EXPANDED, naming the
+  //                   product it chose and how it got there, because those steps reach
+  //                   their answer by discarding volume, pack size or word order.
+  //   • new        — nothing matched: as before, but the name field is now BOUND (see
+  //                   invNameChanged) instead of being accepted on non-emptiness alone.
   const body = document.getElementById('irm-body');
   body.innerHTML = rows.map((r, globalIdx) => {
-    const isMatched = r.action === 'update';
-    const borderColor = isMatched ? 'rgba(91,227,180,0.2)' : 'rgba(200,240,100,0.2)';
-    const badge = isMatched
-      ? `<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(91,227,180,0.1);color:var(--green);border:1px solid rgba(91,227,180,0.3);">✓ Matched</span>`
+    const isMatched  = r.action === 'update';
+    const confident  = isMatched && invMatchIsConfident(r._matchKind);
+    const needsCheck = isMatched && !confident;
+    const collapsed  = confident;
+    const borderColor = confident  ? 'rgba(91,227,180,0.2)'
+                      : needsCheck ? 'rgba(240,192,64,0.35)'
+                      :              'rgba(200,240,100,0.2)';
+    const badge = confident
+      ? `<span title="Matched by ${invMatchLabel(r._matchKind, r._matchScore)}" style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(91,227,180,0.1);color:var(--green);border:1px solid rgba(91,227,180,0.3);">✓ ${invMatchLabel(r._matchKind, r._matchScore)}</span>`
+      : needsCheck
+      ? `<span title="Matched by name similarity only — confirm this is the right product." style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(240,192,64,0.14);color:var(--amber);border:1px solid rgba(240,192,64,0.4);font-weight:700;">⚠ Check match</span>`
       : `<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(200,240,100,0.1);color:var(--accent);border:1px solid rgba(200,240,100,0.3);">+ New</span>`;
     return `
     <div style="background:var(--bg2);border:1px solid ${borderColor};border-radius:12px;padding:14px 16px;margin-bottom:10px;">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:${isMatched?'0':'12px'};">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:${collapsed?'0':'12px'};">
         ${badge}
-        <div style="font-size:13px;font-weight:700;color:var(--text);flex:1;">${r._cleanName}</div>
+        <div style="font-size:13px;font-weight:700;color:var(--text);flex:1;">${rptEsc(r._cleanName || r.name || '')}</div>
         <div id="${id}-hdrprice-${globalIdx}" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);">$${(r._incGST||0).toFixed(2)}</div>
         ${isMatched ? `<button onclick="var ex=document.getElementById('${id}-expand-${globalIdx}');ex.classList.toggle('hidden');" style="font-size:11px;color:var(--text3);background:none;border:none;cursor:pointer;padding:2px 6px;">Edit ▾</button>` : ''}
       </div>
-      <div id="${id}-expand-${globalIdx}" class="irm-expand${isMatched?' hidden':''}">
+      ${needsCheck ? `<div style="margin-bottom:12px;padding:8px 11px;border-radius:8px;background:rgba(240,192,64,0.07);border:1px solid rgba(240,192,64,0.2);font-size:11.5px;color:var(--text2);line-height:1.5;">
+        <strong style="color:var(--amber);">Check this match.</strong>
+        <span style="font-family:var(--font-mono);color:var(--text3);">${rptEsc(r.name || '')}</span>
+        &nbsp;→&nbsp;<span style="font-family:var(--font-mono);color:var(--text);">${rptEsc(r._cleanName || '')}</span>
+        &nbsp;<span style="color:var(--text3);">(${invMatchLabel(r._matchKind, r._matchScore)})</span>
+      </div>` : ''}
+      ${r._masterOnly ? `<div style="margin-bottom:12px;padding:8px 11px;border-radius:8px;background:rgba(255,107,107,0.07);border:1px solid rgba(255,107,107,0.25);font-size:11.5px;color:var(--text2);line-height:1.5;">
+        <strong style="color:var(--red);">Not stocked at this venue.</strong>
+        This line only matches <span style="font-family:var(--font-mono);color:var(--text);">${rptEsc((getMasterProduct(r.name)||{}).n || (getMasterProduct(r.name)||{}).name || '')}</span>
+        in the shared master catalogue. Pick the venue product it really is, or tick
+        “Create as a new product” to add it here — imported as-is it would vanish from variance.
+      </div>` : ''}
+      <div id="${id}-expand-${globalIdx}" class="irm-expand${collapsed?' hidden':''}">
         <!-- Invoice name (read-only) + catalogue name (typeahead) -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
           <div>
             <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:4px;">Invoice name</div>
-            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:12px;color:var(--text2);font-family:var(--font-mono);">${r.name}</div>
+            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:12px;color:var(--text2);font-family:var(--font-mono);">${rptEsc(r.name || '')}</div>
+            ${r._lineCode ? `<div style="margin-top:4px;font-size:10px;color:var(--text3);">Supplier code <span style="font-family:var(--font-mono);color:var(--text2);">${rptEsc(r._lineCode)}</span>${r._matchKind==='code' ? ' — matched on it' : ' — will be remembered on import'}</div>` : ''}
           </div>
           <div>
             <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:4px;">Catalogue name</div>
-            <input id="${id}-name-${globalIdx}" type="text" value="${r._cleanName.replace(/"/g,'&quot;')}"
+            <input id="${id}-name-${globalIdx}" type="text" value="${(r._cleanName||'').replace(/"/g,'&quot;')}"
               style="width:100%;background:var(--bg3);border:1px solid ${r._cleanName?'var(--border2)':'var(--red)'};border-radius:8px;padding:7px 10px;color:var(--text);font-family:var(--font-ui);font-size:13px;font-weight:600;outline:none;"
               placeholder="⚠ Select from catalogue…"
-              oninput="filterInvNameList('${id}',${globalIdx},this.value);checkInvoiceReady('${id}',${rows.length})"
+              oninput="filterInvNameList('${id}',${globalIdx},this.value);invNameChanged('${id}',${globalIdx},${rows.length})"
               onfocus="filterInvNameList('${id}',${globalIdx},this.value)">
             <div id="${id}-namelist-${globalIdx}" style="display:none;position:absolute;z-index:999;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;max-height:180px;overflow-y:auto;width:240px;box-shadow:0 4px 16px rgba(0,0,0,0.4);"></div>
+            <!-- r88 FIX 5 — a name that is NOT a catalogue product is only committable as a
+                 deliberate new product. Non-emptiness is not consent: a typo used to sail
+                 through this field and mint a near-duplicate row. -->
+            <div id="${id}-newprod-wrap-${globalIdx}" style="display:none;align-items:flex-start;gap:7px;margin-top:7px;padding:7px 9px;background:rgba(200,240,100,0.05);border:1px solid rgba(200,240,100,0.18);border-radius:8px;">
+              <input type="checkbox" id="${id}-newprod-${globalIdx}" onchange="invNameChanged('${id}',${globalIdx},${rows.length})" style="width:15px;height:15px;margin-top:1px;accent-color:var(--accent);cursor:pointer;flex-shrink:0;">
+              <label for="${id}-newprod-${globalIdx}" style="font-size:11.5px;color:var(--text2);cursor:pointer;line-height:1.45;">Create as a <strong style="color:var(--accent);">new product</strong> in this venue’s catalogue</label>
+            </div>
           </div>
         </div>
         <!-- Category + Subcategory row -->
@@ -11335,13 +11663,117 @@ function toggleInvoiceRows(id) {
   if(el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
+// ─── r88 FIX 5 — THE NAME FIELD IS BOUND, NOT MERELY NON-EMPTY ───────────────
+// checkInvoiceReady tested `nameEl.value.trim()` and nothing else, so ANY text passed the
+// gate: a typo, a half-typed name, or the master-catalogue name a leaked match had already
+// filled in. Downstream that string becomes a purchases KEY, and computeVariances only
+// builds rows for names in the venue catalogue — so an unbound name is money that
+// disappears without a message.
+//
+// The r82/r83 hard binding does not transfer wholesale: the invoice modal must still be
+// able to CREATE products (60 of this venue's 60 arrived that way). So the rule is a
+// binding OR an explicit consent, and nothing else:
+//   'catalogue' — the typed name IS a venue product (case-insensitive exact)
+//   'new'       — it is not, and the user ticked "Create as a new product"
+//   ''          — neither. Blocks Confirm and refuses Quick import.
+// Returns null when this row has no name input at all (quick import / an un-reviewed dump
+// card), which tells the caller to fall back to the row data instead.
+function invNameBinding(id, i) {
+  const nameEl = document.getElementById(id+'-name-'+i);
+  if(!nameEl) return null;
+  const typed = nameEl.value.trim();
+  if(!typed) return '';
+  if(invFindCatalogueProduct(typed)) return 'catalogue';
+  const cb = document.getElementById(id+'-newprod-'+i);
+  return (cb && cb.checked) ? 'new' : '';
+}
+
+// Presentational only — the border and the "create new" affordance. Mirrors invMarkCaseSize
+// (r86), saMarkProdBinding (r83) and stkMarkPack (r84): one helper for the first paint and
+// every later keystroke, so what is shown can never disagree with what is enforced.
+function invMarkName(id, i) {
+  const nameEl = document.getElementById(id+'-name-'+i);
+  if(!nameEl) return;
+  const bind  = invNameBinding(id, i);
+  const typed = nameEl.value.trim();
+  nameEl.style.borderColor = bind === 'catalogue' ? 'var(--border2)'
+                           : bind === 'new'       ? 'rgba(200,240,100,0.5)'
+                           :                        'var(--red)';
+  // The tick only appears once there is a name that is NOT in the catalogue — offering it
+  // beside a bound name would invite creating a duplicate of the product just matched.
+  const wrap = document.getElementById(id+'-newprod-wrap-'+i);
+  if(wrap) wrap.style.display = (typed && bind !== 'catalogue') ? 'flex' : 'none';
+  if(bind === 'catalogue') {
+    const cb = document.getElementById(id+'-newprod-'+i);
+    if(cb) cb.checked = false;
+  }
+}
+
+function invNameChanged(id, i, totalRows) {
+  invMarkName(id, i);
+  checkInvoiceReady(id, totalRows);
+}
+
+// The lines that cannot be committed, as [{ i, name, why }] so the refusal can NAME them
+// — the r84/r86 posture. Works in BOTH modes: with the modal open it reads the live
+// binding; on quick import (no inputs at all) it reads the row the matcher produced.
+function invUnmatchedLines(id, rows) {
+  const bad = [];
+  (rows || []).forEach((item, i) => {
+    const bind = invNameBinding(id, i);
+    if(bind !== null) {
+      if(bind === '') {
+        const nameEl = document.getElementById(id+'-name-'+i);
+        const typed  = (nameEl && nameEl.value.trim()) || '';
+        bad.push({ i, name: typed || item.name || ('Line ' + (i+1)),
+                   why: typed ? 'not a product in this venue’s catalogue' : 'no catalogue product chosen' });
+      }
+      return;
+    }
+    // No modal — quick import. A line is committable only when the matcher bound it to a
+    // product THIS VENUE stocks. r88 FIX 2(b): a master-only resolution lands here.
+    const resolved = item._cleanName || '';
+    if(resolved && invFindCatalogueProduct(resolved)) return;
+    bad.push({
+      i,
+      name: item.name || ('Line ' + (i+1)),
+      why: item._masterOnly ? 'only matches a master-catalogue product this venue does not stock'
+         : resolved         ? 'resolved to “' + resolved + '”, which is not in this venue’s catalogue'
+         :                    'no catalogue match',
+    });
+  });
+  return bad;
+}
+
+// r88 FIX 4 — ONE decision point, ONE wording, the r80/r86 pattern. TRUE means refused, so
+// applyInvoiceToProducts returns false and applyDumpEnrichment bails before it pushes its
+// own delivery + archive row. Quick import used to skip the not-matched gate entirely: the
+// gate lived in checkInvoiceReady, which only ever runs while the modal is open.
+function invRefuseUnmatchedLines(id, rows) {
+  const bad = invUnmatchedLines(id, rows);
+  if(!bad.length) return false;
+  const many = bad.length > 1;
+  alert('Products not matched — nothing was imported.\n\n'
+      + bad.length + (many ? ' lines are' : ' line is') + ' not tied to a product in this venue’s catalogue:\n\n'
+      + bad.map(b => '  • ' + b.name + '\n      (' + b.why + ')').join('\n')
+      + '\n\nOpen “Review all items” and, for each one, either pick the venue product it is, '
+      + 'or tick “Create as a new product”.\n\n'
+      + 'Imported unmatched, these lines are stored under a name variance does not know, '
+      + 'and their value disappears from the period without a warning.');
+  bad.forEach(b => invMarkName(id, b.i));
+  console.warn('[AuditPro] r88 — import refused, unmatched lines:', bad);
+  return true;
+}
+
 function checkInvoiceReady(id, totalRows) {
   const btn = document.getElementById('irm-confirm-btn');
   if(!btn) return;
   let unmatched = 0;
   for(let i = 0; i < totalRows; i++) {
     const nameEl = document.getElementById(id+'-name-'+i);
-    if(nameEl && !nameEl.value.trim()) unmatched++;
+    if(!nameEl) continue;
+    // r88 — was `!nameEl.value.trim()`. Non-emptiness is not a match.
+    if(invNameBinding(id, i) === '') unmatched++;
   }
   if(unmatched > 0) {
     btn.disabled = true;
@@ -11463,6 +11895,15 @@ function applyInvoiceToProducts(id) {
   // remains the ONE refusal signal — success and the other early aborts return undefined.
   if(invRefuseUnconfirmedPack(id)) return false;
 
+  // r88 FIX 4 — HARD REFUSAL. Every line must be tied to a product THIS VENUE stocks (or
+  // be an explicit new product). Quick import bypassed the not-matched check entirely
+  // — that check lived in checkInvoiceReady, which only runs while the review modal is
+  // open — so the one route that never shows a human the matches was also the one route
+  // with no gate on them. Sits with the r80 and r86 refusals, above every write, and
+  // returns FALSE for the same reason: applyDumpEnrichment tests `=== false` and must bail
+  // before it pushes its own delivery + archive row. FALSE remains the ONE refusal signal.
+  if(invRefuseUnmatchedLines(id, res._invoiceData)) return false;
+
   // r78 — BACKSTOP. This is the single choke point every import route funnels through
   // (quick import, review-modal confirm, and the dump path), so one guard here covers all
   // three. Only BLOCK level prompts: warnings are already on the card and in the modal
@@ -11527,6 +11968,8 @@ function applyInvoiceToProducts(id) {
 
   if(!c.products) c.products = [];
   let added = 0, updated = 0;
+  // r88 FIX 1 — supplier codes learned on this import, reported once at the end.
+  const codesLearned = [], codesConflicting = [];
 
   res._invoiceData.forEach((item, i) => {
     // Try to read from review UI inputs first (when modal is open)
@@ -11543,7 +11986,14 @@ function applyInvoiceToProducts(id) {
     const priceInput    = document.getElementById(id+'-price-'+i);
     const qtyInput      = document.getElementById(id+'-qty-'+i);
 
-    let cleanName  = nameInput ? nameInput.value.trim() : (item._cleanName || item.name);
+    // r88 FIX 3 — THE ONE FALLBACK. There were two, and they disagreed: this one resolved
+    // to `_cleanName || item.name`, while the session.purchases loop below fell back to the
+    // RAW `item.name`. On quick import (no inputs) that meant the product was created or
+    // updated under the CATALOGUE name while its purchase was filed under the INVOICE name
+    // — an orphan key computeVariances drops on sight. `_cleanName` wins because it is the
+    // RESOLVED catalogue name, which is the only string every reader agrees on; the raw
+    // invoice name is only ever the last resort for a line with no match at all.
+    let cleanName  = invResolvedLineName(id, i, item);
     if(cleanName === '__new__') cleanName = item._cleanName || item.name;
     const cleanCat   = cat2Input    ? cat2Input.value          : (item._cat || item.cat || 'Other');
     const cleanSubcat= subcatInput  ? subcatInput.value        : (item.existing?.subcat || '');
@@ -11619,6 +12069,41 @@ function applyInvoiceToProducts(id) {
       // no-op unless the user changed it in the review modal — never reverts to Bottles).
       if(soldAs) existing.soldAs = soldAs;
       if(res._invoiceSupplier && !existing.supplier) existing.supplier = res._invoiceSupplier;
+      // r88 FIX 1 — REMEMBER THE CODE. This line was matched by some other means, but the
+      // invoice carried a product code; stamping it means the same supplier's NEXT invoice
+      // matches on the code instantly, whatever the description says that month. This turns
+      // a recurring monthly correction into a one-time mapping.
+      //
+      // Preservation follows r73/r79: a blank NEVER overwrites a stored value, and a
+      // DIFFERENT stored code is never clobbered silently — it is reported instead, because
+      // two codes on one product is either a supplier change or a mis-match, and both are
+      // decisions for a human. supplierCodeFrom records who taught us the code so
+      // invFindByCode can keep it inside that supplier.
+      //
+      // LEARNED FROM A DECISION, NEVER FROM A GUESS. The live data shows why: Lion's
+      // 1264145 ("Kirin Hyoketsu Green Apple") word-overlaps onto KIRIN HYOKETSU LEMON,
+      // and stamping the code there would promote that wrong answer to a permanent,
+      // CONFIDENT mapping — the exact failure mode this build exists to end. So a code is
+      // only remembered when the match is an identity (supplier code / barcode / exact
+      // name) or when a human bound the row in the review modal, which since r88 cannot be
+      // confirmed while any row is unbound.
+      const _lineCode = invLineSupplierCode(item);
+      const _humanBound = !!document.getElementById(id+'-name-'+i);
+      const _codeTrustworthy = _humanBound || invMatchIsConfident(item._matchKind);
+      if(_lineCode && _codeTrustworthy) {
+        const _curCode = invProductSupplierCode(existing);
+        if(!_curCode) {
+          existing.supplierCode     = String(item.productCode != null ? item.productCode : item.supplierCode).trim();
+          existing.supplierCodeFrom = res._invoiceSupplier || '';
+          codesLearned.push((existing.n||existing.name||'') + ' → ' + existing.supplierCode);
+        } else if(_curCode !== _lineCode) {
+          codesConflicting.push((existing.n||existing.name||'') + ': kept ' + _curCode + ', invoice said ' + _lineCode);
+        }
+      } else if(_lineCode) {
+        console.log('[AuditPro] r88 — supplier code ' + _lineCode + ' NOT remembered for "'
+          + (existing.n||existing.name||'') + '": matched by '
+          + invMatchLabel(item._matchKind, item._matchScore) + ' on an unreviewed import.');
+      }
       if(costPriceAdj && costPriceAdj !== existing.costPrice) {
         existing.costHistory = existing.costHistory||[];
         existing.costHistory.push({ price: costPriceAdj, priceExGST: costExGSTAdj, date: new Date().toLocaleDateString('en-NZ'), source: 'invoice' });
@@ -11641,6 +12126,8 @@ function applyInvoiceToProducts(id) {
         subcat:         cleanSubcat,
         barcode:        '',
         supplierCode:   item.productCode || '',
+        // r88 — which supplier's numbering this code belongs to (see invFindByCode).
+        supplierCodeFrom: item.productCode ? (res._invoiceSupplier || '') : '',
         soldAs,
         caseSize,
         unitVol,
@@ -11720,7 +12207,10 @@ function applyInvoiceToProducts(id) {
       const casesplitEl   = document.getElementById(id+'-casesplit-'+i);
       const qtyInput      = document.getElementById(id+'-qty-'+i);
       const priceInput    = document.getElementById(id+'-price-'+i);
-      const cleanName     = nameInput ? nameInput.value.trim() : item.name;
+      // r88 FIX 3 — was `nameInput ? … : item.name`. THIS is the divergent one: the key
+      // written here is the key computeVariances looks up, so a raw invoice name here
+      // orphaned the purchase from the product the loop above had just updated.
+      const cleanName     = invResolvedLineName(id, i, item);
       if(!cleanName) return;
 
       // Use edited qty/price from inputs if available, fall back to item data
@@ -11817,7 +12307,12 @@ function applyInvoiceToProducts(id) {
     const servevolInput= document.getElementById(id+'-servevol-'+i);
     const taregInput   = document.getElementById(id+'-tareg-'+i);
     const densityInput = document.getElementById(id+'-density-'+i);
-    const cleanName = nameInput ? nameInput.value.trim() : item.name;
+    // r88 FIX 3 — was the raw invoice name on quick import, which is how the master
+    // catalogue grew rows like "Speight's Summit Ultra Lager 50L Keg" alongside the venue's
+    // own "SPEIGHTS SUMMIT ULTRA LOW CARB LAGER" — the very rows the leaked match then
+    // resolved to. Writing the RESOLVED name keeps master and venue naming converging
+    // instead of forking on every import.
+    const cleanName = invResolvedLineName(id, i, item);
     const cleanCat  = catInput  ? catInput.value : (item._cat||item.cat||'Other');
     // FIX (r18) — on quick-import the review inputs don't exist, so fall back to the
     // existing master row's density/vessel data rather than blindly defaulting to 1.00,
@@ -11833,8 +12328,13 @@ function applyInvoiceToProducts(id) {
   });
 
   // Update UI — always re-render products tab
+  // r88 FIX 1 — say what was learned. A silent mapping is not auditable, and a CONFLICT
+  // (two suppliers' codes on one product, or a supplier renumbering) is a human decision:
+  // the stored code is kept and the disagreement reported, never overwritten.
+  if(codesLearned.length)     console.log('[AuditPro] r88 — supplier codes remembered:', codesLearned);
+  if(codesConflicting.length) console.warn('[AuditPro] r88 — supplier code CONFLICTS (stored value kept):', codesConflicting);
   res.innerHTML = `<div style="padding:12px;background:rgba(91,227,180,0.08);border:1px solid rgba(91,227,180,0.2);border-radius:10px;font-size:13px;color:var(--green);font-weight:600;">
-    ✓ Done — ${added} products added, ${updated} prices updated.
+    ✓ Done — ${added} products added, ${updated} prices updated.${codesLearned.length ? ` <span style="color:var(--text3);font-weight:500;">· ${codesLearned.length} supplier code${codesLearned.length!==1?'s':''} remembered</span>` : ''}${codesConflicting.length ? ` <span style="color:var(--amber);font-weight:500;">· ${codesConflicting.length} code conflict${codesConflicting.length!==1?'s':''} — see console</span>` : ''}
     <button class="btn btn-secondary" style="font-size:11px;padding:3px 10px;margin-left:10px;" onclick="navigate('products')">View products →</button>
   </div>`;
 
@@ -11898,8 +12398,7 @@ function applyInvoiceToProducts(id) {
         const soldasEl    = document.getElementById(id+'-soldas-'+i);
         const casesizeEl  = document.getElementById(id+'-casesize-'+i);
         const casesplitEl = document.getElementById(id+'-casesplit-'+i);
-        const nameEl      = document.getElementById(id+'-name-'+i);
-        const lineName   = nameEl ? nameEl.value.trim() : (row._cleanName || row.name || '');
+        const lineName   = invResolvedLineName(id, i, row);   // r88 FIX 3 — the one resolver
         // Resolve units-per-case: review input → matched product → parse from name → prior stamp.
         const prod = (c.products || []).find(p => (p.n||p.name||'').toLowerCase() === (lineName||'').toLowerCase());
         const resolvedCase = parseInt(casesizeEl?.value) || (prod && prod.caseSize) || parseCaseSize(row.name || lineName) || row.caseSize || 0;
@@ -11910,7 +12409,14 @@ function applyInvoiceToProducts(id) {
         // qty stays RAW here so purchase history still reads "5 Cases".
         const wantSplit    = casesplitEl?.checked && Number(resolvedCase) > 1;
         const reviewedUnit = wantSplit ? 'Cases' : (soldasEl?.value || row.unit || 'Bottles');
-        return { ...row, unit: reviewedUnit, caseSize: Number(resolvedCase) || 0 };
+        // r88 FIX 3 — stamp the RESOLVED name onto the delivery line too. `...row` carries
+        // the _cleanName the matcher wrote when the card was built, which is NOT what the
+        // user may have just corrected in the modal (the modal maps a fresh row array and
+        // never writes back to res._invoiceData). The live delivery merge reads
+        // line._cleanName FIRST and skips fuzzy matching entirely, so leaving the stale
+        // value here meant a corrected match reached session.purchases but not the merge
+        // — and the merge wins. All three writes now agree on one string.
+        return { ...row, _cleanName: lineName || row._cleanName || '', unit: reviewedUnit, caseSize: Number(resolvedCase) || 0 };
       });
 
       const delivery = {
@@ -15088,7 +15594,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r87';
+const APP_VERSION = '2026-06-10-r88';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();

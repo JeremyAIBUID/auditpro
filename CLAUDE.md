@@ -64,8 +64,8 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r87` | `index.html:15091` |
-| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r85` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86 is desktop-only**, so mobile correctly still reads r85) |
+| `index.html` | `2026-06-10-r88` | `index.html:15597` |
+| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r85` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86, r87 and r88 are desktop-only**, so mobile correctly still reads r85) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
   Desktop logs it on load (`[AuditPro] build …`); mobile compares it against
@@ -127,7 +127,7 @@ for f in ['index.html','mobile.html','mobile2.html']:
 
 ## Security — open items (Phase 4)
 1. **The Supabase SERVICE ROLE key is hard-coded in `index.html`** (`SUPABASE_CONFIG.serviceKey`,
-   ~line 12709) and ships to every browser that loads the public Pages site. It is used for
+   ~line 14982) and ships to every browser that loads the public Pages site. It is used for
    Storage uploads only (the anon key gets 403 on Storage), but it grants full DB access.
    Needs to move behind the Worker proxy (or a Storage RLS policy) and then be rotated.
 2. **The anon key is hard-coded in several places**, including a second literal copy inside
@@ -438,21 +438,21 @@ live corruption invisible — LINDAUER BRUT 200ml (no `caseSize`) counted as "4 
 as `{"qty":56,"unit":"Bottles"}`, already 8 + 4×12, with no trace a case was involved, and the
 error then propagated into the next period's `opening` through rollover's deep copy.
 
-- **`validPackSize(raw)`** (`index.html:14289`) is the ONE rule: a **whole number, > 0,
+- **`validPackSize(raw)`** (`index.html:14886`) is the ONE rule: a **whole number, > 0,
   ≤ 500**. Returns the number or **null** — never `''`, never `NaN`, so nothing downstream can
   `|| 12` its way past a blank. **r85 gave mobile a byte-identical twin** (`mobile.html:2270`)
   and routed r75 (barcode link) and r79 (add-product) through it, so the rule now exists in
   exactly two places instead of five hand-written copies.
 - The desktop count row has a **Pack cell** (6th column, inserted BEFORE the actions cell so
   `cells[0..3]` keep their indices for `readCountRow` and `buildCombinedTable`). Revealed by
-  `stkSyncUnitRow` (`:14300`) exactly when the unit is `Cases` — r82's `saSyncUnitRow` pattern,
+  `stkSyncUnitRow` (`:14926`) exactly when the unit is `Cases` — r82's `saSyncUnitRow` pattern,
   walking the row instead of an id because count rows carry no ids. `visibility`, not
   `display`, so the column never reflows mid-count. Pre-filled from the catalogue; **empty and
   red-bordered when unknown**. `addRow` calls `stkMarkPack` after appending so the initial
   paint and every later edit go through the same rule.
 - **`readCountRow` reports `caseSize` ONLY for a `Cases` row.** The cell stays pre-filled behind
   a Bottles row, and reporting that would claim a confirmation the user never made.
-- **`resolveRowCaseSize(r, prodByName)`** (`:14333`) — `r.caseSize` first; a **mobile** row falls
+- **`resolveRowCaseSize(r, prodByName)`** (`:14959`) — `r.caseSize` first; a **mobile** row falls
   back to the catalogue (the phone only offers `Cases` when `caseSize` is set — r38
   `applyCaseOption` — and labels it `Cases (×24)`, so the stored number IS what the counter
   saw); otherwise **null**. There is no 12.
@@ -600,7 +600,7 @@ r84/r85 pack-size rules and the period lifecycle.
 ### The terminal `|| 12` is gone — ×1 and a flag, never a guess (r87)
 
 The five history-reading sites r84–r86 deliberately left alone now resolve through **one**
-helper. `resolvePackSize(stamped, catalogue, nameForParse)` (`index.html:14410`) applies r86's
+helper. `resolvePackSize(stamped, catalogue, nameForParse)` (`index.html:14916`) applies r86's
 precedence — **stamped size → catalogue `caseSize` → parsed from the name → ×1** — running every
 candidate through `validPackSize`, and returns **`{ cs, unknown }`**.
 
@@ -625,7 +625,7 @@ candidate through `validPackSize`, and returns **`{ cs, unknown }`**.
   (`purchases` / `opening count` / `closing count`) ride on the variance row →
   an amber `📦 ?` badge on the purchases **cell**, a per-line chip plus an explainer inside the
   popover, and a `Pack ?` badge with a legend on the **PDF report**. `PACK_UNKNOWN_TITLE`
-  (`:7303`) is the ONE wording, so the table and the popover can never disagree. The entry flag
+  (`:7424`) is the ONE wording, so the table and the popover can never disagree. The entry flag
   is **sticky** — a later well-formed line does not clear it — and survives the freeze, so a
   period closed while a line was unexpanded keeps saying so.
 
@@ -675,6 +675,189 @@ selects the Cases option — but since r85 it no longer **disables** it either: 
 pack size instead. `countToUnits`' `caseSize || 12` fallback turns an unguarded `Cases`
 selection into a silent 12× inflation, which is why every path that can select `Cases` confirms
 the size first.
+
+---
+
+## The matcher matched CONFIDENTLY TO THE WRONG PRODUCT (r88)
+
+The invoice matcher never failed by refusing to match. It matched the wrong product and
+rendered a green **"✓ Matched"** tick, collapsed — which is why four defects rode through a
+whole live audit unnoticed. Confirmed by diagnostic against live Supabase rows before the fix
+and re-measured after.
+
+- **$1,164.72 of Speight's kegs** (4 × $291.18) matched a **master** product this venue does
+  not stock, imported under the master's name, and `computeVariances`' catalogue filter then
+  dropped them **in silence**. `SPEIGHTS SUMMIT ULTRA LOW CARB LAGER` read `purUnits −1`.
+- Two catalogue typos (`KIRIN HYOKESU` / `HYOJETSU`) dropped two products into a five-way
+  0.500 tie that array order handed to Lemon. **Fixed in the catalogue, not in code.**
+- `applyInvoiceToProducts` had **four** name-resolution sites and they disagreed.
+- **Quick import bypassed the not-matched gate entirely.**
+
+### FIX 1 — SUPPLIER CODE IS THE FIRST MATCH STEP
+Every Lion line carries a `productCode` that is stable across invoices even when the
+description is not. Live proof: **1022075** appears on five Speight's Summit Ultra lines under
+two different wordings ("…Ultra **Lager** 50L Keg" ×4, "…Ultra 50L Keg" ×1); **1000391** covers
+"Speight's Mid Gold Medal Ale 12x745ml Bottles Carton" and "Speight's Mid Strength Gold Medal
+Ale 12x745ml Bottles **Crate Wrap 17**". `supplierCode` was already on the product schema and
+`matchPOSNameToProduct` already matched **sales** on it — it was simply never wired to invoices.
+
+- `invMatchLine(client, item, supplier)` is now the **one** matcher, shared by the card and the
+  review modal. Step order: **supplier code → barcode → exact name → normalised → partial →
+  word overlap**. It returns `{ prod, kind, score, code }`.
+- **`invCodeKey` is NOT `normalizeBarcode`.** A supplier code is an opaque key, so leading
+  zeros are significant and must not be stripped; it trims, collapses whitespace, upper-cases.
+- **A code is learned from a DECISION, never from a guess.** `applyInvoiceToProducts` stamps
+  the code onto a matched product only when the match was **confident** (code/barcode/exact) or
+  when a **human bound the row in the review modal**. The live data shows exactly why: Lion's
+  `1264145` ("Kirin Hyoketsu Green Apple") word-overlaps onto `KIRIN HYOKETSU LEMON`, and
+  stamping it there would promote a wrong answer to a permanent, *confident* mapping — the very
+  failure this build exists to end. An unlearned code is logged, not silently skipped.
+- **Preservation follows r73/r79:** a blank never overwrites a stored code, and a *different*
+  stored code is **kept and reported**, never clobbered. `supplierCodeFrom` records which
+  supplier taught us the code, so `invFindByCode` keeps it inside that supplier; an **unstamped**
+  code (legacy, or typed into the product form) matches supplier-agnostically.
+- `saveProduct` rebuilds the whole product object, so `supplierCodeFrom` is explicitly carried
+  over **while the code itself is unchanged**. Editing or clearing the code drops the stamp —
+  correct, because we no longer know who taught us the new value.
+- **Mobile cannot erase either field.** `saveMobileProduct`'s object has no `supplierCode` key,
+  and `pushProductToSupabase` spreads `{...cur, ...prod}` — an absent key preserves.
+
+### FIX 2 — THE MASTER-PRODUCT LEAK
+`findMatch` consulted `getMasterProduct(name)` at its **exact-name** step, which ran **before**
+the venue's own normalised/partial/fuzzy steps. A line reading "Speight's Summit Ultra Lager
+50L Keg" hit the master row of that exact name and never reached the venue's own
+`SPEIGHTS SUMMIT ULTRA LOW CARB LAGER`.
+
+- **(a) The master catalogue is no longer consulted for the match at all.** A venue product is
+  always the better answer for that venue's invoice. The master row is still read separately as
+  **enrichment** (density / vessel data — the r18 behaviour), which is all it was ever good for.
+- **(b) A master-only resolution is surfaced as UNMATCHED** — a red "✗ N not stocked here" chip
+  on the card, a red explainer in the modal naming the master row it found, and a refusal on
+  quick import. The user must map it to a venue product or tick "Create as a new product".
+- **READ SIDE — an orphaned `_cleanName` is not a usable purchase key.** The live delivery merge
+  read `line._cleanName` FIRST and skipped fuzzy matching entirely. When that stored string names
+  nothing the venue stocks, the line is now discarded and falls through to the ordinary fuzzy
+  match (whose algorithm is untouched). This is what actually **recovers** the stored data.
+- **The discard is no longer silent.** `computeVariances` collects every merged purchase key
+  that is not in the catalogue and exposes it as `rows._orphanPurchases` / `rows._orphanLost`;
+  `renderVarOrphanBanner` puts it on the Variance page above the table (`#var-orphan-banner`),
+  and it runs **before** the empty-state early return, or a period whose only purchases are
+  orphaned would show "no variance data yet" and nothing else.
+- **Not every orphan is missing money, and a report that cries wolf gets ignored.** Live
+  September has three orphan keys and only ONE is real. Two **supersession** tests, neither of
+  which guesses at names:
+  1. **same ref + same quantity** under a catalogue name — a stale twin left by the FIX 3 name
+     split (`Corona Extra 330mL Bottle 24-Pack` 48 beside `CORONA - 330 ml` 48; `Lion Red 50L
+     Keg` 1 beside `LION RED` 1);
+  2. a catalogue-named entry whose `lines[]` cite **every** invoice the orphan's own `lines[]`
+     cite — that entry already accounts for all of this orphan's contributions. This is what
+     makes the report **self-healing**: once a reopened period re-derives the kegs from the
+     delivery lines, the recovered entry cites those four invoices plus more and the dead key
+     stops claiming a loss.
+  **An invoice REF alone can never decide this** — one invoice carries several products, so
+  "some entry mentions 94774304" is true of the Dashwood wine on the very invoice whose
+  Speight's keg is genuinely lost.
+
+### FIX 3 — ONE resolved name (there were FOUR, and they disagreed)
+`invResolvedLineName(id, i, item)` is the single reader: the review modal's input when open,
+otherwise **`_cleanName || item.name`**. `_cleanName` wins because it is the RESOLVED catalogue
+name — the only string every reader agrees on; the raw invoice name is the last resort for a
+line with no match at all.
+
+- The divergent one was the **`session.purchases` loop**, which fell back to the raw `item.name`.
+  On quick import the product was created/updated under its CATALOGUE name while its purchase
+  was filed under the INVOICE name — an orphan key `computeVariances` drops on sight.
+- The **master-write loop** was also a raw-name reader. That is how master grew
+  `Speight's Summit Ultra Lager 50L Keg` next to the venue's own name — the very row the leaked
+  match then resolved to. Writing the resolved name keeps the two converging instead of forking.
+- The **delivery-line builder** additionally now stamps `_cleanName: lineName`. `...row` carried
+  the name the matcher wrote when the CARD was built, which is not what the user may have just
+  corrected in the modal (the modal maps a fresh row array and never writes back to
+  `res._invoiceData`). The live merge reads `line._cleanName` first, so a corrected match used
+  to reach `session.purchases` but not the merge — **and the merge wins**.
+
+### FIX 4 — the quick-import gate
+`invRefuseUnmatchedLines(id, rows)` is the ONE decision point and the ONE wording (the r80
+`noOpenPeriodText` / r86 `invRefuseUnconfirmedPack` pattern). It returns **`true` when it
+refused**, so `applyInvoiceToProducts` returns `false` and **r80's "`false` is the ONE refusal
+signal" contract still holds** — `applyDumpEnrichment` bails on `=== false` exactly as before.
+
+- It works in **both** modes: with the modal open it reads the live binding; on quick import
+  (no inputs at all) it reads the row the matcher produced.
+- The gate sits with the r80 and r86 refusals, above every write, so a refused import leaves
+  nothing behind — no product, no delivery, no session purchase. It also covers the **dump**
+  path, which never opens the modal.
+- **Quick import now means "everything is already matched — just book it."** A genuinely new
+  product goes to the review modal. That is a deliberate narrowing: blind-creating products from
+  AI-parsed names is how this catalogue ended up with `CORONA - 330 ml` beside `CORONA - 355ml`.
+
+### FIX 5 — a wrong match is VISIBLE
+- **Three states, not two.** `INV_CONFIDENT_KINDS = ['code','barcode','exact']` — an identity,
+  so **green and collapsed**. Everything else (`normalised`, `partial`, `fuzzy`) reached its
+  answer by discarding volume, pack size or word order, so it is **amber, EXPANDED**, with a
+  banner naming what it matched and how (`word overlap 0.50`). **Normalised is amber on
+  purpose**: it strips volumes, so `CORONA - 330 ml` and `CORONA - 355ml` collapse to one string.
+- **The name field is BOUND, not merely non-empty.** `checkInvoiceReady` tested
+  `nameEl.value.trim()` and nothing else, so any text passed — a typo, or the master name a
+  leaked match had already filled in. `invNameBinding(id, i)` returns `'catalogue'` (the typed
+  name IS a venue product), `'new'` (it is not, and the user ticked "Create as a new product"),
+  or `''` (blocks Confirm and refuses quick import); **`null` means there is no input at all**,
+  which tells the caller to fall back to the row data.
+- **r82/r83's hard binding does not transfer wholesale** — the invoice modal must still be able
+  to CREATE products (all 60 of this venue's arrived that way). So the rule is a binding OR an
+  explicit consent, and nothing else. `invMarkName` is presentational only and reveals the
+  "create new" tick exactly when the typed name is off-catalogue.
+
+### FIX 6 — the fuzzy scorer is NOT touched
+The word-overlap scorer and its tie-break (first-past-the-post on a strict `>`, so array order
+wins a tie) are copied **verbatim**, including the original spacing, so the harness can compare
+them character-for-character. The live delivery merge re-runs fuzzy matching on **every render**,
+so changing the scorer silently re-values any reopened period and `freezeSessionSnapshot` bakes
+it in. FIX 1 and FIX 2 remove most of the pressure on that path.
+
+**Recommendation for a separate gated build:** the five-way 0.500 tie is decided by
+`client.products` array order, which is meaningless. A deterministic tie-break (prefer the
+longest shared-token run, then alphabetical) plus a **refusal** when the top two scores are
+equal would turn a silent wrong answer into an unmatched line the user decides. That change
+moves numbers on every reopened period and needs its own dual-build gate.
+
+### Measured impact on live data (FIX 7)
+The real `computeVariances` was run from the pre-r88 and post-r88 builds against the live
+`ap_clients` + `ap_audit_sessions` rows, all 3 stored periods **twice each** — as stored, and
+forced `reopened` so the live-merge branch is exercised. The field list is **auto-derived** from
+the union of keys in both builds' rows (r86's harness hardcoded 13 names against a 19-field row
+and would have missed `varMl`). **12,956 field comparisons across 316 rows; 12 fields moved, all
+on ONE product:**
+
+`SPEIGHTS SUMMIT ULTRA LOW CARB LAGER`, September 2026, **forced-reopened only**:
+`purUnits −1 → 3` · `expectedNum −2.90 → 1.10` · `varMl 245046 → 45046` ·
+`costImpact / varVal $1427.05 → $262.33` (a **$1,164.72** recovery, exactly the four kegs) ·
+`varPctValid false → true` (the figure was suppressed by r81's one-unit floor at −2.90).
+
+- **Nothing moves in the as-stored runs.** Frozen history is untouched; r88 changes what a
+  period recomputes to **if it is reopened**. The orphan key is still sitting in September's
+  snapshot, and the Variance page now says so.
+- **Rows present in one build only: 0.** No row appeared or vanished.
+
+### Verified by three harnesses (scratchpad, not committed — the repo tracks no harnesses)
+- **`verify-r88.js` — 70 checks.** The shared matcher, supplier-code precedence and supplier
+  scoping, the master leak, confidence, the name binding, the quick-import gate, and FIX 6:
+  the scorer body is compared **character-for-character** against r87 (modulo indentation and
+  two renames), and r87's own `findMatch` is **lifted verbatim out of the pre-change file** and
+  run against the same catalogue so the tie-break is proven observably identical.
+- **`verify-r88-e2e.js` — 68 checks.** Drives the REAL `applyInvoiceToProducts`: quick import
+  refuses and writes nothing; the code match makes the master-named line importable and the
+  purchase key IS the catalogue name; the code is remembered, never clobbered, never learned
+  from an unreviewed weak match; plus r56/r57, r77 idempotency, r78, r80, r81 signed purchases,
+  r83–r87 and the lifecycle. Includes a **negative control** — a clean venue must report no
+  orphans, or a banner that always renders means nothing.
+- **`gate-r88.js`** — the r86/r87 dual-build live-data gate above.
+
+**Harness lesson:** quick import has **no split checkbox**, so r57's `casesplitEl?.checked` gate
+is false and a case line is stored RAW (`qty 2, unit 'Cases'`) for the merge to expand at compute
+time. Four harness assertions "failed" against that; running the same staging on the **pre-change
+build** proved the behaviour byte-identical and the *assertions* wrong. Diff against the old
+build before believing a red test.
 
 ---
 
@@ -1047,6 +1230,18 @@ validPackSize(raw) / stkSyncUnitRow(sel) / stkMarkPack(pack) / resolveRowCaseSiz
 barcodeMatchKind(p, scannedCode)   // r85 — desktop parity with r74; test caseBarcode FIRST
 pfMarkCaseSize()                   // r85 — 'Units per case *' + red border while the modal is open
 
+// Invoice matching — ONE matcher, with a confidence (r88)
+invMatchLine(client, item, supplier)   // → { prod, kind, score, code }; venue catalogue ONLY
+invNormName(s) / invCodeKey(raw) / invLineSupplierCode(item) / invProductSupplierCode(prod)
+invFindByCode(pool, code, supplier)    // supplierCodeFrom scopes a learned code to its supplier
+invMatchIsConfident(kind) / invMatchLabel(kind, score)   // code|barcode|exact = green
+invFindCatalogueProduct(name)          // exact case-insensitive venue lookup — the binding test
+invResolvedLineName(id, i, item)       // r88 FIX 3 — the ONE name; 4 call sites
+invNameBinding(id, i)                  // 'catalogue' | 'new' | '' | null(no input)
+invMarkName(id, i) / invNameChanged(id, i, totalRows)
+invUnmatchedLines(id, rows) / invRefuseUnmatchedLines(id, rows)  // TRUE = refused
+renderVarOrphanBanner(computed)        // purchases with no catalogue row — #var-orphan-banner
+
 // Invoice review — mandatory pack size on a ticked split (r86)
 invSplitLineIsSplitting(id, i)     // checked AND the split wrap is actually visible
 invReviewRows(id) / invSplitPackErrors(id, rows)     // → [{ i, name }] to NAME the refusal
@@ -1084,8 +1279,8 @@ saProductSearch(i, q) / saPickProduct(i, catalogueIdx) / saBoundProduct(i)   // 
 saCloseProdLists(exceptI) / saMarkProdBinding(i) / saLineProductChanged(i) / saReadLine(row)
 ```
 
-**Dead code — do not "wire up":** `finalisePage_lock()` (index.html:3166) and
-`currentDeliveries()` (index.html:13066) both have zero call sites.
+**Dead code — do not "wire up":** `finalisePage_lock()` (index.html:3218) and
+`currentDeliveries()` (index.html:15346) both have zero call sites.
 
 ## Key Functions — Mobile
 
@@ -1114,18 +1309,19 @@ saveToStorage() / resetForNextAudit() / updateCountUI() / editCountItem(idx)
 
 ## Constants in the Desktop App
 ```javascript
-const PROD_SUBCATS            // index.html:5272 — { Spirits:[…], Beer:[…], … }
-const CAT_ORDER_PROD          // :5641 — ['Spirits','Beer','Wine','RTD','Soft drinks','Food','Cocktails','Other']
-const CAT_COLORS_PROD         // :5642 — { Spirits:{bg,text,icon}, … }
-const SUBCAT_ORDER            // :5652
-const SUBCAT_ICONS            // :5657 — { Gin:'🌿', Vodka:'🫧', … }
-const SUBCAT_BREAKDOWN_CATS   // :6181 — new Set(['Spirits'])
-const DENSITY                 // :6205 — { spirits:0.9467, wine:0.9805, beer:1.014, liqueur:1.06 }
-const REPORT_CAT_THRESHOLDS   // :3755
-const VAR_PCT_MIN_EXPECTED    // :7088 — 1 unit; below this no variance % is quoted (r81)
-const PACK_UNKNOWN_TITLE      // :7303 — the ONE unexpanded-case wording (r87)
-const ADJUSTMENT_REASONS      // :12130 — transfer_in/out, wastage, breakage, staff, promo, sample, other (r82)
-const APP_VERSION             // :15091
+const PROD_SUBCATS            // index.html:5326 — { Spirits:[…], Beer:[…], … }
+const CAT_ORDER_PROD          // :5729 — ['Spirits','Beer','Wine','RTD','Soft drinks','Food','Cocktails','Other']
+const CAT_COLORS_PROD         // :5730 — { Spirits:{bg,text,icon}, … }
+const SUBCAT_ORDER            // :5740
+const SUBCAT_ICONS            // :5745 — { Gin:'🌿', Vodka:'🫧', … }
+const SUBCAT_BREAKDOWN_CATS   // :6206 — new Set(['Spirits'])
+const DENSITY                 // :6230 — { spirits:0.9467, wine:0.9805, beer:1.014, liqueur:1.06 }
+const REPORT_CAT_THRESHOLDS   // :3779
+const VAR_PCT_MIN_EXPECTED    // :7277 — 1 unit; below this no variance % is quoted (r81)
+const PACK_UNKNOWN_TITLE      // :7424 — the ONE unexpanded-case wording (r87)
+const ADJUSTMENT_REASONS      // :12727 — transfer_in/out, wastage, breakage, staff, promo, sample, other (r82)
+const INV_CONFIDENT_KINDS     // r88 — ['code','barcode','exact']: green + collapsed
+const APP_VERSION             // :15597
 ```
 
 ---
@@ -1150,7 +1346,12 @@ const APP_VERSION             // :15091
     **Never infer "unknown" from `cs === 1`** — a confirmed pack size of 1 is legal.
 11. **Mobile product pushes must be minimal patches keyed by name**, or they duplicate rows and
     erase desktop-only fields.
-12. **`clients = []` at boot** — there is no hardcoded demo data; everything loads from Supabase.
+12. **A match is not a match until it names a VENUE product** (r88). The master catalogue is
+    enrichment only — never the answer — and `computeVariances` builds rows only for names in
+    `client.products`, so a master-named purchase key is money that vanishes without a message.
+    `_cleanName` must BE a catalogue name; when it is not, the live merge discards it and
+    re-matches. Never validate the review modal's name field on non-emptiness alone.
+13. **`clients = []` at boot** — there is no hardcoded demo data; everything loads from Supabase.
 
 ### Test-harness patterns that have worked
 - **Extract-fn-and-diff-vs-HEAD** — pull a single function out of both revisions and diff, to
