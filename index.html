@@ -5528,6 +5528,42 @@ async function saveProduct() {
   if(!name) { alert('Product name is required.'); return; }
   if(!cat)  { alert('Please select a category.'); return; }
 
+  // ─── r89 FIX 1(a) — REFUSE A DUPLICATE NAME ────────────────────────────────
+  // Creation site 1 of 4. The product name is the primary key of the entire data model
+  // and had no uniqueness constraint anywhere, so "save" would happily mint a second row
+  // the readers cannot tell from the first.
+  //
+  // THIS IS A REFUSAL ONLY. It sits ABOVE every write in this function — above the r73
+  // case-field snapshot reads, above the prod object, above c.products, above master and
+  // above every dbSave — so a refused save writes nothing and erases nothing. r73's three
+  // preservation branches (untouched -> keep stored / deliberately emptied -> clear /
+  // never rendered -> preserve) are not read, not reordered and not altered.
+  //
+  // A PRE-EXISTING collision must not trap the user. When an edit leaves the name exactly
+  // as stored, this save did not create the collision and refusing would make the two
+  // colliding rows uneditable — including uneditable to RENAME, which is the only repair.
+  // So an unchanged name passes here and is reported by FIX 4's badge instead; only a save
+  // that would CREATE or MOVE a name onto an occupied one is refused.
+  const _prevName = prodEditIdx >= 0
+    ? String(((c.products||[])[prodEditIdx] || {}).n || ((c.products||[])[prodEditIdx] || {}).name || '').trim()
+    : '';
+  if(!(prodEditIdx >= 0 && name === _prevName) && validUniqueName(name, prodEditIdx, c.products) === null) {
+    const clash = nameCollision(name, prodEditIdx, c.products) || {};
+    alert(
+      'That name is already used — nothing has been saved.\n\n' +
+      '  • ' + (clash.n || clash.name || name) + (clash.cat ? '  (' + clash.cat + ')' : '') + '\n\n' +
+      'The product name is the key every count, purchase and sale is filed under, so two ' +
+      'products cannot share one. Whichever row a reader reaches first wins, and the other ' +
+      'one’s stock is valued with the first one’s volume, tare and density.\n\n' +
+      'Give this one a name that distinguishes it (e.g. add the size), or edit the existing ' +
+      'product instead of creating a second copy.'
+    );
+    const nmEl = document.getElementById('pf-name');
+    if(nmEl) { nmEl.style.borderColor = 'var(--red)'; nmEl.focus(); }
+    console.warn('[AuditPro] r89 — save refused, duplicate product name:', name);
+    return;
+  }
+
   const unitVolRaw = parseFloat(document.getElementById('pf-unitvol').value) || 0;
   const unitVolUnit = document.getElementById('pf-unitvol-unit')?.value || 'ml';
   const unitVol   = unitVolUnit === 'L' ? Math.round(unitVolRaw * 1000) : unitVolRaw;
@@ -5709,12 +5745,27 @@ function needsTareAlert(p) {
   return false;
 }
 
-function needsInfoAlert(p) {
+// r89 FIX 4 — `dupNames` is the case-folded duplicate set from duplicateNameSet(), passed
+// in by renderProducts so the O(n) scan runs once per render rather than once per row. It
+// is OPTIONAL: omitted, the duplicate check falls back to the active client's catalogue,
+// so the two existing call sites and any future one keep working unchanged.
+function needsInfoAlert(p, dupNames) {
   // Returns array of missing fields
   const missing = [];
   if(!p.costPrice || p.costPrice <= 0)   missing.push('cost price');
   if(!p.unitVol   || p.unitVol <= 0)     missing.push('unit volume');
   if(needsTareAlert(p))                   missing.push('vessel weight');
+  // r89 FIX 4 — DUPLICATE NAME. The name is the primary key of the whole data model, so
+  // two products sharing one (ignoring case and surrounding whitespace) is not a cosmetic
+  // untidiness: closing counts, purchases and sales all collapse onto whichever row the
+  // reader happens to hit first, and the other one silently takes the first one's unitVol,
+  // tareG and density. That is the Penguins 5L incident exactly. Surfaced through the
+  // existing review surface — the red ! nav badge, the products-page banner and the
+  // per-row click-to-edit pill — because a new alarm nobody has learned to read is worth
+  // nothing. Self-clearing: rename either row and the collision is gone.
+  const _dups = dupNames || duplicateNameSet((activeClient && activeClient.products) || []);
+  const _key  = String((p && (p.n || p.name)) || '').trim().toLowerCase();
+  if(_key && _dups.has(_key))            missing.push('duplicate name');
   // r79 — a product created on the phone mid-count lands here without the fields only
   // the desktop form captures (supplier, supplierCode, serves[], a real serve size), so
   // surface it instead of relying on someone remembering. No new UI needed: the red !
@@ -5755,7 +5806,10 @@ function renderProducts(c, query) {
 
   // Show tare weight alert banner if any products are missing it
   const missingTare = (c.products||[]).filter(p=>needsTareAlert(p));
-  const missingInfo = (c.products||[]).filter(p=>needsInfoAlert(p).length > 0);
+  // r89 FIX 4 — scanned ONCE for the whole render and threaded through every
+  // needsInfoAlert call below, so the duplicate check costs one pass, not one per row.
+  const dupNames    = duplicateNameSet(c.products||[]);
+  const missingInfo = (c.products||[]).filter(p=>needsInfoAlert(p, dupNames).length > 0);
   const alertBanner = document.getElementById('prod-tare-alert');
 
   // ⚖ amber nav badge — missing tare
@@ -5771,8 +5825,12 @@ function renderProducts(c, query) {
       alertBanner.style.display = 'flex';
       const tareCnt  = missingTare.length;
       const infoCnt  = missingInfo.filter(p=>!needsTareAlert(p)||!p.costPrice||!p.unitVol).length;
+      // r89 FIX 4 — a name collision is called out separately from "incomplete info". It is
+      // not a missing field: both rows can look complete while quietly sharing one key.
+      const dupCnt   = missingInfo.filter(p=>needsInfoAlert(p, dupNames).includes('duplicate name')).length;
       alertBanner.innerHTML = `<span style="font-size:13px;">
         ${tareCnt  ? `⚖ <strong>${tareCnt} product${tareCnt!==1?'s':''}</strong> missing vessel weight &nbsp;·&nbsp;` : ''}
+        ${dupCnt   ? `<strong style="color:var(--red);">⚠</strong> <strong>${dupCnt} product${dupCnt!==1?'s':''}</strong> share a name with another product — the count, purchases and sales of one will be read as the other. Rename one of each pair. &nbsp;·&nbsp;` : ''}
         <strong style="color:var(--red);">!</strong> <strong>${missingInfo.length} product${missingInfo.length!==1?'s':''}</strong> have incomplete info — click Edit to complete.
       </span>`;
     } else {
@@ -5864,7 +5922,7 @@ function renderProducts(c, query) {
             <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
               <span>${p.n||p.name||'Unnamed'}</span>${typeBadge}
               ${needsTareAlert(p) ? `<span onclick="editProduct(${pIdx})" title="Tare weight not set — click to edit" style="cursor:pointer;font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(240,192,64,0.12);color:var(--amber);border:1px solid rgba(240,192,64,0.3);font-weight:600;white-space:nowrap;">⚖ Set tare weight</span>` : ''}
-              ${(()=>{ const m=needsInfoAlert(p).filter(x=>x!=='vessel weight'); return m.length ? `<span onclick="editProduct(${pIdx})" title="Missing: ${m.join(', ')} — click to edit" style="cursor:pointer;font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(240,80,80,0.12);color:var(--red);border:1px solid rgba(240,80,80,0.3);font-weight:700;white-space:nowrap;">! ${m.join(', ')}</span>` : ''; })()}
+              ${(()=>{ const m=needsInfoAlert(p, dupNames).filter(x=>x!=='vessel weight'); return m.length ? `<span onclick="editProduct(${pIdx})" title="Missing: ${m.join(', ')} — click to edit" style="cursor:pointer;font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(240,80,80,0.12);color:var(--red);border:1px solid rgba(240,80,80,0.3);font-weight:700;white-space:nowrap;">! ${m.join(', ')}</span>` : ''; })()}
             </div>
             ${p.barcode ? `<div style="font-family:var(--font-mono);font-size:10px;color:var(--text3);margin-top:1px;">${p.barcode}</div>` : ''}
           </td>
@@ -6812,6 +6870,61 @@ function computeVariances(client, session = null) {
       + (orphanTwinned.length === 1 ? '' : 's') + ' (the same invoice + quantity is already '
       + 'counted under a catalogue name):', orphanTwinned);
   }
+  // ─── r89 FIX 3 — THE COUNT SIDE OF THE SAME SILENCE ────────────────────────────────
+  // r88 made a dropped PURCHASE visible. The identical filter drops opening and closing
+  // COUNTS, and that half stayed silent — which is the worse half: a purchase at least
+  // has an invoice sitting in the history table to contradict the total, while a counted
+  // bottle that no reader recognises leaves no trace anywhere at all. Nobody recounts a
+  // shelf because a number they never saw is missing.
+  //
+  // Live data has two of these in three consecutive stored periods. The r88 catalogue
+  // repair corrected two typos — KIRIN HYOKESU APPLE → HYOKETSU, KIRIN HYOJETSU PINEAPPLE
+  // → HYOKETSU — but the COUNTS were already filed under the misspelt keys, and a rename
+  // moves the catalogue row, never the history. So July closed 18 + 20 cans of them,
+  // September opened with those and closed 12 + 20, August opened with 12 + 20, and every
+  // one of those figures has been counted for nothing on every render since.
+  //
+  // This is a REPORT, not a repair. Nothing here feeds allNames, no row is created and no
+  // number moves — a count filed under an unknown key still cannot be valued, because
+  // there is no catalogue row to supply its unitVol, density or cost. What changes is that
+  // the user is now told, by name, which shelf to look at.
+  const orphanCounts = [];
+  [['opening', opening], ['closing', closing]].forEach(([where, map]) => {
+    Object.entries(map || {}).forEach(([name, entry]) => {
+      if(catalogueNames.has(name)) return;
+      // A weighed entry carries its stock in netWeightG rather than qty, so testing qty
+      // alone would silently pass over exactly the counts hardest to redo.
+      const qty  = parseFloat(entry && entry.qty) || 0;
+      const netG = parseFloat(entry && entry.netWeightG) || 0;
+      if(!qty && !netG) return;
+      const part = { where, qty, netG, unit: (entry && entry.unit) || '' };
+      // ONE entry per product, but the two sides keep their OWN figures. Collapsing them to
+      // a single qty would print the opening number under an "opening + closing" label —
+      // reporting a wrong quantity while complaining about a wrong name is not an
+      // improvement on saying nothing. Live data has exactly this case: 18 cans opening,
+      // 12 closing, on one orphaned key.
+      const found = orphanCounts.find(o => o.name === name);
+      if(found) { found.parts.push(part); found.where = 'opening + closing'; return; }
+      orphanCounts.push({
+        name, where, qty, netG, unit: part.unit, parts: [part],
+        // A near-miss on trim + case-fold is worth naming — it turns "what is this?" into
+        // "that is the same product, spelt differently". It is NOT used to merge anything:
+        // matching on it here would be the guessing r84 onwards has been removing, and it
+        // would re-value a closed period on sight.
+        near: (() => {
+          const key = String(name).trim().toLowerCase();
+          const hit = (client.products || []).find(p => String(p.n || p.name || '').trim().toLowerCase() === key);
+          return hit ? (hit.n || hit.name || '') : null;
+        })(),
+      });
+    });
+  });
+  if(orphanCounts.length) {
+    console.warn('[AuditPro] r89 — ' + orphanCounts.length + ' counted product'
+      + (orphanCounts.length === 1 ? ' is' : 's are')
+      + ' filed under a name this venue does not stock, so the stock counted on '
+      + (orphanCounts.length === 1 ? 'it' : 'them') + ' is in NO variance row:', orphanCounts);
+  }
   const allNames = new Set([
     ...Object.keys(opening  || {}),
     ...Object.keys(closing  || {}),
@@ -7081,6 +7194,10 @@ function computeVariances(client, session = null) {
   // JSON.stringify(rows) ignores it. renderVarTable turns this into a visible banner.
   rows._orphanPurchases = orphanPurchases;
   rows._orphanLost      = orphanLost;
+  // r89 FIX 3 — the count side, on the same non-index-property channel. Dropped by
+  // JSON.stringify(rows), so freezeSessionSnapshot's deep clone of varRows ignores it
+  // exactly as it ignores _resolvedPurchases and r88's orphan arrays.
+  rows._orphanCounts    = orphanCounts;
   rows._orphanCleanNames = _orphanCleanNames;
   return rows;
 }
@@ -7433,14 +7550,51 @@ const PACK_UNKNOWN_TITLE = 'Pack size unknown — this product has no confirmed 
 //
 // The import-side gates (FIX 1, 2, 4) stop new orphans being created. This is the read-side
 // half: whatever is already stored gets named, priced and put on screen until it is fixed.
+// r89 FIX 3 — the counted-but-unrecognised block, rendered into the SAME banner as r88's
+// purchase orphans rather than a second alarm of its own. Returns '' when there is nothing
+// to say, so a clean period is silent — a banner that always renders means nothing.
+function varOrphanCountsHTML(counts) {
+  if(!counts || !counts.length) return '';
+  const many = counts.length > 1;
+  return `
+    <div style="background:rgba(255,107,107,0.07);border:1px solid rgba(255,107,107,0.28);border-radius:10px;padding:12px 16px;margin-top:10px;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <span style="font-size:13px;font-weight:700;color:var(--red);">⚠ ${counts.length} counted product${many?'s':''} not in this variance</span>
+        <span style="font-size:12px;color:var(--text3);">counted under a name this venue does not stock — so no variance row can be built for ${many?'them':'it'}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;">
+        ${counts.map(o => `<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:11.5px;">
+          <span style="font-family:var(--font-mono);color:var(--text);">${rptEsc(o.name)}</span>
+          <span style="color:var(--text3);">${(o.parts || [o]).map(pt => (pt.netG ? (Number(pt.netG)||0) + ' g weighed' : (Number(pt.qty)||0) + ' ' + rptEsc(pt.unit||'units')) + ' ' + rptEsc(pt.where || o.where)).join(' · ')}</span>
+          ${o.near && o.near !== o.name ? `<span style="color:var(--amber);">catalogue spells it “${rptEsc(o.near)}”</span>` : ''}
+        </div>`).join('')}
+      </div>
+      <div style="margin-top:9px;font-size:11px;color:var(--text3);line-height:1.5;">
+        This is stock that was physically counted and is being read by nothing. It usually
+        means the product was renamed in the catalogue after the count was filed — a rename
+        moves the catalogue row, never the history. Reopen the period and amend the count
+        under the current name, or rename the catalogue product back to match.
+        Since r89 a count import can no longer create one of these.
+      </div>
+    </div>`;
+}
+
 function renderVarOrphanBanner(computed) {
   const el = document.getElementById('var-orphan-banner');
   if(!el) return;
   const all     = (computed && computed._orphanPurchases) || [];
   const orphans = all.filter(o => !o.twin);      // the ones that are counted NOWHERE
   const twins   = all.filter(o => o.twin);       // stale duplicate keys — a tidy-up, not a loss
-  if(!orphans.length && !twins.length) { el.innerHTML = ''; return; }
+  // r89 FIX 3 — the COUNT side of the same catalogue filter. Read here so both halves
+  // share ONE banner and ONE empty-state test: a dropped count must be exactly as loud
+  // as a dropped purchase, and a period carrying only count orphans must still render.
+  const ocounts = (computed && computed._orphanCounts) || [];
+  const ocHtml  = varOrphanCountsHTML(ocounts);
+  if(!orphans.length && !twins.length && !ocounts.length) { el.innerHTML = ''; return; }
   const total = orphans.reduce((s, o) => s + (Number(o.value) || 0), 0);
+  // r89 FIX 3 — no purchase orphans at all, but counts to report: the count block is
+  // the whole banner. Without this the two branches below would return before it.
+  if(!orphans.length && !twins.length) { el.innerHTML = ocHtml; return; }
   if(!orphans.length) {
     // Nothing is missing — say so in one quiet line rather than a red alarm, or the real
     // alarm above stops meaning anything.
@@ -7449,7 +7603,7 @@ function renderVarOrphanBanner(computed) {
       (${twins.map(t => rptEsc(t.name)).join(', ')}) — the same invoice and quantity is already
       counted under a catalogue name, so no stock is missing. Left over from the pre-r88 name
       split; harmless, and worth clearing next time the period is reopened.
-    </div>`;
+    </div>` + ocHtml;
     return;
   }
   el.innerHTML = `
@@ -7475,7 +7629,7 @@ function renderVarOrphanBanner(computed) {
         ${twins.map(t => rptEsc(t.name)).join(', ')} — ${twins.length!==1?'are':'is'} already
         counted under a catalogue name and cost nothing.)` : ''}
       </div>
-    </div>`;
+    </div>` + ocHtml;
 }
 
 function renderVarTable() {
@@ -11272,6 +11426,9 @@ function openInvoiceReviewModal(id) {
     // repeats both checks as the backstop for every route that never opens this modal.
     if(invRefuseUnmatchedLines(id, rows)) return;
     if(invRefuseUnconfirmedPack(id)) return;
+    // r89 FIX 1(c) — validated here for the same reason r86 and r88 are: the offending
+    // name fields are still on screen, freshly red-bordered, when the refusal names them.
+    if(invRefuseDuplicateNames(id, rows)) return;
     closeModal('invoiceReviewModal');
     await applyInvoiceToProducts(id);
   };
@@ -11765,6 +11922,73 @@ function invRefuseUnmatchedLines(id, rows) {
   return true;
 }
 
+// ─── r89 FIX 1(c) — CREATION SITE 3 OF 4: THE "CREATE AS A NEW PRODUCT" TICK ────────
+// r88 gated the name field on BINDING — is this a venue product, or has the user
+// explicitly consented to create one? It never gated UNIQUENESS, and consent to create is
+// not consent to create a SECOND row under an existing key.
+//
+// Two ways through, both reachable:
+//   1. Against the CATALOGUE. invNameBinding only offers the "new" tick when
+//      invFindCatalogueProduct() finds nothing — but that compares the TRIMMED typed name
+//      against the UNTRIMMED stored one, so a stored name carrying surrounding whitespace
+//      reads as absent and the tick appears beside a name that already exists.
+//   2. Against the OTHER LINES OF THIS SAME INVOICE. This one is wide open: the catalogue
+//      is not written until the row loop runs, so two rows both ticked "create new" under
+//      one name each see an empty catalogue, and BOTH are pushed. Two products, one key,
+//      created by a single click.
+// Neither is caught by applyInvoiceToProducts' own `existing` lookup, which is a fuzzy
+// includes-match and, for case 2, runs before either product exists.
+//
+// Returns [{ i, name, clash }] so the refusal can NAME what it collided with.
+function invDuplicateNameLines(id, rows) {
+  const bad = [];
+  const mintedByKey = {};        // names this invoice would create, in row order
+  (rows || []).forEach((item, i) => {
+    const bind = invNameBinding(id, i);
+    // 'catalogue' is an UPDATE of an existing product — not a creation, nothing to refuse.
+    // '' is already refused by r88's gate. null means no modal: quick import, where r88
+    // requires an existing catalogue binding, so nothing is ever created there either.
+    if(bind !== 'new') return;
+    let name = invResolvedLineName(id, i, item);
+    if(name === '__new__') name = (item && (item._cleanName || item.name)) || '';
+    name = String(name || '').trim();
+    if(!name) return;
+    const key = name.toLowerCase();
+    const clash = nameCollision(name, -1, (activeClient && activeClient.products) || []);
+    if(clash) {
+      bad.push({ i, name, clash: (clash.n || clash.name || ''), where: 'catalogue' });
+    } else if(mintedByKey[key] != null) {
+      bad.push({ i, name, clash: mintedByKey[key], where: 'this invoice' });
+    } else {
+      mintedByKey[key] = name;
+    }
+  });
+  return bad;
+}
+
+// ONE decision point, ONE wording — the r80 noOpenPeriodText / r86 invRefuseUnconfirmedPack
+// / r88 invRefuseUnmatchedLines pattern. TRUE means refused, so applyInvoiceToProducts
+// returns FALSE and r80's "false is the ONE refusal signal" contract still holds:
+// applyDumpEnrichment bails on === false exactly as before.
+function invRefuseDuplicateNames(id, rows) {
+  const bad = invDuplicateNameLines(id, rows);
+  if(!bad.length) return false;
+  const many = bad.length > 1;
+  alert('Duplicate product name — nothing was imported.\n\n'
+      + bad.length + (many ? ' lines are' : ' line is')
+      + ' set to be created as a NEW product under a name that already exists:\n\n'
+      + bad.map(b => '  • ' + b.name + '\n      (already in ' + b.where
+                   + (b.clash && b.clash !== b.name ? ' as “' + b.clash + '”' : '') + ')').join('\n')
+      + '\n\nUntick “Create as a new product” and pick the existing product instead, or give '
+      + (many ? 'each of these' : 'this one') + ' a name that tells the two apart.\n\n'
+      + 'The product name is the key every count, purchase and sale is filed under. Two rows '
+      + 'sharing one means whichever the reader hits first wins, and the other one’s stock '
+      + 'is valued with the first one’s volume, tare and density.');
+  bad.forEach(b => invMarkName(id, b.i));
+  console.warn('[AuditPro] r89 — import refused, duplicate new-product names:', bad);
+  return true;
+}
+
 function checkInvoiceReady(id, totalRows) {
   const btn = document.getElementById('irm-confirm-btn');
   if(!btn) return;
@@ -11903,6 +12127,13 @@ function applyInvoiceToProducts(id) {
   // returns FALSE for the same reason: applyDumpEnrichment tests `=== false` and must bail
   // before it pushes its own delivery + archive row. FALSE remains the ONE refusal signal.
   if(invRefuseUnmatchedLines(id, res._invoiceData)) return false;
+
+  // r89 FIX 1(c) — HARD REFUSAL. A line ticked "create as a new product" may not create a
+  // SECOND product under a name the catalogue (or an earlier line of this same invoice)
+  // already uses. Sits with the r80, r86 and r88 refusals, above every write, so a refused
+  // import leaves nothing behind — no product, no delivery, no session purchase. Returns
+  // FALSE for the same reason they do: FALSE remains the ONE refusal signal.
+  if(invRefuseDuplicateNames(id, res._invoiceData)) return false;
 
   // r78 — BACKSTOP. This is the single choke point every import route funnels through
   // (quick import, review-modal confirm, and the dump path), so one guard here covers all
@@ -13299,7 +13530,14 @@ async function importByCode() {
     if(data && data.length > 0) {
       const record = data[0];
       const already = (activeClient?.importedCounts||[]).some(x => x.code === code);
-      importFromCSVString(record.csv_data);
+      // r89 FIX 2 — FALSE is the ONE refusal signal (r80). A refused import staged nothing,
+      // so it must NOT be recorded as consumed: markCountImported would label the code
+      // "Imported" on the import screen and the user would believe the count had landed.
+      // The code stays live and re-imports cleanly once the catalogue is fixed.
+      if(importFromCSVString(record.csv_data, { code }) === false) {
+        showPersistToast('Import refused — fix the product names, then enter ' + code + ' again');
+        return;
+      }
       markCountImported(code, record.lines);
       showPersistToast(already
         ? `↻ Re-imported ${code} — ${record.lines} lines (already imported earlier)`
@@ -13357,17 +13595,126 @@ function renderImportedCountsHint() {
   </div>`;
 }
 
-function importFromCSVString(csvText) {
-  const lines = csvText.split('\n');
+// ─── r89 FIX 2 — BIND THE COUNT AT IMPORT, NOT AT FINALISE ──────────────────────────
+// importFromCSVString did NO product resolution whatsoever. It parsed six columns into
+// rows and staged them. Nothing checked that a counted name was a product this venue
+// stocks — and the closing map is keyed by that raw name, so an unresolvable line was:
+//   1. staged with the same green tick as every other line,
+//   2. noticed by nobody, because finaliseStocktake's prodByName lookup is only consulted
+//      for CASE expansion — a plain Bottles line never touches it,
+//   3. written into session.closing under a name no reader knows,
+//   4. and then dropped in silence by computeVariances' catalogueNames filter.
+// The stock counted on that line is simply gone, with no message on any surface. Live data
+// proves it: two Kirin cans renamed out of a catalogue typo still sit in three stored
+// periods' opening/closing (18 + 20 cans, then 12 + 20) and count for nothing at all.
+//
+// The gate belongs HERE, at import, because this is the last moment the user still has the
+// count in front of them and the session code in their hand. At finalise it is too late —
+// that is the click that ends the period.
+//
+// EXACT NAME, and exactly one. The closing key is the raw row name and FIX 5 keeps it that
+// way, so "resolves" can only mean an exact match on the same `p.n || p.name` key that
+// prodMap and prodByName use. A name differing only in case or spacing is NOT silently
+// corrected — correcting it here would be the guessing every revision since r84 has been
+// removing — it is NAMED in the refusal beside the catalogue spelling it nearly matches,
+// so the user can see the one character that is wrong.
+function countLineResolution(c, name) {
+  const raw = String(name == null ? '' : name);
+  if(!raw.trim()) return { kind: 'blank' };
+  const pool = (c && c.products) || [];
+  const exact = pool.filter(p => p && (p.n || p.name || '') === raw);
+  if(exact.length === 1) return { kind: 'ok', prod: exact[0] };
+  // Two catalogue rows carrying this exact name — FIX 4 flags them on the products page.
+  // Importing against them files the count under a key two products both answer to.
+  if(exact.length > 1) return { kind: 'ambiguous', matches: exact.length };
+  const key  = raw.trim().toLowerCase();
+  const near = pool.filter(p => p && String(p.n || p.name || '').trim().toLowerCase() === key);
+  if(near.length === 1) return { kind: 'near', near: (near[0].n || near[0].name || '') };
+  if(near.length > 1)   return { kind: 'ambiguous', matches: near.length };
+  return { kind: 'missing' };
+}
+
+// The lines that cannot be staged, as [{ i, name, why }] so the refusal can NAME them —
+// the r84 finaliseStocktake / r86 / r88 posture. De-duplicated by name: one product
+// counted across six areas is ONE problem, not six lines of noise.
+function unresolvedCountLines(c, rows) {
+  const bad = [], seen = new Set();
+  (rows || []).forEach((r, i) => {
+    const name = String((r && r.name) || '');
+    if(seen.has(name)) return;
+    const res = countLineResolution(c, name);
+    if(res.kind === 'ok') return;
+    seen.add(name);
+    bad.push({
+      i, name,
+      why: res.kind === 'near'      ? 'not an exact match — the catalogue spells it “' + res.near + '”'
+         : res.kind === 'ambiguous' ? res.matches + ' catalogue products share this name — rename one on the Products page first'
+         : res.kind === 'blank'     ? 'the line carries no product name'
+         :                            'no product with this name in the catalogue',
+    });
+  });
+  return bad;
+}
+
+// ONE decision point, ONE wording — the r80 noOpenPeriodText / r86 invRefuseUnconfirmedPack
+// / r88 invRefuseUnmatchedLines pattern. TRUE means refused; the caller then returns FALSE,
+// so r80's "false is the ONE refusal signal" contract holds on this path too.
+//
+// It refuses the WHOLE import rather than staging the good lines and dropping the rest.
+// That is the r84 finaliseStocktake posture and it is deliberate: a partial stage looks
+// exactly like a complete one, and the missing lines would surface — if ever — as an
+// unexplained variance weeks later. Nothing is lost by refusing: the count is still stored
+// in ap_mobile_counts under its code and re-imports byte-identically once the catalogue is
+// fixed, which is exactly what the message tells the user to do.
+function refuseUnresolvedCountLines(c, rows, opts) {
+  const bad = unresolvedCountLines(c, rows);
+  if(!bad.length) return false;
+  const many = bad.length > 1;
+  const code = (opts && opts.code) ? opts.code : '';
+  alert('Count not imported — ' + bad.length + ' product' + (many ? 's are' : ' is')
+      + ' not in this venue’s catalogue.\n\n'
+      + bad.map(b => '  • ' + (b.name || '(no name)') + '\n      (' + b.why + ')').join('\n')
+      + '\n\nNothing has been staged. Fix it one of these ways:\n\n'
+      + '  1. Created on the phone? Reload the catalogue (Products →\n'
+      + '     Reload from database), then import the code again.\n'
+      + '  2. Misspelt in the catalogue? Correct it on the Products page,\n'
+      + '     then import again.\n'
+      + '  3. Genuinely new? Add it on the Products page first.\n\n'
+      + (code ? 'The count is still stored under code ' + code + ' — re-importing after the fix '
+              : 'The count is still stored under its session code — re-importing after the fix ')
+      + 'brings in every line exactly as counted.\n\n'
+      + 'Imported unresolved, ' + (many ? 'these lines' : 'this line') + ' would be filed under a '
+      + 'name variance does not know, and the stock counted on ' + (many ? 'them' : 'it')
+      + ' would disappear from the period without a warning.');
+  console.warn('[AuditPro] r89 — count import refused, unresolved product names:', bad);
+  return true;
+}
+
+// Parse the handoff CSV into staged rows. Shared by the code import and the file upload so
+// the gate above has ONE place to sit — the same reason r88's refusals live inside
+// applyInvoiceToProducts rather than in each of its callers.
+function parseCountCSVRows(csvText) {
+  const lines = String(csvText || '').split('\n');
   const dataStart = lines.findIndex(l => l.startsWith('Product,') || l.startsWith('"Product"'));
   const dataLines = lines.slice(dataStart + 1).filter(l => l.trim());
-  const rows = dataLines.map(l => {
+  return dataLines.map(l => {
     const parts = l.split(',').map(p => p.replace(/"/g,'').trim());
     // Column 6 is Method ('weight' for scale captures) — preserve it so weighed
     // rows (net grams, unit 'g') aren't mistaken for a whole-unit bottle count.
     const method = (parts[5] || '').toLowerCase();
     return { name: parts[0], cat: parts[1], location: parts[2], qty: parseFloat(parts[3])||1, unit: parts[4]||'Bottles', method, source: 'mobile' };
   }).filter(r => r.name);
+}
+
+// FALSE means REFUSED and is the ONLY false — success returns undefined, exactly like
+// applyInvoiceToProducts (r80). Callers must test `=== false`; `!imported` would read a
+// successful import as a failure.
+function importFromCSVString(csvText, opts) {
+  const rows = parseCountCSVRows(csvText);
+
+  // r89 FIX 2 — the gate sits ABOVE the stage, so a refused import leaves the previous
+  // staging intact rather than half-replacing it.
+  if(refuseUnresolvedCountLines(activeClient, rows, opts)) return false;
 
   // REPLACE not append — prevents double counts on re-sync
   stkSession.mobileRows = rows;
@@ -13381,12 +13728,31 @@ function importFromCSV(file) {
   if(!file) return;
   const reader = new FileReader();
   reader.onload = e => {
-    const lines = e.target.result.split('\n').slice(1).filter(l=>l.trim());
-    const rows  = lines.map(l => {
-      const parts = l.split(',').map(p=>p.replace(/"/g,'').trim());
-      const method = (parts[5] || '').toLowerCase();   // preserve Method (weighed rows)
-      return { name:parts[0], cat:parts[1], location:parts[2], qty:parseFloat(parts[3])||1, unit:parts[4]||'Bottles', method, source:'mobile' };
-    }).filter(r=>r.name);
+    const text = e.target.result;
+    // r89 FIX 2 — this path parsed with a blind `slice(1)`: drop the first line, treat the
+    // rest as data. Handed the mobile handoff CSV — which the import modal invites, and
+    // which carries a four-line preamble before its "Product,…" header — it staged
+    // "ClientId", "SessionCode" and "Product" as three COUNT LINES. Measured on the
+    // pre-r89 build: 4 rows staged from a 1-row file. They then went into session.closing
+    // as product names and were dropped by the catalogue filter, silently, exactly like
+    // every other orphan this build exists to stop.
+    //
+    // So: when the handoff header is present, parse with the SAME reader the code import
+    // uses. Otherwise keep the legacy single-header behaviour byte-for-byte, because a
+    // plain hand-made CSV has no "Product," line and would otherwise have ITS header row
+    // staged as a product.
+    const hasHandoffHeader = String(text || '').split('\n')
+      .some(l => l.startsWith('Product,') || l.startsWith('"Product"'));
+    const rows = hasHandoffHeader ? parseCountCSVRows(text)
+      : String(text || '').split('\n').slice(1).filter(l=>l.trim()).map(l => {
+          const parts = l.split(',').map(p=>p.replace(/"/g,'').trim());
+          const method = (parts[5] || '').toLowerCase();   // preserve Method (weighed rows)
+          return { name:parts[0], cat:parts[1], location:parts[2], qty:parseFloat(parts[3])||1, unit:parts[4]||'Bottles', method, source:'mobile' };
+        }).filter(r=>r.name);
+    // r89 FIX 2 — the file upload is the SAME door as the code import and had the same
+    // hole, so it goes through the same one decision point. This path APPENDS, so the gate
+    // must sit above the assignment for a refusal to leave the existing staging untouched.
+    if(refuseUnresolvedCountLines(activeClient, rows)) return;
     stkSession.mobileRows = [...stkSession.mobileRows, ...rows];
     closeModal('importCountModal');
     renderMobileCounts();
@@ -14891,6 +15257,67 @@ function validPackSize(raw) {
   return n;
 }
 
+// ─── r89 — THE PRODUCT NAME IS THE PRIMARY KEY, SO IT MUST BE UNIQUE ─────────
+// The name is already the key of the entire data model: closing/opening/purchases are
+// keyed by it, computeVariances' prodMap is keyed by it, deliveriesForSession' merge
+// resolves to it, the mobile handoff CSV carries it, and pushProductToSupabase finds a
+// row by it. What it has never had is a UNIQUENESS CONSTRAINT — and it has FOUR
+// unguarded creation sites (desktop saveProduct, mobile saveMobileProduct, the invoice
+// "create as a new product" tick, and mobile pushProductToSupabase's blind push).
+//
+// That single gap is the shared root of the r88 five-way tie, the master-product leak,
+// the r73 caseSize erasure, POS sales mismatching, and the Penguins 5L incident — where
+// a phone-local 5 L product shadowed the catalogue's 700 ml (loadFromStorage pushes local
+// _userAdded rows FIRST, then loadProductsFromSupabase skips any lowercase-name match),
+// so a weight taken against a 5 L PVC was valued with the 700 ml's unitVol and tare:
+// overstated exactly 7.14x (5000/700), and printed +434% on a client report.
+//
+// CONTRACT — deliberately identical to r84's validPackSize: return the TRIMMED name, or
+// null. Never '' and never a silently-corrected string, so no caller can `|| name` its
+// way past a collision. "Collides" means: ignoring case AND surrounding whitespace, some
+// OTHER product in the venue catalogue already carries this name.
+//
+// Comparison is trim + case-fold and nothing more. It is deliberately NOT invNormName —
+// that strips volumes and pack sizes, which would make "CORONA - 330 ml" and
+// "CORONA - 355ml" collide, and those are two genuinely different products. This rule
+// only ever catches names the data model itself cannot tell apart.
+
+// The colliding product, or null. Separated from the predicate so a refusal can NAME the
+// product it clashed with instead of just saying "duplicate" — the r84/r86/r88 posture.
+function nameCollision(name, excludeIdx, products) {
+  const key = String(name == null ? '' : name).trim().toLowerCase();
+  if(!key) return null;
+  const pool = products || (activeClient && activeClient.products) || [];
+  const skip = (excludeIdx == null || excludeIdx < 0) ? -1 : excludeIdx;
+  for(let i = 0; i < pool.length; i++) {
+    if(i === skip) continue;
+    const p = pool[i];
+    if(!p) continue;
+    if(String(p.n || p.name || '').trim().toLowerCase() === key) return p;
+  }
+  return null;
+}
+
+function validUniqueName(name, excludeIdx, products) {
+  const s = String(name == null ? '' : name).trim();
+  if(!s) return null;
+  return nameCollision(s, excludeIdx, products) ? null : s;
+}
+
+// The case-folded names that appear MORE THAN ONCE in a catalogue. Computed once per
+// render rather than per row (needsInfoAlert runs inside the row loop, and a per-row
+// rescan would be O(n^2) over a catalogue that only grows). Empty for a clean catalogue,
+// which is what the live venue has today — see the r89 notes in CLAUDE.md.
+function duplicateNameSet(products) {
+  const seen = new Set(), dup = new Set();
+  (products || []).forEach(p => {
+    const key = String((p && (p.n || p.name)) || '').trim().toLowerCase();
+    if(!key) return;
+    if(seen.has(key)) dup.add(key); else seen.add(key);
+  });
+  return dup;
+}
+
 // ─── r87 — THE TERMINAL `|| 12` IS GONE: ×1 AND A FLAG, NEVER A GUESS ───────
 // Five sites resolved a pack size and ended `|| 12`. Unlike r84–r86's capture surfaces,
 // all five READ STORED HISTORY, so a wrong 12 is not a transient display slip — it is
@@ -15594,7 +16021,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r88';
+const APP_VERSION = '2026-06-10-r89';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();

@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r85';
+const APP_VERSION = '3.8-2026-06-10-r89';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -1306,7 +1306,46 @@ async function loadProductsFromSupabase() {
   }
 }
 
-async function pushProductToSupabase(prod) {
+// ─── r89 FIX 1(d) — CREATION SITE 4 OF 4, AND THE MOST DANGEROUS LINE IN THE CHAIN ──
+// This function finds the stored row by LOWERCASE NAME and, on a hit, writes
+// `{ ...cur, ...prod }` back over it. That single spread is the whole problem: it cannot
+// tell the difference between
+//
+//   (A) a deliberate patch to a product the user PICKED  — savePackSize and
+//       linkBarcodeToProduct hand it { n, name } plus the one field being changed, and
+//       merging that onto the stored row is exactly right; and
+//   (B) a brand-new product that merely happens to share a name — saveMobileProduct hands
+//       it a FULL object, and merging THAT onto the stored row overwrites unitVol, tareG,
+//       fullG, density and soldAs with the new product's values, unattended and unlogged.
+//
+// (B) is the Penguins 5L incident's write path: a 5 L product created on the phone under
+// a name the catalogue already used for a 700 ml one, silently restating the catalogue
+// row's volume and tare. Every later weight of that product — desktop included, because
+// the catalogue is shared — was then converted against the wrong vessel.
+//
+// The r73/r79 blank-guards below cannot help here. They stop a MISSING field erasing a
+// stored one; they have nothing to say about a PRESENT field that is confidently wrong.
+//
+// So the caller must now declare which it is, and the two are handled differently:
+//
+//   intent 'patch'  — the caller asserts prod names a product the user already picked
+//                     from this venue's list. Merge as before, with every existing guard
+//                     intact. If the name is NOT found, do NOT create: a patch that
+//                     matches nothing means the phone's list disagrees with the catalogue
+//                     (renamed or deleted on the desktop), and pushing would mint a stub
+//                     product carrying nothing but { n, name, caseSize }.
+//   intent 'create' — the caller asserts prod is NEW. If the name is already taken, REFUSE
+//                     the whole push. Nothing is merged and nothing is written.
+//
+// An absent or unrecognised intent is treated as 'create' — the strict side. A future
+// caller that forgets the argument gets a loud refusal it can see, rather than the silent
+// overwrite this fix exists to end.
+//
+// It does NOT roll back the local PRODUCTS entry on refusal. By the time the push runs the
+// user may already have counted lines against that in-memory object, and removing it would
+// orphan them. The refusal reports instead, and desktop FIX 4 flags the collision if the
+// row ever reaches the catalogue by another route.
+async function pushProductToSupabase(prod, intent) {
   if(!SUPABASE_URL || !SUPABASE_KEY) return;
   // Derive slug: prefer explicit clientId, then derive from venue name, last-resort fallback
   const slug = session.clientId
@@ -1326,6 +1365,40 @@ async function pushProductToSupabase(prod) {
     // Add if not already there, else update
     const name = prod.n || prod.name || '';
     const exists = clientData.products.findIndex(p=>(p.n||p.name||'').toLowerCase()===name.toLowerCase());
+
+    // r89 FIX 1(d) — the two intents diverge here, against the AUTHORITATIVE catalogue row
+    // just fetched. This is the only place in the app that sees the real catalogue at the
+    // moment of writing, which is why the check has to be repeated here and not left to
+    // FIX 1(b): the phone's PRODUCTS list can be stale, and a stale list is precisely the
+    // state in which a duplicate gets created.
+    const _isCreate = intent !== 'patch';
+    if(_isCreate && exists >= 0) {
+      const cur = clientData.products[exists];
+      console.warn('[AuditPro] r89 — push REFUSED: "' + name + '" already exists in the '
+        + 'catalogue. A create-intent push would have overwritten the stored row with '
+        + 'this new product\'s fields.', { stored: cur, attempted: prod });
+      toast('⚠ Not saved — ' + name + ' already exists in the venue catalogue');
+      alert('“' + name + '” is already in this venue’s catalogue, so it was NOT saved.\n\n' +
+            'Saving it would have overwritten the existing product’s volume, vessel ' +
+            'weight and density with this one’s — the stored product would keep its name ' +
+            'and quietly become a different thing.\n\n' +
+            'Count the existing product instead. If your phone is not showing it, ' +
+            'reconnect to pull the current catalogue down.\n\n' +
+            'If this really is a separate product, give it a name that distinguishes it ' +
+            '(for example add the size) and save again.');
+      return false;
+    }
+    if(!_isCreate && exists < 0) {
+      // A patch that matches nothing must not become a creation. The old code pushed `prod`
+      // here, which for savePackSize/linkBarcodeToProduct is a two-or-three-key stub with
+      // no category, volume, density or price — a product row that looks real to every
+      // reader and values everything counted against it at zero.
+      console.warn('[AuditPro] r89 — patch REFUSED: no catalogue product named "' + name
+        + '". Pushing would have created a stub row from a partial patch.', prod);
+      toast('⚠ ' + name + ' is not in the venue catalogue — nothing saved');
+      return false;
+    }
+
     if(exists >= 0) {
       const cur = clientData.products[exists];
       const merged = { ...cur, ...prod };
@@ -1815,6 +1888,32 @@ function saveMobileProduct() {
   if(!cat)     { toast('Select a category'); return; }
   if(!unitVol) { toast('Unit volume required'); return; }
 
+  // ─── r89 FIX 1(b) — REFUSE A DUPLICATE NAME ────────────────────────────────
+  // Creation site 2 of 4, and the one that caused the Penguins 5L incident. It sits ABOVE
+  // PRODUCTS.push, above saveToStorage and above pushProductToSupabase, so a refused save
+  // writes nothing to memory, nothing to localStorage and nothing to Supabase.
+  //
+  // PRODUCTS is the merged list — catalogue rows loaded from ap_clients plus any local
+  // _userAdded rows — so this one check covers both. It is only the FIRST of the two
+  // gates, though, and deliberately so: PRODUCTS can be STALE (the connect-time load
+  // failed, or the desktop added the product after this phone connected), and in that
+  // state the name looks free here while the real catalogue already holds it. FIX 1(d)
+  // catches that at the push, against the authoritative row.
+  const _dupe = nameCollision(name, PRODUCTS, null);
+  if(_dupe) {
+    toast('⚠ ' + (_dupe.n || _dupe.name) + ' already exists — not saved');
+    alert('“' + name + '” is already in this venue’s list.\n\n' +
+          'Count the existing product instead of creating a second one. The product name ' +
+          'is the key every count is filed under, so two products sharing a name means one ' +
+          'of them is measured with the other one’s volume, tare and density — which is ' +
+          'how a 5 L keg was once valued as a 700 ml bottle.\n\n' +
+          'If this really is a different product, give it a name that says so ' +
+          '(for example add the size).');
+    document.getElementById('mp-name')?.focus();
+    console.warn('[AuditPro] r89 — mobile save refused, duplicate product name:', name);
+    return;
+  }
+
   const soldAs = document.getElementById('mp-soldas')?.value || 'Bottles';
 
   // r79 — CASE SIZE, the one gap that yields a WRONG number instead of a missing one.
@@ -1871,7 +1970,11 @@ function saveMobileProduct() {
 
   PRODUCTS.push(prod);
   saveToStorage();
-  pushProductToSupabase(prod);
+  // r89 FIX 1(d) — 'create': this is a NEW product, so the push must REFUSE rather than
+  // merge if the catalogue already holds the name. FIX 1(b) above already checked the
+  // phone's own list; this is the check against the authoritative catalogue row, which
+  // is the one that matters when the local list is stale.
+  pushProductToSupabase(prod, 'create');
 
   // Reset form
   ['mp-name','mp-barcode','mp-unitvol','mp-tareg','mp-fullg','mp-cost','mp-sell','mp-casesize'].forEach(id => {
@@ -2275,6 +2378,43 @@ function validPackSize(raw) {
   return n;
 }
 
+// ─── r89 — THE PRODUCT NAME IS THE PRIMARY KEY, SO IT MUST BE UNIQUE ─────────
+// The byte-identical twin of desktop's rule (index.html), for the same reason r85 gave
+// validPackSize a twin: the phone is the OTHER end of the same data model, and a rule that
+// exists on only one side is a rule the other side routes around.
+//
+// The phone matters more here than the desktop does, because it has a SECOND catalogue —
+// the localStorage copy — and the two are merged by name at boot with the local copy
+// winning: loadFromStorage pushes every _userAdded row FIRST, and loadProductsFromSupabase
+// then skips any product whose lowercase name is already present. So a phone-created row
+// does not sit beside the catalogue product, it SHADOWS it, and every count taken against
+// it is valued with the local row's unitVol, tareG and density.
+//
+// That is the Penguins 5L incident exactly: a phone-local 5 L product shadowed the
+// catalogue's 700 ml, a weight taken against a 5 L PVC keg was divided by the 700 ml's
+// volume, and the result was overstated by exactly 5000/700 = 7.14x — which printed as
+// +434% on a client report.
+//
+// CONTRACT — identical to validPackSize: the TRIMMED name, or null. Never '', never a
+// silently-corrected string. Comparison is trim + case-fold only; it is deliberately not
+// any looser, because two genuinely different sizes of one product are two products.
+function nameCollision(name, pool, excludeProd) {
+  const key = String(name == null ? '' : name).trim().toLowerCase();
+  if(!key) return null;
+  const list = pool || PRODUCTS || [];
+  for(const p of list) {
+    if(!p || p === excludeProd) continue;
+    if(String(p.n || p.name || '').trim().toLowerCase() === key) return p;
+  }
+  return null;
+}
+
+function validUniqueName(name, pool, excludeProd) {
+  const s = String(name == null ? '' : name).trim();
+  if(!s) return null;
+  return nameCollision(s, pool, excludeProd) ? null : s;
+}
+
 // The ONE pack-size question, lifted out of r75's link flow so the unit selector, the case
 // badge and the link flow all ask it the same way. Returns a validated number, or null when
 // cancelled or invalid — the caller then REFUSES. Nothing here ever guesses.
@@ -2303,7 +2443,9 @@ async function savePackSize(product, cs) {
   product.caseSize = n;
   saveToStorage();
   if(!name) { toast('⚠ Pack size kept on this phone only — that product has no name'); return; }
-  await pushProductToSupabase({ n: name, name: name, caseSize: n });
+  // r89 FIX 1(d) — 'patch': the product came from the catalogue list the user picked
+  // from, and this is a one-field update to it. The merge path is exactly right here.
+  await pushProductToSupabase({ n: name, name: name, caseSize: n }, 'patch');
 }
 
 // Union two+ products' barcode lists into a deduped, normalised array (primary first).
@@ -2511,7 +2653,10 @@ async function linkBarcodeToProduct(idx) {
   // NOTE: this writes the venue row only. Mobile has no ap_master_products writer at all
   // (desktop's addToMasterCatalogue has no mobile twin), so case codes/sizes linked here
   // do not reach master — a known gap, deliberately not opened up in r75.
-  await pushProductToSupabase(patch);
+  // r89 FIX 1(d) — 'patch': prod is PRODUCTS[idx], a product the user picked off the
+  // list to link a code to. A barcode/pack-size patch on a known product still works
+  // exactly as before — that intent is the whole reason the two are distinguished.
+  await pushProductToSupabase(patch, 'patch');
 
   // Prove it resolved: re-run the code through the ORIGINAL resolver, not the fast/handoff
   // wrapper — this is a confirmation of the link, not a real scan, and fast mode would
