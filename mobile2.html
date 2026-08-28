@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r89';
+const APP_VERSION = '3.8-2026-06-10-r90';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -302,6 +302,9 @@ select.inp-m{cursor:pointer;}
   </div>
 
   <div class="scroll">
+    <!-- r90 FIX 3 — name-collision warning. Painted into all three hosts at once so it
+         is already present whichever screen the counter lands on. -->
+    <div id="collision-banner-areas" style="display:none;"></div>
     <div class="area-list" id="area-list"></div>
     <div id="area-add-row" style="padding:0 16px 8px;display:none;">
       <button class="btn btn-secondary" onclick="addCustomArea()" style="font-size:13px;padding:12px;width:100%;">+ Add custom area</button>
@@ -351,6 +354,7 @@ select.inp-m{cursor:pointer;}
 
   <!-- Item list -->
   <div class="scroll" id="count-item-list" style="background:var(--bg);">
+    <div id="collision-banner-count" style="display:none;"></div>
     <div id="count-items-body"></div>
     <div id="count-empty" style="text-align:center;padding:40px 20px;color:var(--text3);">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:36px;height:36px;margin-bottom:10px;opacity:0.3;"><path d="M20 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
@@ -706,6 +710,7 @@ select.inp-m{cursor:pointer;}
   </div>
 
   <!-- clean header only, no legend -->
+  <div id="collision-banner-review" style="display:none;"></div>
   <div class="scroll" id="review-body"></div>
 
   <!-- Bottom: reject or accept -->
@@ -1022,11 +1027,25 @@ function loadFromStorage() {
     }
     if(data.extraProducts?.length) {
       data.extraProducts.forEach(p => {
-        if(!PRODUCTS.find(x => (x.name||x.n||'').toLowerCase() === (p.name||p.n||'').toLowerCase())) {
-          PRODUCTS.push({ ...p, _userAdded: true });
+        const pname = (p.name||p.n||'');
+        const idx = PRODUCTS.findIndex(x => (x.name||x.n||'').toLowerCase() === pname.toLowerCase());
+        if(idx < 0) { PRODUCTS.push({ ...p, _userAdded: true }); return; }
+        // r90 FIX 3/4 — this local product is NOT being loaded, and until now that happened
+        // in total silence. WHY it is skipped decides whether that matters:
+        //   • the sitting row came from the CATALOGUE (_fromDB) — the venue now stocks this
+        //     name for real. The catalogue row is already in place and correctly WINS
+        //     (FIX 4); the local copy is redundant and must be reported (FIX 3), because
+        //     any count already taken against it may have used the wrong vessel.
+        //   • the sitting row is another local row (a re-entry, or a product carried over
+        //     from a venue counted earlier in this session — PRODUCTS is never cleared on a
+        //     venue switch). That is not a catalogue shadow and must NOT raise an alarm, or
+        //     the warning stops meaning anything.
+        if(PRODUCTS[idx]._fromDB) {
+          noteNameCollision(pname, 'The catalogue version is in use; the phone copy was not loaded.');
         }
       });
     }
+    paintCollisionBanner();
     const age = Math.round((Date.now() - data.savedAt) / 60000);
     console.log('[AuditPro] Restored ' + Object.values(session.counts).flat().length + ' lines for ' + session.client + ' (' + age + 'min ago)');
     return true;
@@ -1267,40 +1286,63 @@ async function loadProductsFromSupabase() {
     } catch(e) { console.warn('[AuditPro] master density load failed:', e); }
 
     const prods = clientRow.data.products || [];
-    let added = 0;
+    let added = 0, replaced = 0;
     prods.forEach(p => {
       const name = p.n || p.name;
       if(!name) return;
       const mDensity = masterDensity[mSlug(name)];
-      if(!PRODUCTS.find(x => (x.name||x.n||'').toLowerCase() === name.toLowerCase())) {
-        PRODUCTS.push({
-          name, n: name,
-          cat:       p.cat || 'Other',
-          subcat:    p.subcat || '',
-          vol:       p.unitVol || p.vol || 750,
-          unitVol:   p.unitVol || p.vol || 750,
-          serveVol:  p.serveVol || 30,
-          barcode:   p.barcode || '',
-          barcodes:  p.barcodes || (p.barcode ? [p.barcode] : []),  // r44 — multi-barcode carry-through
-          caseBarcode: p.caseBarcode || '',
-          tareG:     p.tareG || 0,
-          fullG:     p.fullG || 0,
-          fullMl:    p.unitVol || p.vol || 750,
-          density:   (mDensity != null ? mDensity : p.density) || 1.00,
-          costPrice: p.costPrice || 0,
-          sellPrice: p.sellPrice || 0,
-          soldAs:    p.soldAs || 'Bottles',
-          caseSize:  p.caseSize || null,
-          _fromDB:   true,
-        });
-        added++;
+      // r90 FIX 4 — build the catalogue row FIRST, then decide where it goes. It used to be
+      // built only inside the "not already present" branch, which is precisely why a
+      // phone-local row could keep the slot: the real row was never even constructed.
+      const row = {
+        name, n: name,
+        cat:       p.cat || 'Other',
+        subcat:    p.subcat || '',
+        vol:       p.unitVol || p.vol || 750,
+        unitVol:   p.unitVol || p.vol || 750,
+        serveVol:  p.serveVol || 30,
+        barcode:   p.barcode || '',
+        barcodes:  p.barcodes || (p.barcode ? [p.barcode] : []),  // r44 — multi-barcode carry-through
+        caseBarcode: p.caseBarcode || '',
+        tareG:     p.tareG || 0,
+        fullG:     p.fullG || 0,
+        fullMl:    p.unitVol || p.vol || 750,
+        density:   (mDensity != null ? mDensity : p.density) || 1.00,
+        costPrice: p.costPrice || 0,
+        sellPrice: p.sellPrice || 0,
+        soldAs:    p.soldAs || 'Bottles',
+        caseSize:  p.caseSize || null,
+        _fromDB:   true,
+      };
+      const idx = PRODUCTS.findIndex(x => (x.name||x.n||'').toLowerCase() === name.toLowerCase());
+      if(idx < 0) { PRODUCTS.push(row); added++; return; }
+      // Already present. Only ONE case is a shadow worth acting on: a phone-created row
+      // sitting on a name the catalogue also uses. Reaching this line at all proves the
+      // catalogue contains the name, which is the entire discriminator — a local product
+      // the catalogue does NOT know is never visited by this loop and is left alone.
+      if(PRODUCTS[idx]._userAdded && !PRODUCTS[idx]._fromDB) {
+        // IN PLACE, so the array positions the r71/r90 index dispatch renders against stay
+        // stable, and so nothing holding a position mid-render is shifted underneath it.
+        PRODUCTS[idx] = row;
+        replaced++;
+        noteNameCollision(name, 'The catalogue version replaced the phone-created one.');
       }
+      // Otherwise it is a _fromDB row already loaded (a reconnect re-runs this) — leave it.
     });
 
-    if(added > 0) {
+    // r90 — persist after a REPLACEMENT too, not just an addition. saveToStorage writes
+    // PRODUCTS.filter(p => p._userAdded), and the replaced row is now _fromDB, so this is
+    // what actually drops the redundant local copy out of localStorage. Without it the
+    // stale entry would be reloaded and re-reported on every future connect; with it the
+    // warning clears itself once the phone has seen the catalogue.
+    if(added > 0 || replaced > 0) {
       saveToStorage();
-      toast(`✓ ${added} products loaded`, true);
+      if(added > 0) toast(`✓ ${added} products loaded`, true);
     }
+    if(replaced > 0) {
+      toast(`⚠ ${replaced} phone-created product${replaced!==1?'s':''} replaced by the catalogue — see the warning`, true);
+    }
+    paintCollisionBanner();
   } catch(e) {
     console.warn('Product load failed:', e);
   }
@@ -2415,6 +2457,111 @@ function validUniqueName(name, pool, excludeProd) {
   return nameCollision(s, pool, excludeProd) ? null : s;
 }
 
+// ─── r90 FIX 3/4 — A SHADOWED PRODUCT IS REPORTED, AND THE CATALOGUE WINS ────────────
+// The Penguins 5 L incident was not a matching failure. The counter selected correctly —
+// there was only ever ONE thing to select, because the phone had silently thrown the
+// right product away.
+//
+// loadFromStorage() runs FIRST and pushes every locally-created (_userAdded) product.
+// loadProductsFromSupabase() then runs and skips any catalogue product whose lowercase
+// name is already present. So a phone-local "PENGUINS GIN" at 5 L caused the real
+// catalogue row — 700 ml, its own tare and full weight — to be DISCARDED, with no message
+// on any surface. The count was then taken by WEIGHT against a 5 L PVC keg and divided by
+// the 700 ml's unitVol: overstated by exactly 5000/700 = 7.14x, and printed +434% on a
+// client report.
+//
+// Two changes, and they only work together:
+//   FIX 4 — on a collision the CATALOGUE row wins. Local won before purely because it
+//           loaded first, which is not a decision, it is an accident of ordering.
+//   FIX 3 — the collision is REPORTED, loudly and persistently. Silently preferring the
+//           catalogue would fix the numbers going forward while still telling the user
+//           nothing about the counts they may already have taken against the wrong vessel.
+//
+// HOW A REDUNDANT LOCAL PRODUCT IS TOLD FROM A GENUINELY NEW ONE — this is the whole
+// safety of FIX 4, and it needs no guessing. The discriminator is membership in the
+// catalogue array we have JUST fetched from ap_clients:
+//   • the loop in loadProductsFromSupabase only ever visits names the catalogue CONTAINS.
+//     A local product whose name is in it is by definition redundant — the venue now
+//     stocks that product under that name — so the catalogue row replaces it IN PLACE.
+//   • a local product whose name is NOT in the catalogue is never visited by that loop at
+//     all, so it is untouched and stays fully usable. That is the unsynced-new-product
+//     case, and it is preserved by construction rather than by a heuristic.
+// Nothing is decided by name similarity, by _userAdded alone, or by which row looks newer.
+//
+// WHAT REPLACEMENT COSTS: a local row's own fields (a tare the user typed on the phone)
+// are dropped in favour of the catalogue's. That is the right trade — r89's
+// pushProductToSupabase REFUSES to create a colliding product, so a local row under a
+// catalogue name never synced its fields anywhere anyway — and the report NAMES the
+// product so anything genuinely missing can be re-entered on the desktop.
+//
+// Count lines are unaffected: addItem stores { name, cat, qty, unit, method } as plain
+// copied data, never a reference to the product object, so swapping a PRODUCTS entry
+// cannot disturb a line already captured.
+let _nameCollisions = [];
+
+// Record one collision. Deduped on the lower-cased name so a reconnect (which re-runs both
+// loaders) cannot stack the same warning twice.
+function noteNameCollision(name, resolution) {
+  const key = String(name || '').trim().toLowerCase();
+  if(!key) return;
+  if(_nameCollisions.some(c => c.key === key)) return;
+  _nameCollisions.push({ key, name: String(name || '').trim(), resolution: resolution || '' });
+  console.warn('[AuditPro] r90 — name collision: a phone-created product shares the '
+    + 'catalogue name "' + name + '". ' + resolution);
+}
+
+// Minimal HTML escape. The banner interpolates PRODUCT NAMES, which come from the venue
+// catalogue and from the phone's own add-product form, so they are not trusted markup.
+// (paintLinkBanner sidesteps this by using textContent; this banner needs a list, so it
+// escapes instead.)
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ONE wording, painted into every host, so the areas list, the count screen and the
+// review screen can never disagree — the desktop's noOpenPeriodText pattern. All three
+// hosts live in the DOM whatever screen is showing, so painting them all at once means
+// the warning is already there whichever way the user navigates.
+function collisionBannerHTML() {
+  if(!_nameCollisions.length) return '';
+  const many = _nameCollisions.length > 1;
+  return `<div style="margin:12px 16px;padding:12px 13px;border-radius:12px;background:rgba(240,80,80,0.10);border:1px solid rgba(240,80,80,0.40);">
+    <div style="color:#ff6b6b;font-family:var(--font-ui);font-size:13px;font-weight:700;margin-bottom:6px;">
+      ⚠ ${_nameCollisions.length} product${many?'s':''} on this phone clashed with the venue catalogue
+    </div>
+    <div style="color:var(--text2);font-family:var(--font-ui);font-size:12.5px;line-height:1.5;">
+      ${_nameCollisions.map(c => `<div style="font-family:var(--font-mono);color:var(--text);margin:3px 0;">• ${escHtml(c.name)}</div>`).join('')}
+      <div style="margin-top:7px;">
+        ${many?'These were':'This was'} created on a phone under a name the venue catalogue
+        already uses. The <strong style="color:var(--text);">catalogue version is now being
+        used</strong> — it has the correct size, vessel weight and density.
+      </div>
+      <div style="margin-top:7px;">
+        <strong style="color:#ff6b6b;">Check any counts you already took for
+        ${many?'these products':'this product'}</strong>, especially weighed ones: a weight
+        measured against the wrong size bottle or keg is wrong by the ratio of the two sizes.
+        Re-count ${many?'them':'it'} to be safe.
+      </div>
+      <div style="margin-top:7px;color:var(--text3);">
+        If ${many?'these are':'this is'} genuinely a different product, add
+        ${many?'them':'it'} on the desktop under a name that tells the two apart.
+      </div>
+    </div>
+  </div>`;
+}
+
+function paintCollisionBanner() {
+  const html = collisionBannerHTML();
+  ['collision-banner-areas', 'collision-banner-count', 'collision-banner-review'].forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.innerHTML = html;
+    el.style.display = html ? 'block' : 'none';
+  });
+}
+
 // The ONE pack-size question, lifted out of r75's link flow so the unit selector, the case
 // badge and the link flow all ask it the same way. Returns a validated number, or null when
 // cancelled or invalid — the caller then REFUSES. Nothing here ever guesses.
@@ -3380,13 +3527,23 @@ function weightSearch(q) {
   if(!q.trim()){ res.classList.remove('visible'); return; }
   // Same permissive token match as searchProducts, but only weighable products (r42).
   const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const matches = PRODUCTS.filter(p => { const name=(p.name||'').toLowerCase(); return tokens.every(t=>name.includes(t)) && p.tareG > 0; });
+  // r90 FIX 2 — carry each match's INDEX into PRODUCTS, exactly as r71 did for the main
+  // Search. This tab was never converted: its rows interpolated the product NAME into a
+  // quoted onclick attribute and dispatched selectWeightProduct('<name>'), which then
+  // re-resolved first-match. Two failure modes in one line — a name containing a quote
+  // breaks the attribute, and a name shared by two products silently picks whichever sits
+  // earlier in PRODUCTS. The second is the one that bit: the weigh tab is how Penguins was
+  // counted. Note slice(0,5) positions are NOT PRODUCTS indices, which is precisely why the
+  // index has to be captured before the filter.
+  const matches = PRODUCTS
+    .map((p, i) => ({ p, i }))
+    .filter(({p}) => { const name=(p.name||'').toLowerCase(); return tokens.every(t=>name.includes(t)) && p.tareG > 0; });
   if(!matches.length){ res.classList.remove('visible'); return; }
   res.classList.add('visible');
-  res.innerHTML = matches.slice(0,5).map(p=>`
-    <div class="search-item" onclick="selectWeightProduct('${p.name}')">
+  res.innerHTML = matches.slice(0,5).map(({p,i})=>`
+    <div class="search-item" onclick="selectWeightProductAt(${i})">
       <div>
-        <div class="search-item-name">${p.name}</div>
+        <div class="search-item-name">${escHtml(p.name)}</div>
         <div class="search-item-cat">Empty: ${p.tareG}g · Full: ${p.fullMl}ml</div>
       </div>
     </div>`).join('');
@@ -3430,13 +3587,24 @@ function autoAcceptWeight() {
   // Auto-accept removed (r20) — weight commits only via the Confirm button.
 }
 
-function selectWeightProduct(name) {
+// ─── r90 FIX 1 — THE WEIGH PANEL IS ARMED WITH THE OBJECT, NOT A NAME ────────────────
+// r71 made the main Search dispatch by INDEX so a row could never resolve to the wrong
+// product. armWeigh then threw that away: it is handed the product OBJECT and called
+// selectWeightProduct(product.name), which re-resolved with PRODUCTS.find(p=>p.name===name)
+// — first match wins. Two products whose names differ only by a suffix are fine, but two
+// products SHARING a name are not, and the phone could hold exactly that (see the r90
+// FIX 3/4 note). Penguins was counted by WEIGHT, so it went through this path.
+//
+// selectWeightProductObj is now the real body and takes the OBJECT. selectWeightProduct
+// keeps working for callers that legitimately hold only a name.
+function selectWeightProductObj(prod) {
+  if(!prod) return;
   // Any direct selection (the manual #weight-search fallback) clears the origin, so a
   // stale 'search' can't survive into the next weigh. armWeigh re-stamps it after this
   // call returns (r71).
   _weighOrigin  = null;
-  weightProduct = PRODUCTS.find(p=>p.name===name);
-  document.getElementById('weight-search').value = name;
+  weightProduct = prod;
+  document.getElementById('weight-search').value = prod.name;
   document.getElementById('weight-results').classList.remove('visible');
   document.getElementById('weight-product-info').style.display = 'flex';
   document.getElementById('wp-name').textContent = weightProduct.name;
@@ -3458,6 +3626,24 @@ function selectWeightProduct(name) {
   updateScaleNet();
   startWeighStableWatch();
   toast('Place ' + weightProduct.name + ' on scale, then tap Confirm', true);
+}
+
+// r90 FIX 2 — the weigh tab's own search dispatches by INDEX, like r71's Search. This is
+// the ONE place a weigh-search row becomes a selection.
+function selectWeightProductAt(idx) {
+  const prod = PRODUCTS[idx];
+  if(!prod) return;   // catalogue moved under an open list — stay unselected
+  selectWeightProductObj(prod);
+}
+
+// Name-only entry point, kept for any caller that has a string and nothing better.
+// It resolves first-match, which is exactly the ambiguity FIX 1 and FIX 2 remove from the
+// paths that DO have the object — so it now says so rather than dereferencing undefined
+// (the old body did `weightProduct.name` straight after the find and threw on a miss).
+function selectWeightProduct(name) {
+  const prod = PRODUCTS.find(p => p.name === name);
+  if(!prod) { toast('⚠ ' + name + ' is not in this phone\'s product list'); return; }
+  selectWeightProductObj(prod);
 }
 
 function clearWeightProduct() {
@@ -3850,10 +4036,30 @@ function addItem(product, qty, unit, method) {
 // ─── SYNC SCREEN ─────────────────────────────────
 function showSync() {
   // Always go through review first
+  paintCollisionBanner();   // r90 FIX 3 — repaint before the last screen before sync
   showReview();
 }
 
 async function acceptAndSync() {
+  // r90 FIX 3 — the last gate. A banner can be scrolled past; this cannot. The count still
+  // syncs if the user confirms — their lines are real data and refusing to send them would
+  // strand the whole audit on the phone — but it becomes impossible to finish a count
+  // without being told which products were shadowed and that weighed lines for them are
+  // suspect. Deliberately NOT a refusal: r89's refusals sit above WRITES that create bad
+  // data, and this write does not create any; it is the acknowledgement of a fact.
+  if(_nameCollisions.length) {
+    const names = _nameCollisions.map(c => '  • ' + c.name).join('\n');
+    const many  = _nameCollisions.length > 1;
+    if(!confirm(
+      _nameCollisions.length + ' product' + (many ? 's were' : ' was') + ' created on a phone '
+      + 'under a name the venue catalogue already uses:\n\n' + names + '\n\n'
+      + 'The catalogue version is the one in use now. Any count you already took for '
+      + (many ? 'these' : 'this') + ' may have been measured against the wrong size — a '
+      + 'WEIGHED line is wrong by the ratio of the two sizes (a 5 L keg read against a '
+      + '700 ml bottle overstates by 7x).\n\n'
+      + 'Re-count ' + (many ? 'them' : 'it') + ' before syncing, or press OK to sync anyway.'
+    )) return;
+  }
   const areas  = Object.keys(session.counts).filter(a=>session.counts[a].length>0);
   const lines  = areas.reduce((s,a)=>s+session.counts[a].length,0);
   // Weighed entries hold NET GRAMS in qty — count each as 1 vessel, not its grams (r37).
@@ -4087,7 +4293,14 @@ function armWeigh(product, origin) {
   // Switch to weigh tab and pre-load the product. Commit is manual via Confirm (r20).
   // Only selectWeightProduct's (visual-only) watcher runs — no second timer, no double-log.
   setMethod('weight', document.getElementById('tab-weight'));
-  selectWeightProduct(product.name); // clears _weighOrigin …
+  // r90 FIX 1 — arm with the OBJECT we were handed. This used to be
+  //   selectWeightProduct(product.name)
+  // which threw the object away and re-resolved the name through
+  // PRODUCTS.find(p => p.name === name) — first match wins. Every caller of armWeigh
+  // already holds the exact product (r71 index dispatch from Search, the scanned product
+  // from processBarcode), so round-tripping through a string could only ever LOSE
+  // information, never add any. selectWeightProductObj still clears _weighOrigin …
+  selectWeightProductObj(product);
   _weighOrigin = org;                // … so stamp it after
   toast('⚖️ Place ' + product.name + ' on scale, then tap Confirm', true);
 }
