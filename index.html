@@ -3811,8 +3811,12 @@ function reportRAG(variancePct, reportCat) {
   if (variancePct >= T - 2)   return 'amber';
   return 'red';
 }
-function ragClass(rag)  { return rag === 'green' ? 'rag-green' : rag === 'amber' ? 'rag-amber' : 'rag-red'; }
-function ragLabel(rag)  { return rag === 'green' ? 'OK' : rag === 'amber' ? 'Watch' : 'Action'; }
+// r93 — 'grey'/'No data' joins the three RAG states. NOTE the old ragClass mapped every
+// unrecognised value to 'rag-red', so a new state has to be handled explicitly or it paints
+// red. Only aggCatRAG emits 'grey'; reportRAG and rptRAGSuppressed are unchanged, so no
+// per-product status can reach it.
+function ragClass(rag)  { return rag === 'green' ? 'rag-green' : rag === 'amber' ? 'rag-amber' : rag === 'grey' ? 'rag-grey' : 'rag-red'; }
+function ragLabel(rag)  { return rag === 'green' ? 'OK' : rag === 'amber' ? 'Watch' : rag === 'grey' ? 'Not assessed' : 'Action'; }
 
 // ─── Formatting helpers ──────────────────────────
 // Report currency formatter — defaults to 2 dp so cents always display
@@ -3861,6 +3865,115 @@ function rptPctColor(p) {
 function rptRAGSuppressed(varianceValue) {
   return Math.abs(Number(varianceValue) || 0) >= 1 ? 'amber' : 'green';
 }
+// ─── r93 — AN AGGREGATE PERCENTAGE NEEDS A DENOMINATOR TOO ───────────────────
+// r81 suppressed a PER-PRODUCT variance % below one whole unit of expected stock, and r91
+// carried that into the report. The AGGREGATES had no rule at all: the category total and
+// the grand total both read `expectedVal > 0 ? (varianceVal / expectedVal) * 100 : 0`, so
+//   - a NEGATIVE expected value printed a flat 0.00%, which reads as "perfect" AND RAGs
+//     GREEN against every negative category threshold; and
+//   - a positive-but-incommensurate expected value manufactured a headline percentage.
+// Both land on the cover page and in the AI commentary. Measured on live data, as Build C
+// will compute it: July's total expected is -$2,914.99 and prints 0.00% while carrying a
+// +$6,298.19 variance, with FOUR categories printing 0.00% and flagged GREEN; September's
+// total prints +219.22%.
+//
+// TWO conditions, failing for DIFFERENT reasons — the reason is carried so each surface can
+// say the right thing rather than a generic "n/a":
+//
+//  1. `expectedVal >= AGG_PCT_MIN_EXPECTED_VAL` — a MATERIALITY floor, the dollar analogue
+//     of r81's one whole unit. Non-positive is the important half: you cannot hold a
+//     negative value of stock, so there is no quantity to take a percentage OF. The floor is
+//     deliberately LOW ($1) because it exists only to kill rounding dust. An AGGRESSIVE
+//     absolute floor was REJECTED on two grounds: it is venue-scale dependent (a small
+//     venue's Misc category legitimately expects $30, and -5% there is a real finding), and
+//     it cannot catch the live case anyway — September's $1,345.48 is not a small number.
+//
+//  2. `|pct| <= AGG_PCT_MAX_ABS` (100%) — the COMMENSURABILITY test, and the one that
+//     actually catches September. It is the scale-free way of saying "expected is too small
+//     relative to the movement": a variance LARGER than the holding it is measured against
+//     has stopped describing shrinkage and is reporting that the two figures are not
+//     comparable quantities. Being a ratio it behaves identically at any venue size, which
+//     is exactly what an absolute dollar floor cannot do.
+//
+// The bound is INCLUSIVE, and that boundary is load-bearing: a period that expected
+// $4,295.02 and counted nothing is exactly -100%, which is a real, meaningful and
+// catastrophic figure that must still print. August is that period on live data today.
+const AGG_PCT_MIN_EXPECTED_VAL = 1;    // dollars of expected holding required to quote a %
+const AGG_PCT_MAX_ABS          = 100;  // a variance may not exceed the holding it measures
+
+// The ONE decision point for "may I show an AGGREGATE variance %?" — used by every category,
+// the grand total, the freeze-time snapshot and the trend, so no two surfaces can disagree.
+// Mirrors varPctDisplay's contract (r81) but returns the REASON as well, because unlike a
+// product row an aggregate can fail for two genuinely different causes.
+function aggVarPct(expectedVal, varianceVal) {
+  const exp = Number(expectedVal) || 0;
+  const vv  = Number(varianceVal) || 0;
+  if (!(exp >= AGG_PCT_MIN_EXPECTED_VAL)) {
+    return { valid: false, pct: null, reason: exp <= 0 ? 'nonpositive' : 'immaterial' };
+  }
+  const pct = (vv / exp) * 100;
+  if (!isFinite(pct)) return { valid: false, pct: null, reason: 'nonfinite' };
+  // +1e-9 so float dust on an exact +/-100% (a full write-off) cannot flip it to suppressed.
+  if (Math.abs(pct) > AGG_PCT_MAX_ABS + 1e-9) {
+    return { valid: false, pct: null, reason: 'incommensurate' };
+  }
+  return { valid: true, pct, reason: null };
+}
+
+// Why the percentage is missing, in the report's own voice. ONE wording, shared by the cover
+// card, both category tables, the trend table and the AI context, so the printed page and
+// the prose written from it can never explain the same gap differently.
+function aggPctWhy(reason) {
+  if (reason === 'nonpositive')    return 'expected stock value is not positive';
+  if (reason === 'immaterial')     return 'expected stock value below $1';
+  if (reason === 'incommensurate') return 'variance exceeds the expected holding';
+  return 'percentage not meaningful';
+}
+// THREE STATES, not two. r91's per-product rule has only two — colour by cost impact — and
+// applying it unchanged to a CATEGORY produced a false all-clear on live data:
+//
+//   Spirits holds ~19 products and NOT ONE carries a costPrice. Every dollar figure in the
+//   category is therefore 0.00 while the underlying UNIT variances are real (15.5 units in
+//   August). A $0 cost impact there does not mean "nothing wrong", it means "cannot be
+//   assessed" — and Spirits is the venue's highest-shrinkage category. (Before r93 it read
+//   'Action', but only because a FABRICATED 0.00% happened to fall below the Spirits +4%
+//   threshold: right colour, invented reason, and the page printed "variance +0.0%".)
+//
+//   (a) GENUINE ZERO — the products are priced and expected agrees with actual. We can see,
+//       and there is nothing there. GREEN is correct.
+//   (b) PERCENTAGE SUPPRESSED, DOLLARS REAL — r81's case (a Guinness at -$125 with an
+//       expected below one unit). Colour by DOLLARS: amber, never green.
+//   (c) NO COST DATA — the dollar figure is structurally uninformative, because there is no
+//       cost to value the variance with. NOT ASSESSABLE, and never green.
+//
+// (c) is detected on the COST DATA ITSELF (how many products in the category carry a
+// costPrice), not on "are all the dollars zero" — an all-zero dollar figure is the SYMPTOM,
+// and reading the symptom cannot tell a priced category that genuinely balanced from an
+// unpriced one that was never measured.
+//
+// r91's rptRAGSuppressed is deliberately NOT modified — it is the per-product rule, and
+// changing it would move product statuses this build has no business touching.
+function aggCatRAG(cat) {
+  if (!cat) return 'green';
+  // (b) first: real dollars are evidence, and evidence outranks the absence of it.
+  if (Math.abs(Number(cat.varianceVal) || 0) >= 1) return 'amber';
+  // (c) no cost data at all on a category that nonetheless holds products.
+  if ((cat.count || 0) > 0 && (cat.pricedCount || 0) === 0) return 'grey';
+  return 'green';                                                   // (a)
+}
+
+// The ONE wording for state (c), shared by both category tables, the priority action and the
+// AI context, so the printed page and the prose written from it name the same cause.
+function aggNoCostText(cat) {
+  const n = (cat && cat.unpricedCount) || 0, m = (cat && cat.count) || 0;
+  return `no cost price on ${n} of ${m} product${m === 1 ? '' : 's'}`;
+}
+function aggNotAssessable(o) { return !!o && o.varPctValid === false && (o.count || 0) > 0 && (o.pricedCount || 0) === 0; }
+
+// NOTE: a suppressed aggregate reuses r91's rptPctText / rptPctColor / rptRAGSuppressed
+// verbatim — the objects carry the same { variancePct, varPctValid } shape as a product row,
+// so the aggregate and the row cannot present suppression differently.
+
 function rptEsc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
@@ -3952,8 +4065,22 @@ function calculateReportData(client, session) {
     const varianceVal = rows.reduce((s, p) => s + p.varianceValue, 0);
     const usageVal    = rows.reduce((s, p) => s + p.sold * p.costPrice, 0);
     const idealVal    = rows.reduce((s, p) => s + p.idealVal, 0);
-    const variancePct = expectedVal > 0 ? (varianceVal / expectedVal) * 100 : 0;
-    return { cat, count: rows.length, openingVal, purchaseVal, expectedVal, actualVal, varianceVal, usageVal, idealVal, variancePct, rag: reportRAG(variancePct, cat) };
+    // r93 — the aggregate sanity rule. `variancePct` stays a NUMBER (0 when suppressed) so
+    // existing numeric consumers are unaffected; `varPctValid` is the flag that says whether
+    // the figure is real, exactly as r81 did for a product row.
+    const _agg        = aggVarPct(expectedVal, varianceVal);
+    const variancePct = _agg.valid ? _agg.pct : 0;
+    // r93 — RAG by COST IMPACT when the percentage is suppressed. reportRAG(0, cat) called
+    // it GREEN for every category whose threshold is negative, which is how July's Wine
+    // (expected -$455.77, variance +$1,630.39) printed a clean 'OK'. Same substitution r91
+    // makes for a suppressed product row, through the same helper.
+    // r93 — cost-data coverage, the structural basis for state (c) above.
+    const pricedCount = rows.filter(p => (Number(p.costPrice) || 0) > 0).length;
+    const _catRow = { cat, count: rows.length, openingVal, purchaseVal, expectedVal, actualVal, varianceVal, usageVal, idealVal,
+                      variancePct, varPctValid: _agg.valid, varPctReason: _agg.reason,
+                      pricedCount, unpricedCount: rows.length - pricedCount };
+    _catRow.rag = _agg.valid ? reportRAG(variancePct, cat) : aggCatRAG(_catRow);
+    return _catRow;
   }).filter(c => c.count > 0);
 
   // Totals
@@ -3966,7 +4093,15 @@ function calculateReportData(client, session) {
     usageVal:    categories.reduce((s, c) => s + c.usageVal, 0),
     idealVal:    categories.reduce((s, c) => s + c.idealVal, 0),
   };
-  totals.variancePct = totals.expectedVal > 0 ? (totals.varianceVal / totals.expectedVal) * 100 : 0;
+  // r93 — same rule for the headline figure that reaches the cover card, the summary
+  // footer, the trend and the AI commentary.
+  totals.count         = products.length;
+  totals.pricedCount   = products.filter(p => (Number(p.costPrice) || 0) > 0).length;
+  totals.unpricedCount = totals.count - totals.pricedCount;
+  const _totAgg = aggVarPct(totals.expectedVal, totals.varianceVal);
+  totals.variancePct  = _totAgg.valid ? _totAgg.pct : 0;
+  totals.varPctValid  = _totAgg.valid;
+  totals.varPctReason = _totAgg.reason;
 
   // GP averages (revenue-weighted where revenue exists, else simple mean).
   // Only products with a real computed GP (actualGP > 0) count toward the actual avg.
@@ -3991,6 +4126,22 @@ function calculateReportData(client, session) {
   const issues = [];
   categories.forEach(c => {
     const T = REPORT_CAT_THRESHOLDS[c.cat];
+    // r93 — a suppressed category cannot be compared to a percentage threshold, and its
+    // `variancePct` is 0, so the old test silently CLEARED it: July's Wine carries a
+    // +$1,630.39 anomaly against an expected of -$455.77 and raised no issue at all. Flag it
+    // on DOLLARS instead — the same substitution rptRAGSuppressed makes for the colour. The
+    // severity uses the existing formula's dollar term only, since there is no percentage
+    // distance to add.
+    if (c.varPctValid === false) {
+      // State (c) is raised as its own action below, once, naming every affected category —
+      // three separate unpriced-category rows would crowd the top-3 list and say the same
+      // thing three times. State (b) is flagged here on dollars.
+      if (!aggNotAssessable(c) && Math.abs(c.varianceVal) >= 1) {
+        issues.push({ sev: Math.abs(c.varianceVal) / 1000, color: c.rag,
+                      text: `${c.cat} variance ${fmtMoney(c.varianceVal)} (% n/a)` });
+      }
+      return;
+    }
     if (c.variancePct < T - 0.001) {
       issues.push({ sev: Math.abs(c.variancePct - T) + Math.abs(c.varianceVal) / 1000, color: c.rag, text: `${c.cat} variance ${fmtPct(c.variancePct)}` });
     }
@@ -4001,6 +4152,15 @@ function calculateReportData(client, session) {
     const gap = rows.reduce((s, p) => s + p.gpGap, 0) / rows.length;
     return { cat: c.cat, gap };
   }).filter(Boolean).sort((a, b) => a.gap - b.gap)[0];
+  // r93 — missing cost data is an ACTION, not a silent pass. It ranks high on purpose: an
+  // unpriced category cannot be valued at all, so it invalidates that slice of the audit
+  // rather than merely scoring badly within it.
+  const _unassessable = categories.filter(aggNotAssessable);
+  if (_unassessable.length) {
+    const _n = _unassessable.reduce((s, c) => s + c.unpricedCount, 0);
+    issues.push({ sev: _n * 2 + 10, color: 'grey',
+                  text: `No cost price on ${_n} product${_n === 1 ? '' : 's'} (${_unassessable.map(c => c.cat).join(', ')}) — variance cannot be valued` });
+  }
   if (worstGP && worstGP.gap < -2) issues.push({ sev: Math.abs(worstGP.gap), color: 'red', text: `${worstGP.cat} GP gap ${fmtPct(worstGP.gap)}` });
   if (deadStock.length)  issues.push({ sev: deadStock.length * 3, color: 'red', text: `Dead stock: ${deadStock.length} item${deadStock.length !== 1 ? 's' : ''}` });
   if (slowMovers.length) issues.push({ sev: slowMovers.length, color: 'amber', text: `Slow movers: ${slowMovers.length} item${slowMovers.length !== 1 ? 's' : ''}` });
@@ -4361,7 +4521,7 @@ function renderReportDocument(client, meta, data) {
     }
     return `<tr>
       <td>${catBadge}</td>
-      <td class="num" style="color:${c.variancePct < 0 ? '#b42318' : '#0a6c44'};font-weight:700;">${fmtPct(c.variancePct)}</td>
+      <td class="num" style="color:${rptPctColor(c)};font-weight:700;">${aggNotAssessable(c) ? `<span style="font-weight:600;">Not assessed</span>` : c.varPctValid === false ? fmtMoney(c.varianceVal) : fmtPct(c.variancePct)}</td>
       <td class="num">${T}%</td>
       <td><span class="rpt-badge ${ragClass(c.rag)}">${ragLabel(c.rag)}</span></td>
     </tr>`;
@@ -4372,7 +4532,7 @@ function renderReportDocument(client, meta, data) {
     <div class="rpt-cards">
       <div class="rpt-card"><div class="lbl">Stock on hand</div><div class="val">${fmtMoney(t.actualVal)}</div><div class="sub">Ideal holding: ${fmtMoney(t.idealVal)}</div></div>
       <div class="rpt-card"><div class="lbl">Purchases this period</div><div class="val">${fmtMoney(t.purchaseVal)}</div><div class="sub">at cost (ex-GST)</div></div>
-      <div class="rpt-card"><div class="lbl">Overall variance</div><div class="val" style="color:${t.varianceVal < 0 ? '#b42318' : '#0a6c44'};">${fmtMoney(t.varianceVal)}</div><div class="sub">${fmtPct(t.variancePct)} vs expected</div></div>
+      <div class="rpt-card"><div class="lbl">Overall variance</div><div class="val" style="color:${t.varianceVal < 0 ? '#b42318' : '#0a6c44'};">${fmtMoney(t.varianceVal)}</div><div class="sub">${t.varPctValid === false ? `% not meaningful — ${aggPctWhy(t.varPctReason)} (expected ${fmtMoney(t.expectedVal)})` : `${fmtPct(t.variancePct)} vs expected`}${t.unpricedCount > 0 ? `<br><span style="color:#5a5f66;">${t.unpricedCount} of ${t.count} products have no cost price — that stock is not valued here</span>` : ''}</div></div>
       <div class="rpt-card"><div class="lbl">Actual GP %</div><div class="val">${data.actualGPavg.toFixed(1)}%</div><div class="sub">Ideal: ${data.idealGPavg.toFixed(1)}% · gap ${fmtPct(gpGap)}</div></div>
       <div class="rpt-card"><div class="lbl">Items flagged</div><div class="val">${data.deadStock.length + data.slowMovers.length + data.products.filter(p => p.gpIssue).length}</div><div class="sub">${data.deadStock.length} dead · ${data.slowMovers.length} slow · ${data.products.filter(p => p.gpIssue).length} GP</div></div>
       <div class="rpt-card" style="background:#fafbfc;"><div class="lbl">Priority issues</div>${issuesHtml}</div>
@@ -4394,7 +4554,7 @@ function renderReportDocument(client, meta, data) {
       <thead><tr><th>Category</th><th class="num">Variance %</th><th class="num">Threshold</th><th>Status</th></tr></thead>
       <tbody>${catSummaryRows}</tbody>
     </table>
-    <p class="rpt-muted" style="font-size:10.5px;margin-top:2px;">Status is green at or above the category threshold, amber within 2 points below, red beyond that.</p>
+    <p class="rpt-muted" style="font-size:10.5px;margin-top:2px;">Status is green at or above the category threshold, amber within 2 points below, red beyond that.${data.categories.some(c => c.varPctValid === false && !aggNotAssessable(c)) ? ` A grey <strong>dollar</strong> figure replaces the percentage where it is not meaningful — status is then set by the dollar impact.` : ''}${data.categories.some(aggNotAssessable) ? ` <strong>Not assessed</strong> means the variance cannot be valued at all: ${rptEsc(data.categories.filter(aggNotAssessable).map(c => `${c.cat} has ${aggNoCostText(c)}`).join('; '))}. These categories are NOT a pass — set the cost prices to bring them into the audit.` : ''}</p>
     ${rptFooter(meta, 2, PAGES)}
   </div>`;
 
@@ -4408,25 +4568,54 @@ function renderReportDocument(client, meta, data) {
   // exact session (the deterministic current-period pick) so the latest trend point ties
   // to the headline figure.
   const _working  = currentSession(client);
-  const trendPts = _finals.map(s => {
+  // r93 FIX 3 — a period whose overall % is not meaningful is OMITTED from the line, never
+  // plotted at 0. A chart draws a LINE through its points, so a fabricated 0 is the same lie
+  // in graphical form and is strictly worse than a gap: a line asserts continuity between
+  // the points it joins. Three sources, one rule:
+  //   • the WORKING period — use data.totals' own validity flag, already computed above;
+  //   • a STORED overallVariancePct — re-validated through the commensurability bound, which
+  //     is what catches September's frozen +219.22%. A stored EXACT 0 is AMBIGUOUS, because
+  //     freezeSessionSnapshot's old `: 0` fallback wrote 0 for both a real zero variance and
+  //     a suppressed one (July is a stored 0 whose recompute is null), so a 0 falls through
+  //     to the recompute rather than being trusted;
+  //   • the recompute — sessionOverallVariancePct already returns null when there is no
+  //     usable denominator, which is precisely the behaviour this build generalises.
+  // The period is NOT dropped from the report: it stays in the table below with a '—', so a
+  // reader can see that the period exists and why it has no point.
+  const trendRows = _finals.map(s => {
     let pct;
-    if (s === _working && typeof data.totals.variancePct === 'number') pct = data.totals.variancePct;
-    else if (typeof s.overallVariancePct === 'number')                 pct = s.overallVariancePct;
-    else                                                               pct = sessionOverallVariancePct(client, s);
-    if (pct == null || !isFinite(pct)) return null;
+    if (s === _working) {
+      pct = data.totals.varPctValid === false ? null : data.totals.variancePct;
+    } else {
+      const stored = s.overallVariancePct;
+      pct = (typeof stored === 'number' && isFinite(stored) && stored !== 0)
+        ? stored
+        : sessionOverallVariancePct(client, s);
+    }
+    if (pct == null || !isFinite(pct) || Math.abs(pct) > AGG_PCT_MAX_ABS + 1e-9) pct = null;
     return { pct, date: s.closeDate || s.openDate || s.label || '—' };
-  }).filter(Boolean);
+  });
+  const trendPts = trendRows.filter(p => p.pct != null);
 
-  const trendBody = trendPts.length < 2
-    ? `<div class="rpt-infobox">📈 Variance trend will appear from your second audit period onwards. Finalise another stocktake to start tracking how overall variance moves over time.</div>`
-    : `<div class="rpt-card">${rptVarTrendChart(trendPts, OVERALL_T)}</div>
-       <table class="rpt-table" style="margin-top:14px;">
+  const trendTable = trendRows.length < 2 ? '' : `<table class="rpt-table" style="margin-top:14px;">
          <thead><tr><th>Audit period</th><th class="num">Overall variance %</th><th>Status</th></tr></thead>
-         <tbody>${trendPts.map(p => {
+         <tbody>${trendRows.map(p => {
+           if (p.pct == null) {
+             return `<tr><td>${rptEsc(p.date)}</td><td class="num rpt-muted">—</td><td><span class="rpt-badge rag-grey">% n/a</span></td></tr>`;
+           }
            const rag = p.pct >= OVERALL_T ? 'green' : (p.pct >= OVERALL_T - 2 ? 'amber' : 'red');
            return `<tr><td>${rptEsc(p.date)}</td><td class="num" style="color:${p.pct < 0 ? '#b42318' : '#0a6c44'};font-weight:700;">${fmtPct(p.pct)}</td><td><span class="rpt-badge ${ragClass(rag)}">${ragLabel(rag)}</span></td></tr>`;
          }).join('')}</tbody>
        </table>`;
+
+  // Two different empty states. "Finalise another stocktake" is the wrong advice when the
+  // periods DO exist and it is their percentages that are unusable — that needs the data
+  // corrected, not another audit run.
+  const trendBody = trendPts.length >= 2
+    ? `<div class="rpt-card">${rptVarTrendChart(trendPts, OVERALL_T)}</div>` + trendTable
+    : (trendRows.length >= 2
+        ? `<div class="rpt-infobox">📈 Not enough periods with a meaningful overall variance % to plot a trend. Periods marked “% n/a” below had no usable expected-stock denominator, so plotting them would draw a trend line through a figure the data does not support.</div>` + trendTable
+        : `<div class="rpt-infobox">📈 Variance trend will appear from your second audit period onwards. Finalise another stocktake to start tracking how overall variance moves over time.</div>` + trendTable);
 
   const p2b = `<div class="rpt-page">
     <h2>Variance trend</h2>
@@ -4520,7 +4709,7 @@ function renderReportDocument(client, meta, data) {
     <td class="num">${fmtMoney(c.expectedVal)}</td>
     <td class="num">${fmtMoney(c.actualVal)}</td>
     <td class="num" style="color:${c.varianceVal < 0 ? '#b42318' : '#0a6c44'};font-weight:700;">${fmtMoney(c.varianceVal)}</td>
-    <td class="num">${fmtPct(c.variancePct)}</td>
+    <td class="num" style="color:${rptPctColor(c)};">${rptPctText(c)}</td>
     <td><span class="rpt-badge ${ragClass(c.rag)}">${ragLabel(c.rag)}</span></td>
   </tr>`).join('');
   const tt = data.totals;
@@ -4536,11 +4725,11 @@ function renderReportDocument(client, meta, data) {
         <td class="num">${fmtMoney(tt.expectedVal)}</td>
         <td class="num">${fmtMoney(tt.actualVal)}</td>
         <td class="num" style="color:${tt.varianceVal < 0 ? '#b42318' : '#0a6c44'};">${fmtMoney(tt.varianceVal)}</td>
-        <td class="num">${fmtPct(tt.variancePct)}</td>
+        <td class="num" style="color:${rptPctColor(tt)};">${rptPctText(tt)}</td>
         <td></td>
       </tr></tfoot>
     </table>
-    <p class="rpt-muted" style="font-size:10.5px;">Thresholds — Spirits +4%, Wine/Sparkling −2%, Draught −3%, Beer &amp; Cider/RTD/Misc −0.5%. Spirits are weighed and expected to show a gain, so a Spirits result below +4% is flagged. Status flags a category that falls below its threshold.</p>
+    <p class="rpt-muted" style="font-size:10.5px;">Thresholds — Spirits +4%, Wine/Sparkling −2%, Draught −3%, Beer &amp; Cider/RTD/Misc −0.5%. Spirits are weighed and expected to show a gain, so a Spirits result below +4% is flagged. Status flags a category that falls below its threshold.${data.categories.some(c => c.varPctValid === false) || tt.varPctValid === false ? ` A “—” in Var % means the percentage is not meaningful for that line (${rptEsc(aggPctWhy((data.categories.find(c => c.varPctValid === false) || tt).varPctReason))}); read the Variance $ column instead, which is what the status is then set from.` : ''}${data.categories.some(aggNotAssessable) ? ` “Not assessed” means the variance cannot be valued at all — ${rptEsc(data.categories.filter(aggNotAssessable).map(c => `${c.cat}: ${aggNoCostText(c)}`).join('; '))}.` : ''}</p>
     ${rptFooter(meta, 7, PAGES)}
   </div>`;
 
@@ -4661,8 +4850,17 @@ async function genReportAIComments(data, meta) {
   if (statusEl) statusEl.textContent = '🤖 Generating AI commentary…';
 
   // Build a compact context for the model
+  // r93 - the model writes client-facing prose from this string, so a suppressed AGGREGATE
+  // must reach it as dollars plus an explicit reason, never as a number. Handing it 0.00%
+  // (July's four categories) or +219.22% (September's total) is how a fabricated figure gets
+  // narrated into a paragraph a human then signs off. Same posture r91 established for the
+  // per-product lossCtx below.
   const catCtx = data.categories.map(c =>
-    `${c.cat}: variance ${fmtMoney(c.varianceVal)} (${fmtPct(c.variancePct)}), threshold ${REPORT_CAT_THRESHOLDS[c.cat]}%, status ${ragLabel(c.rag)}`
+    aggNotAssessable(c)
+      ? `${c.cat}: NOT ASSESSABLE - ${aggNoCostText(c)}, so this category's variance cannot be valued. Its $0.00 figure means "not measured", NOT "no loss". Do not treat it as balanced or compliant.`
+      : `${c.cat}: variance ${fmtMoney(c.varianceVal)} (${c.varPctValid === false
+        ? `variance % N/A - ${aggPctWhy(c.varPctReason)}; expected stock value ${fmtMoney(c.expectedVal)}`
+        : fmtPct(c.variancePct)}), threshold ${REPORT_CAT_THRESHOLDS[c.cat]}%, status ${ragLabel(c.rag)}`
   ).join('\n');
   // r91 FIX 2 — the model writes the client-facing Key Findings from this string, so a
   // suppressed percentage must reach it as 'n/a', not as a number. Feeding it 0.0%% (or the
@@ -4674,12 +4872,17 @@ async function genReportAIComments(data, meta) {
   const prompt = `You are an experienced hospitality stock auditor writing the commentary section of a formal stock audit report for "${meta.venue}" covering ${meta.period}.
 
 DATA:
-- Overall variance: ${fmtMoney(data.totals.varianceVal)} (${fmtPct(data.totals.variancePct)} vs expected)
+- Overall variance: ${fmtMoney(data.totals.varianceVal)} (${data.totals.varPctValid === false
+    ? `variance % N/A - ${aggPctWhy(data.totals.varPctReason)}; expected stock value ${fmtMoney(data.totals.expectedVal)}`
+    : `${fmtPct(data.totals.variancePct)} vs expected`})
 - Stock on hand at cost: ${fmtMoney(data.totals.actualVal)}; purchases this period: ${fmtMoney(data.totals.purchaseVal)}
 - Actual GP ${data.actualGPavg.toFixed(1)}% vs ideal ${data.idealGPavg.toFixed(1)}%
 - Category breakdown:
 ${catCtx}
-- Threshold note: Spirits are audited by weight and are EXPECTED to show a positive variance (a gain) of about +4%. A Spirits variance below +4% signals over-pouring or unrecorded usage and should be treated as an issue, even if the dollar figure is still positive. The negative thresholds on other categories are normal tolerance bands.
+${data.categories.some(aggNotAssessable) ? `- IMPORTANT - the categories marked NOT ASSESSABLE have no cost prices on their products. Their $0.00 variance is an absence of measurement, not an absence of loss. Never describe them as balanced, clean, compliant, within tolerance or a positive result, and never total them in as if they were $0 of real variance. Treat getting cost prices onto those products as a recommendation in its own right.
+` : ''}${data.totals.unpricedCount > 0 ? `- Cost-price coverage: ${data.totals.unpricedCount} of ${data.totals.count} products across the venue have no cost price, so their stock is excluded from every dollar figure above.
+` : ''}${(data.totals.varPctValid === false || data.categories.some(c => c.varPctValid === false)) ? `- IMPORTANT - some variance percentages above are marked "N/A". For those figures no meaningful percentage exists. Discuss them strictly in DOLLARS, state plainly that a percentage cannot be quoted for that figure and why, and do NOT compute, estimate, infer or imply one - in particular, never describe an N/A figure as 0%, as flat, as on target, or as within tolerance.
+` : ''}- Threshold note: Spirits are audited by weight and are EXPECTED to show a positive variance (a gain) of about +4%. A Spirits variance below +4% signals over-pouring or unrecorded usage and should be treated as an issue, even if the dollar figure is still positive. The negative thresholds on other categories are normal tolerance bands.
 - Top loss leaders: ${lossCtx}
 - Dead stock (no sales 2+ periods): ${deadCtx}
 - Slow movers: ${slowCtx}
@@ -14121,7 +14324,15 @@ function freezeSessionSnapshot(c, sess) {
   const vrows = computeVariances(c, sess) || [];
   let evSum = 0, vvSum = 0;
   vrows.forEach(r => { evSum += (r.expectedNum || 0) * (r.costPrice || 0); vvSum += (r.costImpact || 0); });
-  sess.overallVariancePct = evSum > 0 ? (vvSum / evSum) * 100 : 0;
+  // r93 - the same aggregate rule, applied at the moment the number is FROZEN. The old
+  // `: 0` fallback stored a fabricated 0.00% for a period with no usable denominator, and a
+  // stored 0 is then indistinguishable from a real zero variance forever after - July
+  // carries exactly that, a stored 0 whose recompute is null. null is the honest value, and
+  // the trend reader treats a missing or unusable figure as a GAP rather than a point.
+  // This does not rewrite history: existing snapshots keep their stored value, which is why
+  // the reader also treats a stored exact 0 as ambiguous and recomputes it.
+  const _sessAgg = aggVarPct(evSum, vvSum);
+  sess.overallVariancePct = _sessAgg.valid ? _sessAgg.pct : null;
   // STAGE 1 (r55) FIX 3 — FREEZE the resolved purchases this period actually used.
   // computeVariances ran while the session still computed live, so it merged the period's
   // scoped deliveries; storing that resolved set back onto sess.purchases makes the
@@ -14800,7 +15011,10 @@ function reopenPeriod(sessionId) {
   sess._preReopen = JSON.parse(JSON.stringify({
     purchases:          sess.purchases || {},
     varRows:            sess.varRows || [],
-    overallVariancePct: sess.overallVariancePct || 0,
+    // r93 - preserve null faithfully. `|| 0` would restore a fabricated 0.00% for a period
+    // whose percentage was suppressed. Nothing reads _preReopen yet; this keeps the trap out
+    // of whoever wires the cancel-reopen restore.
+    overallVariancePct: sess.overallVariancePct == null ? null : sess.overallVariancePct,
     status:             sess.status,
   }));
   sess.status = 'reopened';
@@ -16179,7 +16393,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r92';
+const APP_VERSION = '2026-06-10-r93';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();

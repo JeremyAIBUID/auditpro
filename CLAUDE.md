@@ -64,8 +64,8 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r92` | `index.html:16182` |
-| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r90` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86-r89 and r91-r92 are desktop-only**, so mobile correctly still reads the r90 mobile stamp) |
+| `index.html` | `2026-06-10-r93` | `index.html:16396` |
+| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r90` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86-r89 and r91-r93 are desktop-only**, so mobile correctly still reads the r90 mobile stamp) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
   Desktop logs it on load (`[AuditPro] build …`); mobile compares it against
@@ -949,6 +949,143 @@ rule.
 
 ---
 
+## AN AGGREGATE PERCENTAGE NEEDS A DENOMINATOR TOO (r93)
+
+r81 suppressed a **per-product** variance % below one whole unit of expected stock; r91 carried
+that into the PDF. The **AGGREGATES had no rule at all** — both the category total and the grand
+total read `expectedVal > 0 ? (varianceVal / expectedVal) * 100 : 0`, so a **negative** expected
+value printed a flat **0.00%** (which reads as "perfect" and RAGs **green** against every
+negative threshold) and a positive-but-incommensurate one manufactured a headline. Both land on
+the **cover page** and in the **AI commentary**.
+
+Measured on live data, as Build C will compute it: **July's total expected is −$2,914.99 and
+prints 0.00%** while carrying a **+$6,298.19** variance, with FOUR categories printing 0.00% and
+flagged GREEN; **September's total prints +219.22%**.
+
+### The rule — `aggVarPct(expectedVal, varianceVal)` → `{ valid, pct, reason }`
+Two conditions that fail for **different reasons**, and the reason is carried so each surface can
+say the right thing:
+
+1. **`expectedVal >= AGG_PCT_MIN_EXPECTED_VAL` ($1)** — a MATERIALITY floor, the dollar analogue
+   of r81's one whole unit. Non-positive is the important half: you cannot hold a negative value
+   of stock, so there is no quantity to take a percentage OF. The floor is deliberately **low**,
+   because it exists only to kill rounding dust. **An aggressive absolute floor was REJECTED** on
+   two grounds: it is venue-scale dependent (a small venue's Misc category legitimately expects
+   $30, and −5% there is a real finding), and **it cannot catch the live case anyway** —
+   September's $1,345.48 is not a small number.
+2. **`|pct| <= AGG_PCT_MAX_ABS` (100%)** — the COMMENSURABILITY test, and the one that actually
+   catches September. It is the **scale-free** way of saying "expected is too small relative to
+   the movement": a variance LARGER than the holding it is measured against has stopped
+   describing shrinkage and is reporting that the two figures are not comparable quantities.
+   Being a ratio it behaves identically at any venue size, which an absolute dollar floor cannot.
+
+**The bound is INCLUSIVE, and that boundary is load-bearing.** A period that expected $4,295.02
+and counted nothing is exactly **−100%** — real, meaningful and catastrophic, and it must still
+print. August is that period on live data today.
+
+`variancePct` stays a NUMBER (0 when suppressed) so existing numeric consumers are unaffected;
+**`varPctValid`** is the flag, and **`varPctReason`** is `nonpositive` / `immaterial` /
+`incommensurate` / `nonfinite`. A suppressed aggregate reuses r91's **`rptPctText` /
+`rptPctColor`** verbatim — the objects carry the same `{ variancePct, varPctValid }` shape as a
+product row, so an aggregate and a row cannot present suppression differently.
+
+### THREE states, not two — and a $0 is not a pass
+r91's per-product rule has only two states (colour by cost impact). Applied unchanged to a
+CATEGORY it produced a **false all-clear on live data**: **Spirits holds ~19 products and NOT ONE
+carries a `costPrice`**, so every dollar figure is $0.00 while the underlying UNIT variances are
+real (15.5 units in August). A $0 cost impact there does not mean "nothing wrong", it means
+**"cannot be assessed"** — on the venue's highest-shrinkage category. (Before r93 it read
+`Action`, but only because a *fabricated* 0.00% fell below the Spirits +4% threshold: right
+colour, invented reason, and the page printed "variance +0.0%".)
+
+| State | Detected by | Presented as |
+|---|---|---|
+| **(a) genuine zero** | products priced, expected agrees with actual | **green / OK** |
+| **(b) % suppressed, dollars real** | `varPctValid false` and abs(varianceVal) >= 1 | **amber / Watch**, coloured by dollars |
+| **(c) NO COST DATA** | `pricedCount === 0` on a category that holds products | **grey / "Not assessed"** — never green |
+
+- **(c) is detected on the COST DATA ITSELF** (`pricedCount` / `unpricedCount`, counted from the
+  category's products), **not on "are all the dollars zero"**. An all-zero dollar figure is the
+  *symptom*, and reading the symptom cannot tell a priced category that genuinely balanced from
+  an unpriced one that was never measured.
+- **`aggCatRAG` puts (b) before (c)**: real dollars are evidence, and evidence outranks the
+  absence of it.
+- **`ragClass`/`ragLabel` gained a `grey` state — and the old `ragClass` mapped every
+  unrecognised value to `rag-red`**, so a new state had to be handled explicitly or it painted
+  red. `ragLabel('grey')` is **"Not assessed"**, deliberately distinct from the pre-existing
+  hardcoded **"No data"** badge used for a category that is *absent* from the report entirely.
+- **`aggNoCostText(cat)`** is the ONE wording (`no cost price on N of M products`), shared by
+  both category tables, the priority action and the AI context.
+- **r91's `rptRAGSuppressed` is deliberately NOT modified** — it is the per-product rule, and
+  changing it would move product statuses this build has no business touching. The gate proves
+  per-product movement is **zero**.
+
+### Every consumer, and what a suppressed value means there
+| Surface | Decision |
+|---|---|
+| Cover / exec-summary **Overall variance** card | value stays the **dollar** figure; the sub-line becomes `% not meaningful — <reason> (expected $X)`, plus a line naming venue-wide unpriced coverage |
+| Exec-summary **Variance by category** table | has **no dollar column of its own**, so a suppressed cell shows the **dollar figure**; state (c) shows **"Not assessed"**, never `$0.00`. Footnote names the affected categories and their missing cost data |
+| **Variance summary by category** (p6) | already carries a `Variance $` column **immediately to the left**, so the cell shows **"—"** rather than duplicating dollars; footnote explains both suppression and "Not assessed" |
+| **Category RAG** | `reportRAG` when valid; otherwise the three-state `aggCatRAG` |
+| **Priority issues** | a suppressed category is flagged on **dollars** (`Wine variance $1,630.39 (% n/a)`) — the old test compared a 0 against a negative threshold and silently CLEARED it. State (c) raises **one** combined action naming every affected category (`No cost price on 23 products (Spirits, Sparkling, Misc) — variance cannot be valued`), ranked high because an unpriced category invalidates that slice of the audit rather than merely scoring badly within it |
+| **AI commentary context** | state (c) is emitted as `NOT ASSESSABLE - no cost price on N of M products` with an explicit instruction never to call it balanced/clean/within tolerance; a suppressed (a)/(b) figure is emitted as dollars + `variance % N/A - <reason>`; a standing instruction forbids computing, estimating or implying a percentage for any N/A figure |
+
+### FIX 3 — the trend plots a GAP, never a 0
+A chart draws a **line** through its points, so a fabricated 0 is the same lie in graphical form
+and is strictly **worse** than a gap: a line asserts continuity between the points it joins. So a
+period with no meaningful % is **omitted from the line but kept in the table**, marked `% n/a`.
+Three sources, one rule:
+- the **working** period → `data.totals.varPctValid`;
+- a **stored** `overallVariancePct` → re-validated through the commensurability bound (this is
+  what catches September's frozen **+219.22%**). **A stored exact 0 is AMBIGUOUS** — the old
+  `: 0` fallback wrote 0 for both a real zero variance and a suppressed one (**July is a stored 0
+  whose recompute is null**) — so a 0 falls through to the recompute rather than being trusted;
+- the **recompute** — `sessionOverallVariancePct` already returned null for a non-positive
+  denominator, which is the behaviour this build generalises.
+
+`freezeSessionSnapshot` now stores **null** instead of a fabricated 0, so the ambiguity stops
+being created. It does **not** rewrite history. Two empty states: "finalise another stocktake" is
+the wrong advice when the periods exist and it is their *percentages* that are unusable.
+
+### Measured impact on live data (FIX 5)
+Dual-build gate (`gate-r93.js`): real `computeVariances` **and** real `calculateReportData` from
+the pre- and post-r93 builds, all 3 stored periods **twice each** (as stored, forced `reopened`),
+field lists **auto-derived** from the union of keys, run in two scenarios — as shipped, and with
+the session forced through to simulate Build C.
+
+**44,724 field comparisons · 52 values moved · 0 rows asymmetric · PER-PRODUCT MOVEMENT: 0.**
+
+| Movement | Runs | Cause |
+|---|---|---|
+| `Spirits.rag` **red → grey** | 6 shipped + 6 BuildC | state (c): 0 of ~19 products priced |
+| `Sparkling.rag`, `Misc.rag` **green → grey** | 6 + 6 | state (c) |
+| `Wine`, `Beer & Cider`, `RTD` **green → amber** | 2 each, BuildC | July: negative expected, real dollars (state b) |
+| `Draught.rag` **green → amber** | 4, BuildC | July + September: negative expected |
+| `TOTALS.variancePct` **219.22 → 0** (suppressed) | 1, BuildC | September as-stored, `incommensurate` |
+| `Draught.variancePct` **284.47 → 0** (suppressed) | 1, BuildC | September forced-reopened, `incommensurate` |
+| `priorityIssues` reordered | 2, BuildC | the fabricated `Spirits variance +0.0%` issue replaced by the dollar-stated and unpriced-cost actions |
+
+New fields: `varPctValid`, `varPctReason`, `pricedCount`, `unpricedCount` on categories; those
+plus `count` on totals. **Nothing moves in the as-shipped TOTALS** — August's −100% is valid in
+both builds, which is the boundary case working.
+
+**Verified by `verify-r93.js` — 52 checks**, driving the REAL `calculateReportData` and
+`renderReportDocument` and comparing against the pre-r93 build so "it used to print 0.00%" is
+measured: a negative expected (pre **0.00%** → post suppressed), a tiny positive expected (pre
+**+19,900%** → post suppressed), a **healthy aggregate unchanged to the 4th decimal**, the exact
+**−100% boundary preserved**, all three RAG states, the "Not assessed" render and its named
+cause, the priority action, the AI context in both builds (pre handed the model
+`Spirits: variance $0.00 (+0.0%)`; post hands it `NOT ASSESSABLE - no cost price on 2 of 2
+products`), the trend gap, and `freezeSessionSnapshot` storing null. r92's 26 checks and its live
+gate both still pass.
+
+**Deliberately NOT in this build** (Builds C/D): passing the session through to
+`computeVariances` from `calculateReportData` (`:3871` still calls it without one — which is why
+all three periods report identically today), the trend chart's `_working` anchoring, `prevSess`
+resolution, and the report selector.
+
+---
+
 ## Density Architecture
 **`ap_master_products` is the single source of truth for product density.** Venue rows
 (`ap_clients.data.products`) hold per-venue copies for counts/stock/prices, but their
@@ -1408,6 +1545,8 @@ const SUBCAT_BREAKDOWN_CATS   // :6206 — new Set(['Spirits'])
 const DENSITY                 // :6230 — { spirits:0.9467, wine:0.9805, beer:1.014, liqueur:1.06 }
 const REPORT_CAT_THRESHOLDS   // :3779
 const VAR_PCT_MIN_EXPECTED    // :7277 — 1 unit; below this no variance % is quoted (r81)
+const AGG_PCT_MIN_EXPECTED_VAL // r93 - $1 of expected holding required to quote an AGGREGATE %
+const AGG_PCT_MAX_ABS         // r93 - 100%; a variance may not exceed the holding it measures
 const PACK_UNKNOWN_TITLE      // :7424 — the ONE unexpanded-case wording (r87)
 const ADJUSTMENT_REASONS      // :12727 — transfer_in/out, wastage, breakage, staff, promo, sample, other (r82)
 const INV_CONFIDENT_KINDS     // r88 — ['code','barcode','exact']: green + collapsed
