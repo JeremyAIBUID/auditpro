@@ -3832,6 +3832,35 @@ function fmtPct(n, dp = 1) {
   const v = Number(n) || 0;
   return (v >= 0 ? '+' : '') + v.toFixed(dp) + '%';
 }
+
+// ─── r91 FIX 2 — THE REPORT HONOURS r81's SUPPRESSION RULE ────────────────────
+// r81 established that below one whole unit of expected stock a variance PERCENTAGE is
+// noise: the ratio explodes or inverts, and live data produced +1918.6%% on an expected of
+// 0.10 and a flat +0.0%% ('perfect') on an expected of −0.65 that carried a +$906 loss.
+// The variance PAGE has honoured that since r81 through varPctDisplay. The PDF report did
+// not: calculateReportData read `r.varPctNum || 0` and printed the figure anyway, which is
+// exactly how +434%% reached a client on a row whose expected was 0.53 of a bottle.
+//
+// These are the report's equivalents of varPctDisplay — ONE decision point each for the
+// text and the colour, so the leader board, the product detail table and the AI prompt
+// cannot disagree about whether a percentage is real.
+function rptPctText(p) {
+  return (p && p.varPctValid === false) ? '—' : fmtPct(p ? p.variancePct : 0);
+}
+// A suppressed figure is neutral GREY, not red or green: colouring '—' by the sign of a
+// number we have just declared unusable would reintroduce the same false signal in ink.
+function rptPctColor(p) {
+  if (!p || p.varPctValid === false) return '#6b7280';
+  return p.variancePct < 0 ? '#b42318' : '#0a6c44';
+}
+// RAG for a row whose percentage is suppressed. Mirrors varPctDisplay's suppressed branch
+// exactly: colour by COST IMPACT, so a row with a real dollar loss is never painted green,
+// and never RED — red asserts a breach of a category threshold measured in percent, and we
+// have just said the percentage has no usable denominator. Amber ('Watch') is the honest
+// signal: something is here, look at the dollars.
+function rptRAGSuppressed(varianceValue) {
+  return Math.abs(Number(varianceValue) || 0) >= 1 ? 'amber' : 'green';
+}
 function rptEsc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
@@ -3864,14 +3893,17 @@ function calculateReportData(client, session) {
     const sold      = r.salesUnits || 0;
     const expected  = r.expectedNum || 0;
     const actual    = r.actualNum || 0;
-    const variancePct   = r.varPctNum || 0;
+    // r91 FIX 2 — r81's flag, carried into the report. `!== false` so a legacy row that
+    // predates the flag is treated as valid, i.e. identical to pre-r91 behaviour.
+    const varPctValid   = r.varPctValid !== false;
+    const variancePct   = varPctValid ? (r.varPctNum || 0) : 0;
     const varianceValue = r.costImpact || 0;       // (actual − expected) × cost
     const actualGP  = r.actualGP || 0;
     const idealGP   = r.idealGP || 0;
     const gpGap     = actualGP - idealGP;
     return {
       name: r.p, cat, soldAs: prod.soldAs || '', costPrice: cost,
-      opening, purchased, sold, expected, actual, variancePct, varianceValue,
+      opening, purchased, sold, expected, actual, variancePct, varPctValid, varianceValue,
       openingVal:  opening   * cost,
       purchaseVal: purchased * cost,
       expectedVal: expected  * cost,
@@ -3881,10 +3913,15 @@ function calculateReportData(client, session) {
       // r87 FIX 2 — a printed report is where a wrong purchase figure does the most damage,
       // because the reader has no popover to open. Carried through to the page-7 flags.
       packUnknown: !!r.packUnknown,
+      // r91 FIX 1 — same reasoning: a printed report has no popover to open.
+      volUnknown:  !!r.volUnknown,
       noSalesNow:  sold <= 0,
       noSalesPrev: prevSalesQty(r.p) <= 0,
       idealVal:    (sold / periodDays) * REPORT_PAR_DAYS * cost, // par-level holding value
-      rag: reportRAG(variancePct, cat),
+      // r91 FIX 2 — a suppressed row is RAG'd by cost impact, not by a percentage that
+      // does not exist. reportRAG(0, cat) would have called it green for every category
+      // whose threshold is negative, which is how a real dollar loss printed as 'OK'.
+      rag: varPctValid ? reportRAG(variancePct, cat) : rptRAGSuppressed(varianceValue),
     };
   });
 
@@ -4459,7 +4496,7 @@ function renderReportDocument(client, meta, data) {
     ? list.map((p, i) => `<tr>
         <td>${i + 1}</td><td><strong>${rptEsc(p.name)}</strong></td>
         <td><span class="rpt-badge rag-grey">${rptEsc(p.cat)}</span></td>
-        <td class="num">${fmtPct(p.variancePct)}</td>
+        <td class="num" style="color:${rptPctColor(p)};">${rptPctText(p)}</td>
         <td class="num" style="color:${sign < 0 ? '#b42318' : '#0a6c44'};font-weight:700;">${fmtMoney(p.varianceValue)}</td>
       </tr>`).join('')
     : `<tr><td colspan="5" class="rpt-muted" style="text-align:center;padding:14px;">None in this period</td></tr>`;
@@ -4510,7 +4547,18 @@ function renderReportDocument(client, meta, data) {
   // ── PAGE 7 — Full product detail ──
   let detailBody = '';
   REPORT_CAT_ORDER.forEach(cat => {
-    const rows = data.products.filter(p => p.cat === cat).sort((a, b) => b.variancePct - a.variancePct);
+    // r91 FIX 2 — rows with a REAL percentage keep their existing order exactly
+    // (worst surplus → worst loss). Suppressed rows cannot be compared on a number that
+    // does not exist, and leaving them at variancePct 0 would scatter them through the
+    // middle of the table interleaved with genuine 0%% rows. They go to the END of the
+    // category block instead, ordered by ABSOLUTE COST IMPACT so the biggest dollar
+    // exposure leads them — the same substitution the RAG makes.
+    const rows = data.products.filter(p => p.cat === cat).sort((a, b) => {
+      const av = a.varPctValid !== false, bv = b.varPctValid !== false;
+      if (av !== bv) return av ? -1 : 1;
+      if (!av) return Math.abs(b.varianceValue) - Math.abs(a.varianceValue);
+      return b.variancePct - a.variancePct;
+    });
     if (!rows.length) return;
     detailBody += `<tr class="rpt-catrow"><td colspan="11">${rptEsc(cat)} — ${rows.length} product${rows.length !== 1 ? 's' : ''}</td></tr>`;
     rows.forEach(p => {
@@ -4520,6 +4568,8 @@ function renderReportDocument(client, meta, data) {
       // r87 FIX 2 — an unexpanded case is a DATA-QUALITY flag, not a performance one, so it
       // leads: the variance below it cannot be trusted until the pack size is set.
       if (p.packUnknown) flags.unshift('<span class="rpt-badge rag-amber">Pack ?</span>');
+      // r91 FIX 1 — same class of flag: the purchase figure below cannot be trusted.
+      if (p.volUnknown) flags.unshift('<span class="rpt-badge rag-amber">Vol ?</span>');
       if (p.gain)      flags.push('<span class="rpt-badge rag-green">Gain</span>');
       if (p.gpIssue)   flags.push('<span class="rpt-badge rag-red">GP</span>');
       flags.push(`<span class="rpt-badge ${ragClass(p.rag)}">${ragLabel(p.rag)}</span>`);
@@ -4530,7 +4580,7 @@ function renderReportDocument(client, meta, data) {
         <td class="num">${p.purchased.toFixed(1)}</td>
         <td class="num">${p.expected.toFixed(1)}</td>
         <td class="num">${p.actual.toFixed(1)}</td>
-        <td class="num" style="color:${p.variancePct < 0 ? '#b42318' : '#0a6c44'};font-weight:700;">${fmtPct(p.variancePct)}</td>
+        <td class="num" style="color:${rptPctColor(p)};font-weight:700;">${rptPctText(p)}</td>
         <td class="num">${p.actualGP.toFixed(0)}%</td>
         <td class="num">${p.idealGP.toFixed(0)}%</td>
         <td class="num" style="color:${p.gpGap < 0 ? '#b42318' : '#0a6c44'};">${fmtPct(p.gpGap)}</td>
@@ -4541,6 +4591,8 @@ function renderReportDocument(client, meta, data) {
   const p7 = `<div class="rpt-page">
     <h2>Full product detail</h2>
     <p class="rpt-muted" style="font-size:10.5px;">Sorted by category, then variance % (worst surplus to worst loss). Units shown for quantities.</p>
+    ${data.products.some(p => p.volUnknown) ? `<p class="rpt-muted" style="font-size:10.5px;color:#9a6a00;"><strong>Vol ?</strong> — a delivery line for this product was booked in litres or ml, but the product has no unit volume, so that line could not be converted to units and contributed NOTHING to purchases. Set “Unit volume” on the product to correct it.</p>` : ''}
+    ${data.products.some(p => p.varPctValid === false) ? `<p class="rpt-muted" style="font-size:10.5px;"><strong>Var % shown as —</strong> — expected stock for this line is below one whole unit, so a percentage would be noise rather than a measurement (a fraction of a bottle in the denominator swings the ratio wildly). Judge these rows on the Variance $ column; their status flag is set from cost impact.</p>` : ''}
     ${data.products.some(p => p.packUnknown) ? `<p class="rpt-muted" style="font-size:10.5px;color:#9a6a00;"><strong>Pack ?</strong> — this product has no confirmed units-per-case, so each case was counted as 1 unit. Purchases and variance are UNDER-stated for these lines until “Units per case” is set on the product.</p>` : ''}
     <table class="rpt-table">
       <thead><tr><th>Product</th><th style="width:46px;">Cat</th><th class="num" style="width:42px;">Open</th><th class="num" style="width:44px;">Purch</th><th class="num" style="width:42px;">Exp</th><th class="num" style="width:48px;">Actual</th><th class="num" style="width:50px;">Var %</th><th class="num" style="width:46px;">Act GP</th><th class="num" style="width:52px;">Ideal GP</th><th class="num" style="width:48px;">GP gap</th><th style="width:96px;">Flags</th></tr></thead>
@@ -4612,7 +4664,10 @@ async function genReportAIComments(data, meta) {
   const catCtx = data.categories.map(c =>
     `${c.cat}: variance ${fmtMoney(c.varianceVal)} (${fmtPct(c.variancePct)}), threshold ${REPORT_CAT_THRESHOLDS[c.cat]}%, status ${ragLabel(c.rag)}`
   ).join('\n');
-  const lossCtx = data.lossLeaders.map(p => `${p.name} (${p.cat}) ${fmtMoney(p.varianceValue)} ${fmtPct(p.variancePct)}`).join('; ') || 'none';
+  // r91 FIX 2 — the model writes the client-facing Key Findings from this string, so a
+  // suppressed percentage must reach it as 'n/a', not as a number. Feeding it 0.0%% (or the
+  // old +434%%) is how a fabricated figure gets narrated into prose a human then signs off.
+  const lossCtx = data.lossLeaders.map(p => `${p.name} (${p.cat}) ${fmtMoney(p.varianceValue)} ${p.varPctValid === false ? '(variance % n/a — expected below one unit)' : fmtPct(p.variancePct)}`).join('; ') || 'none';
   const deadCtx = data.deadStock.map(p => p.name).slice(0, 12).join(', ') || 'none';
   const slowCtx = data.slowMovers.map(p => p.name).slice(0, 12).join(', ') || 'none';
 
@@ -6656,10 +6711,55 @@ function computeVariances(client, session = null) {
       const pack        = resolvePackSize(line.caseSize, prodMap[name] && prodMap[name].caseSize, line.name || '');
       const caseSize    = pack.cs;
       const packUnknown = isCaseLine && pack.unknown;
-      const qty = isCaseLine ? rawQty * caseSize : rawQty;
+
+      // ─── r91 FIX 1 — A VOLUME IS NOT A UNIT COUNT ──────────────────────────────────
+      // This switch expanded cases and recognised keg LABELS, and that was all. A line
+      // denominated in a VOLUME fell through to `qty = rawQty`, so "6 Litres" of a 700 ml
+      // gin was booked as SIX BOTTLES — 4,200 ml claimed against 6,000 ml actually moved.
+      // countToUnits has understood litres and ml since it was written, so the two halves
+      // of the app disagreed about the same unit on the same product.
+      //
+      // MIRRORED EXACTLY from countToUnits' own switch (see `case 'litres'` / `case 'ml'`):
+      //     litres → (qty * 1000) / unitVol
+      //     ml     →  qty         / unitVol
+      // Same operands, same order, same divisor — so a volume converts identically whether
+      // it arrives as a delivery line or as a count entry.
+      //
+      // The label set is a deliberate SUPERSET of countToUnits'. countToUnits reads a
+      // controlled dropdown and only ever sees 'litres'/'ml'; this merge reads AI-parsed
+      // invoice text, where the same unit turns up as L, Lt, Ltr or Litre. Live data
+      // carries only Bottles, Cases, Kegs and Litres, so the extra spellings cannot move a
+      // stored number today — they exist so the next invoice that spells it differently is
+      // not silently mis-booked.
+      const isMlLine   = (lineUnit === 'ml');
+      const isLitreLine = (lineUnit === 'litres' || lineUnit === 'litre' || lineUnit === 'l'
+                        || lineUnit === 'lt' || lineUnit === 'ltr');
+      const isVolLine  = isMlLine || isLitreLine;
+      const volPerUnit = parseFloat(prodMap[name] && prodMap[name].unitVol) || 0;
+      // No bottle volume ⇒ the conversion is UNDEFINED, not approximate. r87's precedent is
+      // to under-state visibly rather than over-state silently, and the maximal under-state
+      // here is to contribute NO quantity at all: falling back to `qty = rawQty` would be
+      // treating a volume as a unit count, which is precisely the bug being fixed, and it
+      // produces a plausible-looking number nobody would question. So contribute 0 and RAISE
+      // A FLAG that reaches the variance cell, the popover and the PDF.
+      const volUnknown = isVolLine && !(volPerUnit > 0);
+
+      const qty = isCaseLine ? rawQty * caseSize
+                : !isVolLine ? rawQty
+                : volUnknown ? 0
+                : isMlLine   ? rawQty / volPerUnit
+                :              (rawQty * 1000) / volPerUnit;
       const cost = parseFloat(line._incGST || line.unitPrice || 0);
-      // Per-unit cost (divide by caseSize if line price was per-case)
-      const unitCost = isCaseLine && cost > 0 ? cost / caseSize : cost;
+      // Per-unit cost (divide by caseSize if line price was per-case).
+      // r91 — a volume line's price is per LITRE (or per ml), so it needs the same
+      // treatment. TOTAL LINE VALUE IS THE INVARIANT: `rawQty * cost` is what the invoice
+      // says, so the per-unit cost is that total spread over the units it resolved to.
+      // For a case line (rawQty * cost) / (rawQty * cs) is exactly cost / cs, i.e. the
+      // existing behaviour, which is why the case branch is left untouched rather than
+      // folded in — this keeps r86's money invariant provably unchanged for cases.
+      const unitCost = isCaseLine && cost > 0 ? cost / caseSize
+                     : (isVolLine && cost > 0 && qty > 0) ? (rawQty * cost) / qty
+                     : cost;
       // r81 FIX 5 — a transfer/wastage valuation is NOT a supplier price. An adjustment
       // contributes its QUANTITY to the merge (that is the whole point) but never supplies a
       // cost, and stamps the entry so the catalogue write-back below can skip it.
@@ -6670,7 +6770,9 @@ function computeVariances(client, session = null) {
       // make latestCostPrice value every opening and closing BOTTLE at a case price, and the
       // catalogue write-back below would then make it permanent. The per-unit cost is
       // exactly as unknown as the pack size, so we decline to state either.
-      const costUnusable = lineIsAdj || packUnknown;
+      // r91 — an unconvertible VOLUME line abstains for the identical reason: with no bottle
+      // volume there is no per-bottle price to state either.
+      const costUnusable = lineIsAdj || packUnknown || volUnknown;
       if(!deliveryPurchases[name]) {
         deliveryPurchases[name] = { qty: 0, costPrice: costUnusable ? 0 : (unitCost || cost), unit: lineUnit === 'keg' || lineUnit === 'kegs' ? 'Kegs' : 'Bottles', invoiceRef: del.r, lines: [] };
       }
@@ -6682,6 +6784,9 @@ function computeVariances(client, session = null) {
       // r87 — sticky: once ANY line of this entry went in unexpanded, the entry's total is
       // partly a ×1, and the row says so. A later well-formed line does not clear it.
       if(packUnknown) deliveryPurchases[name]._packUnknown = true;
+      // r91 — sticky, exactly like _packUnknown: once ANY line went in unconverted the
+      // entry total is missing that line entirely, and the row must keep saying so.
+      if(volUnknown) deliveryPurchases[name]._volUnknown = true;
       if(unitCost > 0 && !costUnusable) {
         deliveryPurchases[name].costPrice = unitCost;
         deliveryPurchases[name]._costFromSupplier = true;
@@ -6701,6 +6806,8 @@ function computeVariances(client, session = null) {
         // r87 — per-LINE, so a popover listing three invoices marks only the one that
         // could not be expanded. purDetail re-projects, so this must be copied there too.
         packUnknown: packUnknown,
+        // r91 — same channel, same re-projection requirement.
+        volUnknown: volUnknown,
       });
     });
   });
@@ -7102,13 +7209,15 @@ function computeVariances(client, session = null) {
               // r87 — the ×1 flag is per-line, and this projection is the only route it
               // has to the popover.
               packUnknown: !!l.packUnknown,
+              // r91 — same, for a volume line that could not be converted.
+              volUnknown:  !!l.volUnknown,
             }))
           // FROZEN branch — a closed period has no delivery lines, only the session entry.
           // _adjustment/reason are stamped on it at save (and survive the deep clone in
           // freezeSessionSnapshot), so a locked period still shows WHY the stock moved.
           : [{ qty: purUnits + ' ' + (purEntry.unit || unitLabel(prod, purUnits)), date: session?.openDate || '—', sup: purEntry.supplier || 'See invoices', inv: purEntry.invoiceRef || '—', invIdx: -1,
                adj: purEntry._adjustment ? adjReasonLabel(purEntry.reason) : null, note: '',
-               packUnknown: !!purEntry._packUnknown }]
+               packUnknown: !!purEntry._packUnknown, volUnknown: !!purEntry._volUnknown }]
         )
       : [];
 
@@ -7166,6 +7275,10 @@ function computeVariances(client, session = null) {
         openPack.unknown  ? 'opening count' : null,
         closePack.unknown ? 'closing count' : null,
       ].filter(Boolean),
+      // r91 FIX 1 — a delivery line denominated in a volume that could not be converted to
+      // units (the product carries no usable unitVol). Purchases-only by construction: a
+      // COUNT entry in litres/ml is converted by countToUnits, which already guards unitVol.
+      volUnknown: !!(purEntry && purEntry._volUnknown),
       salesUnits,
       salesRev,
       expectedNum: expected,
@@ -7542,6 +7655,13 @@ const PACK_UNKNOWN_TITLE = 'Pack size unknown — this product has no confirmed 
   + 'so each case was counted as 1 unit. The figure is UNDER-stated. '
   + 'Set Units per case on the product in the Products catalogue to correct it.';
 
+// r91 FIX 1 — the volume twin of PACK_UNKNOWN_TITLE. ONE wording, shared by the cell
+// badge, the popover chip and the popover note, so the three can never disagree.
+const VOL_UNKNOWN_TITLE = 'Volume not convertible — a delivery line was booked in litres or ml, '
+  + 'but this product has no unit volume, so the number of units it represents is unknown. '
+  + 'That line contributed NOTHING to purchases. '
+  + 'Set Unit volume on the product in the Products catalogue to correct it.';
+
 // r88 FIX 2 — THE PURCHASES THAT AREN'T THERE. computeVariances only builds rows for
 // products in the venue catalogue, which is right: a row needs a unitVol, a density and a
 // cost to mean anything. What was wrong is that the discard was SILENT — four Speight's
@@ -7907,7 +8027,11 @@ function renderVarTable() {
             const packTag = p.packUnknown
               ? `<span class="chip chip-amber" style="padding:1px 7px;font-size:10px;margin-left:6px;" title="${PACK_UNKNOWN_TITLE}">📦 pack size unknown</span>`
               : '';
-            return `<div class="pur-popover-row"${p.adj||p.packUnknown?' style="background:rgba(240,192,64,0.06);border-radius:6px;"':''}><span style="color:${p.adj||p.packUnknown?'var(--amber)':'var(--text2)'};">${p.sup}${adjTag}${packTag}</span><span class="td-mono" style="color:var(--text);">${p.qty}</span><span class="td-mono" style="color:var(--text3);">${p.date}</span><span class="td-mono" style="font-size:11px;" ${invLink}>${p.inv||'—'}</span></div>${actionBtns}`;
+            // r91 — the same treatment for a line whose volume could not be converted.
+            const volTag = p.volUnknown
+              ? `<span class="chip chip-amber" style="padding:1px 7px;font-size:10px;margin-left:6px;" title="${VOL_UNKNOWN_TITLE}">🧪 volume not convertible</span>`
+              : '';
+            return `<div class="pur-popover-row"${p.adj||p.packUnknown||p.volUnknown?' style="background:rgba(240,192,64,0.06);border-radius:6px;"':''}><span style="color:${p.adj||p.packUnknown||p.volUnknown?'var(--amber)':'var(--text2)'};">${p.sup}${adjTag}${packTag}${volTag}</span><span class="td-mono" style="color:var(--text);">${p.qty}</span><span class="td-mono" style="color:var(--text3);">${p.date}</span><span class="td-mono" style="font-size:11px;" ${invLink}>${p.inv||'—'}</span></div>${actionBtns}`;
           }).join('')
         : `<div style="font-size:12px;color:var(--text3);padding:4px 0;">No purchases this period</div>`;
       // r87 FIX 2 — a full-width explainer inside the popover. The per-line chip says WHICH
@@ -7916,18 +8040,25 @@ function renderVarTable() {
       const packNote = r.packUnknown
         ? `<div style="margin-top:8px;padding:7px 9px;border-radius:7px;background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.22);font-size:11px;color:var(--amber);line-height:1.45;">📦 <strong>Pack size unknown</strong> — ${r.packUnknownWhere && r.packUnknownWhere.length ? r.packUnknownWhere.join(' and ') + ' had' : 'a line had'} a case with no confirmed units-per-case, so <strong>each case was counted as 1 unit</strong>. This UNDER-states stock. Set “Units per case” on the product in the Products catalogue, then re-check this period.</div>`
         : '';
+      // r91 — the volume twin of packNote.
+      const volNote = r.volUnknown
+        ? `<div style="margin-top:8px;padding:7px 9px;border-radius:7px;background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.22);font-size:11px;color:var(--amber);line-height:1.45;">🧪 <strong>Volume not convertible</strong> — a delivery line was booked in litres or ml, but this product has no unit volume, so <strong>that line contributed nothing to purchases</strong>. This UNDER-states stock. Set “Unit volume” on the product in the Products catalogue, then re-check this period.</div>`
+        : '';
       // r87 FIX 2 — the badge rides on the CELL, not just inside the popover, because the
       // popover is click-to-open and a silent under-count must be visible without one.
       const packBadge = r.packUnknown
         ? `<span class="chip chip-amber" style="padding:0 6px;font-size:10px;margin-left:6px;vertical-align:middle;" title="${PACK_UNKNOWN_TITLE}">📦 ?</span>`
         : '';
+      const volBadge = r.volUnknown
+        ? `<span class="chip chip-amber" style="padding:0 6px;font-size:10px;margin-left:6px;vertical-align:middle;" title="${VOL_UNKNOWN_TITLE}">🧪 ?</span>`
+        : '';
       const purCell = `
         <td class="pur-cell" onclick="togglePurPopover('${popId}',event)">
-          <span class="pur-vol">${r.purchaseVol||'0ml'}</span>${packBadge}
+          <span class="pur-vol">${r.purchaseVol||'0ml'}</span>${packBadge}${volBadge}
           <div class="pur-popover" id="${popId}">
             <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:6px;">Purchase detail</div>
             <div class="pur-popover-header"><span>Supplier</span><span>Qty</span><span>Date</span><span>Invoice</span></div>
-            ${purRows}${packNote}
+            ${purRows}${packNote}${volNote}
           </div>
         </td>`;
 
@@ -16021,7 +16152,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r89';
+const APP_VERSION = '2026-06-10-r91';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
