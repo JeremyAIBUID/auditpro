@@ -6613,7 +6613,29 @@ function computeVariances(client, session = null) {
   // CLOSED period — 'finalised' OR 'rolledover' (STAGE 2, r58) — reads ONLY its frozen
   // sess.purchases snapshot, so a later invoice edit can never move a locked period.
   const isLive = !session || !isClosedSession(session);
-  
+
+  // r92 — PERIOD GATE for the catalogue cost write-back further down (~:7090). That write is
+  // a WRITE performed inside a READ: it pushes a purchase's unit cost onto the permanent
+  // catalogue. r81/r82 gated it on PROVENANCE (a supplier line may write, an adjustment may
+  // not) but NEVER on PERIOD. That was harmless only while every caller computed the current
+  // period. The moment a report computes a PAST period on demand, merely GENERATING that
+  // report would reprice the live catalogue from frozen invoices — permanently, and on into
+  // every future period's valuation.
+  //
+  // "Active" is decided by IDENTITY against currentSession(), NOT by `session == null`: a
+  // caller may legitimately pass the current period explicitly (and must still write), while
+  // a null argument only ever means "auto-pick the current one". Every other period fails the
+  // test for free, because currentSession() picks open → highest-seq non-'rolledover' →
+  // highest-seq: a 'rolledover' period is never chosen while a sibling exists, and a
+  // 'reopened' period always has a higher-seq successor, so neither can match.
+  //
+  // No sessions at all ⇒ `session` is null and so is currentSession() ⇒ the virtual
+  // delivery-only period is the only period there is, so it keeps writing exactly as before.
+  const activeSess = currentSession(client);
+  const isActivePeriod = !session
+    ? !activeSess
+    : (session === activeSess || (!!activeSess && !!session.id && session.id === activeSess.id));
+
   const { opening, purchases, sales, closing, periodDays = 30 } = workingSession;
   const prodMap = {};
   (client.products || []).forEach(p => { prodMap[p.n||p.name] = p; });
@@ -7073,8 +7095,13 @@ function computeVariances(client, session = null) {
     // a product can receive a supplier delivery AND a wastage line in the same period, and the
     // supplier price must still come through. Entries with neither flag are ordinary supplier
     // purchases (incl. every pre-r82 and frozen-snapshot entry), so they write back as before.
+    // r92 — ...and NEVER from a period that is not the active one. `isActivePeriod` is the
+    // added condition; r81/r82's `costIsSupplier` provenance test is unchanged and still
+    // applies on top of it. Computing a closed/rolledover/reopened/explicitly-passed past
+    // period is a pure READ: it reports what that period's frozen invoices said, and must not
+    // redefine what the product costs today.
     const costIsSupplier = !purEntry?._adjustment || purEntry?._costFromSupplier;
-    if (purEntry && purEntry.costPrice && costIsSupplier && prodMap[name]) {
+    if (purEntry && purEntry.costPrice && costIsSupplier && isActivePeriod && prodMap[name]) {
       prodMap[name].costPrice = purEntry.costPrice;
       // Also update the client.products array so UI reflects it
       const idx = (client.products||[]).findIndex(p=>p.n===name);
@@ -16152,7 +16179,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r91';
+const APP_VERSION = '2026-06-10-r92';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();

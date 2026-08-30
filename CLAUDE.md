@@ -64,8 +64,8 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r88` | `index.html:15597` |
-| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r85` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86, r87 and r88 are desktop-only**, so mobile correctly still reads r85) |
+| `index.html` | `2026-06-10-r92` | `index.html:16182` |
+| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r90` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86-r89 and r91-r92 are desktop-only**, so mobile correctly still reads the r90 mobile stamp) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
   Desktop logs it on load (`[AuditPro] build …`); mobile compares it against
@@ -861,6 +861,94 @@ build before believing a red test.
 
 ---
 
+## A READ MUST NOT REPRICE THE CATALOGUE (r92)
+
+`computeVariances` performs a **WRITE inside a READ**: for every product it pushes the period's
+resolved purchase cost onto `prodMap[name].costPrice` **and** `client.products[idx].costPrice`
+(`index.html:7101`/`:7104`) — permanently, and on into every future period's valuation. r81/r82
+gated that write on **PROVENANCE** (a supplier line may write, a stock adjustment may not) but
+**never on PERIOD**.
+
+That was harmless only because every caller computed the current period. **Build C will start
+computing PAST periods on demand** — at which point simply GENERATING AN OLD REPORT would reprice
+the live catalogue from frozen invoices. This had to close before anything computes a past period.
+
+### The gate — identity against `currentSession()`, never `session == null`
+```javascript
+const activeSess = currentSession(client);
+const isActivePeriod = !session
+  ? !activeSess
+  : (session === activeSess || (!!activeSess && !!session.id && session.id === activeSess.id));
+```
+Derived once beside the `isLive` classification (`:6617`) and added as **one more condition** on
+the existing write — r81/r82's `costIsSupplier` test is untouched and still applies on top:
+```javascript
+if (purEntry && purEntry.costPrice && costIsSupplier && isActivePeriod && prodMap[name]) {
+```
+
+- **It must NOT key off the argument being null.** Build C will pass the current period
+  *explicitly*, and that must still write. The decision is IDENTITY against the deterministic
+  active-period selector, so `computeVariances(c, currentSession(c))` and `computeVariances(c)`
+  reach the same answer.
+- **Every other period fails the test for free.** `currentSession()` picks open → highest-seq
+  non-`rolledover` → highest-seq, so a `rolledover` period is never chosen while a sibling
+  exists, and a `reopened` period always has a higher-seq successor. Note this covers the
+  **`reopened`** case, which is `isLive` — it takes the live merge branch, so a period-gate keyed
+  off `isClosedSession` would have missed it entirely.
+- **No sessions at all** ⇒ `session` and `currentSession()` are both null ⇒ the virtual
+  delivery-only period is the only period there is, and keeps writing exactly as before.
+- The flag is **per-call**, recomputed on entry, so an interleaved past/active/past sequence
+  behaves correctly and never leaks.
+
+### The read path is otherwise PURE (audited, r92 FIX 2)
+Those two lines are the **only** mutation of client/catalogue state in `computeVariances` or
+anything it calls. Everything else writes to locals: `deliveryPurchases`, `fallbackSessionPurchases`,
+`frozen`, `refSets`, `orphanPurchases`, `orphanCounts`, `rows`. Both merge branches build entries
+by spread (`{...entry}`), so `session.purchases` is never aliased or mutated.
+`buildSalesDepletion`, `deliveriesForSession`, `resolveDeliveryPeriod`, `latestCostPrice`,
+`resolvePackSize`, `compareSessions`, `prodDensity`, `matchPOSNameToProduct` and `parseCaseSize`
+are all pure. `countToUnits` writes only `packOut.unknown` on the caller's own out-param.
+**`backfillAndSortSessions` DOES mutate (`s.seq`) — but `computeVariances` never calls it**;
+only `compareSessions` is reached, and that is pure.
+
+### Measured impact on live data: ZERO — and the write is a no-op TODAY
+Dual-build gate (`gate-r92.js`, the r86-r91 pattern): the real `computeVariances` from the pre-
+and post-r92 builds against live `ap_clients` + `ap_audit_sessions`, all 3 stored periods **twice
+each** (as stored, and forced `reopened`), field list **auto-derived** from the union of row keys
+— **12,768 field comparisons across 304 rows, 0 moved, 0 rows in one build only.**
+
+The gate also **measures the write itself** rather than trusting the claim: it snapshots every
+catalogue `costPrice` around each run. **Neither build mutated the catalogue on any live run** —
+confirming the write is reached but currently a **no-op**. This build is therefore purely
+preventative on today's data, which is exactly why it must land *before* Build C, not after.
+
+- **Every run starts from a FRESH deep clone.** Not cosmetic: the PRE build mutates the catalogue
+  as a side effect of computing, so a shared client would let run N−1 contaminate run N and
+  manufacture a diff that is really the old build's own leakage.
+
+### The behavioural proof the field diff cannot give (`verify-r92.js`, 26 checks)
+Because today's data makes the write a no-op, "it stopped writing" is **invisible** in a field
+diff. Fixtures give a period a `costPrice` that DIFFERS from the catalogue, and assert **both**
+directions against **both** builds — so "post blocks it" is measured against "pre allowed it":
+
+| | PRE | POST |
+|---|---|---|
+| PAST `rolledover`, frozen cost 99 vs catalogue 40 | **40 → 99 REPRICED** | 40 → 40 ✓ |
+| `reopened` (live-merge branch), supplier cost 55 | **40 → 55 REPRICED** | 40 → 40 ✓ |
+| ACTIVE, session passed EXPLICITLY | 40 → 55 | **40 → 55** ✓ |
+| ACTIVE, session auto-picked (null) | 40 → 55 | **40 → 55** ✓ |
+| ACTIVE = a FINALISED period (no open session — the live shape) | 66 | **66** ✓ |
+| adjustment-only entry (r81/r82) | 20 | **20** ✓ |
+| adjustment + `_costFromSupplier` (r82 mixed entry) | 88 | **88** ✓ |
+| no sessions at all (virtual period) | 55 | **55** ✓ |
+
+**Deliberately NOT in this build** (Builds B/C/D): passing the session through to
+`computeVariances` from `calculateReportData` (`:3799` still calls it without the session), the
+trend chart's `_working`, `prevSess` resolution, the report selector, and any aggregate sanity
+rule.
+
+---
+
 ## Density Architecture
 **`ap_master_products` is the single source of truth for product density.** Venue rows
 (`ap_clients.data.products`) hold per-venue copies for counts/stock/prices, but their
@@ -1258,6 +1346,8 @@ resolvePackSize(stamped, catalogue, nameForParse)  // r87 — the ONE precedence
 
 // Variance
 computeVariances(client, session=null) / renderVarTable() / downloadVariancePDF()
+// r92 — computeVariances WRITES client.products[].costPrice. That write fires ONLY for the
+// ACTIVE period (identity vs currentSession), on top of r81/r82's provenance gate.
 
 // Invoices
 renderInvoiceResults(id, invoice, filename) / openInvoiceReviewModal(id)
@@ -1321,7 +1411,7 @@ const VAR_PCT_MIN_EXPECTED    // :7277 — 1 unit; below this no variance % is q
 const PACK_UNKNOWN_TITLE      // :7424 — the ONE unexpanded-case wording (r87)
 const ADJUSTMENT_REASONS      // :12727 — transfer_in/out, wastage, breakage, staff, promo, sample, other (r82)
 const INV_CONFIDENT_KINDS     // r88 — ['code','barcode','exact']: green + collapsed
-const APP_VERSION             // :15597
+const APP_VERSION             // :16182
 ```
 
 ---
