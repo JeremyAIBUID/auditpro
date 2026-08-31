@@ -64,8 +64,8 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r94` | `index.html:16462` |
-| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r90` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86-r89 and r91-r94 are desktop-only**, so mobile correctly still reads the r90 mobile stamp) |
+| `index.html` | `2026-06-10-r95` | `index.html:16547` |
+| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r90` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86-r89 and r91-r95 are desktop-only**, so mobile correctly still reads the r90 mobile stamp) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
   Desktop logs it on load (`[AuditPro] build …`); mobile compares it against
@@ -1210,6 +1210,99 @@ not follow `viewedSession`. r93's thresholds and r92's gate are untouched.
 
 ---
 
+## THE REPORT SELECTOR IS KEYED BY SESSION ID (r95 — Build D)
+
+r94 made the report compute for whichever session the selector names. **The selector itself was
+still the last array-position dependency in the report path**: options were emitted by INDEX,
+read back with `parseInt`, defaulted to `sessions.length - 1`, and the choice travelled as
+`meta.sessionIdx`. Array order is not stable across a Supabase reload (pitfall #2) — and
+`backfillAndSortSessions` **re-sorts the array on every load** — so an index captured before a
+reload can name a different period after it. Same class of failure as the `indexOf`-based
+`prevSess` r94 fixed.
+
+`meta.sessionIdx` also reached `saveReportRecord`, which **WRITES** the report record onto
+`sessions[meta.sessionIdx]` — so a shifted index filed the record against the wrong period
+permanently.
+
+### FIX 1 — id in, id out
+`resolveReportSession(c, id)` is the ONE resolver, in the r80 `{ value, reason }` style:
+
+| reason | meaning |
+|---|---|
+| `'ok'` | the id named a real session |
+| `'fallback'` | it did not (deleted, or stale from before a reload) — the user is **told**, and the picker is re-pointed so the screen agrees with the report |
+| `'none'` | this client has no saved sessions at all |
+
+- Options carry `value="<session.id>"`; the read site resolves through the helper;
+  `meta.sessionId` replaces `meta.sessionIdx`, **reusing r94's `data.sessionId` convention**
+  rather than inventing a second one.
+- The fallback is **deterministic** — `currentSession(c)`, else the highest-seq session — and
+  never `arr[arr.length - 1]`. It is **announced**, not absorbed: an alert names the period the
+  report is actually for.
+- `saveReportRecord` resolves through the same helper, so the record lands on the right session.
+- The empty-list sentinel changed from `value="-1"` to `value=""`, so a blank is `'none'` rather
+  than a number that could be indexed with.
+
+### FIX 2 — seeded from `viewedSession()`, scoped to tab-open
+A report is a generated artifact for a **NOMINATED** period: wanting August's report while
+browsing September is legitimate, so the report keeps its **own** selector and is **not driven
+by `viewedSession` thereafter**. Seeding only removes the "why is it offering August?" surprise.
+
+- The seed lives in `renderFullReportTab`, which is reached **only** from
+  `switchRptTab('full')`. That is what scopes it to tab-open: changing the viewed period while
+  the Reports tab is already open cannot re-target a report, because **nothing re-renders the
+  picker** — `switchAuditPeriod` refreshes Variance / Purchases / Finalise and never Reports.
+- Order: an **explicit choice by this user for THIS client** → else `viewedSession(c)` → else
+  `currentSession(c)` → else the highest-seq session.
+- `_fullRptPickedId` / `_fullRptPickedFor` record the choice, set by the select's `onchange`
+  (`fullRptSessionChanged`). That handler records the choice and **nothing else — it must never
+  touch `viewedPeriodId`**. Scoped by client id so switching venue starts clean.
+- Until the user chooses, re-entry keeps following the viewed period; once they choose, re-entry
+  preserves it. A remembered choice that no longer resolves falls through to the same seed.
+
+### FIX 3 — newest first, by `compareSessions`
+`reportSessionsNewestFirst(c)` sorts a **copy** descending by `compareSessions`
+(seq → openDate → id), so a reload cannot reshuffle the list being chosen from. The `(status)`
+annotation is kept. The old `'Period ' + (i + 1)` label fallback was index-derived and
+meaningless once sorted; it is now `s.label || formatSessionLabel(s)`.
+
+### Verified (FIX 5)
+**`gate-r95.js`** drives the REAL `renderFullReportTab` in **both** builds against the DOM stub,
+parses the `<option>` list each actually emits, resolves every option the way that build's own
+read site does (pre-r95's expression transcribed verbatim from the snapshot), and diffs the
+resulting report payload with **auto-derived** field lists:
+
+**5,002 field comparisons across all 3 periods · 0 values moved · 0 asymmetries.** Every period
+reached BY ID is byte-identical to the same period reached BY INDEX. This build re-keys the
+selection; it changes no number.
+
+The reorder test is the point of the build:
+
+| chose | after a reload that reverses the array — PRE | POST |
+|---|---|---|
+| July 2026 | **August 2026** (wrong period) | July 2026 |
+| September 2026 | September 2026 | September 2026 |
+| August 2026 | **July 2026** (wrong period) | August 2026 |
+
+**`verify-r95.js` — 26 checks**: newest-first ordering, unchanged when the array is reshuffled,
+`(status)` kept, values are ids not indices; seeding from `viewedSession` for each period (PRE
+always offered August); picking a report leaves `viewedPeriodId` untouched, and
+`switchAuditPeriod` leaves the report picker untouched; an explicit choice survives tab re-entry
+while an unmade one keeps following the viewed period; a bogus id lands on `currentSession` with
+`reason:'fallback'`; `saveReportRecord` files against July after a reorder where PRE filed
+against August; and an end-to-end `generateFullReport` drive confirming `meta.sessionId` ===
+`data.sessionId`, no alert on a clean pick, and exactly one naming alert on a bogus id.
+
+r94's 33 checks and gate, r93's 52 checks and r92's 26 checks + gate all still pass.
+(`gate-r93.js` still reports the per-product movement r94 introduced — expected since r94, and
+documented there.)
+
+**Untouched by this build:** every number, r92's write-back gate, r93's suppression, and r94's
+pass-through / `prevSessionOf` / trend anchoring. This build changed only WHICH session the
+report is pointed at and how that choice is represented.
+
+---
+
 ## Density Architecture
 **`ap_master_products` is the single source of truth for product density.** Venue rows
 (`ap_clients.data.products`) hold per-venue copies for counts/stock/prices, but their
@@ -1560,6 +1653,9 @@ uploadInvoicePDF(file, ref, slug)               // Storage upload → signed URL
 currentSession(c) / viewedSession(c) / isClosedSession(s)
 compareSessions(a,b) / newSessionId() / nextSessionSeq(c) / formatSessionLabel(s)
 backfillAndSortSessions(c)  // assign missing seq, sort
+resolveReportSession(c, id)  // r95 — report picker: {session, reason} ok|fallback|none
+reportSessionsNewestFirst(c) // r95 — picker order, by compareSessions desc (never array order)
+fullRptSessionChanged()      // r95 — records the report pick; must NEVER touch viewedPeriodId
 prevSessionOf(c, sess)      // r94 — the PREVIOUS period: prevId chain, else seq-ordered
                             // predecessor. NEVER indexOf/array position (identity breaks on reload)
 switchAuditPeriod(id)       // Pin viewedPeriodId (null = follow active)

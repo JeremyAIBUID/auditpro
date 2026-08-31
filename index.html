@@ -1351,7 +1351,7 @@
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px;">
               <div class="form-group" style="margin-bottom:0;">
                 <label>Audit period</label>
-                <select id="fullrpt-session" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;color:var(--text);font-family:var(--font-ui);font-size:13px;outline:none;width:100%;"></select>
+                <select id="fullrpt-session" onchange="fullRptSessionChanged()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;color:var(--text);font-family:var(--font-ui);font-size:13px;outline:none;width:100%;"></select>
               </div>
               <div class="form-group" style="margin-bottom:0;">
                 <label>Auditor name</label>
@@ -3785,7 +3785,7 @@ const REPORT_OVERALL_VAR_THRESHOLD = -2;
 const REPORT_PAR_DAYS = 17.5; // ideal stock holding (2.5 weeks) — matches Intelipar / par widget
 
 let _fullReportData = null;   // last calculated dataset
-let _fullReportMeta = null;   // { venue, address, period, auditor, company, reportDate, sessionIdx }
+let _fullReportMeta = null;   // { venue, address, period, auditor, company, reportDate, sessionId }
 
 // Map a product onto one of the 7 report categories.
 function reportCategory(prod) {
@@ -4227,19 +4227,90 @@ function calculateReportData(client, session) {
   };
 }
 
+// ─── r95 — THE REPORT SELECTOR IS KEYED BY SESSION ID ────────────────────────
+// r94 made the report compute for whichever session the selector names. The selector itself
+// was still the last array-position dependency in the report path: options were emitted by
+// INDEX, read back with parseInt, defaulted to `sessions.length - 1`, and the choice travelled
+// as `meta.sessionIdx`. Array order is not stable across a Supabase reload (pitfall #2) — and
+// backfillAndSortSessions RE-SORTS the array on every load — so an index captured before a
+// reload can name a different period after it. That is the same class of failure that made
+// prevSess silently null before r94.
+//
+// Session ids are unique (r89) and stable, so the id IS the key. `data.sessionId` already
+// exists from r94 (the trend anchor); `meta.sessionId` reuses that convention rather than
+// inventing a second one.
+//
+// Returns { session, reason } in the r80 style so the caller can SAY what happened:
+//   'ok'       — the id named a real session;
+//   'fallback' — it did not (deleted, or a stale id from before a reload): the user is TOLD
+//                and landed on the deterministic current period, never an arbitrary one;
+//   'none'     — this client has no saved sessions at all.
+function resolveReportSession(c, id) {
+  const arr = (c && c.auditSessions) || [];
+  if (!arr.length) return { session: null, reason: 'none' };
+  if (id) {
+    const hit = arr.find(s => s && s.id === id);
+    if (hit) return { session: hit, reason: 'ok' };
+  }
+  // Deterministic fallback, in the codebase's established order of preference:
+  // the current working period, else the highest-seq session. Never arr[arr.length - 1].
+  const fb = currentSession(c) || [...arr].sort((a, b) => compareSessions(b, a))[0] || null;
+  return { session: fb, reason: id ? 'fallback' : 'none' };
+}
+
+// Sessions for the report picker, NEWEST FIRST — by compareSessions (seq -> openDate -> id),
+// never by array position, so a reload cannot reshuffle the list the user is choosing from.
+function reportSessionsNewestFirst(c) {
+  return [...((c && c.auditSessions) || [])].sort((a, b) => compareSessions(b, a));
+}
+
+// r95 FIX 2 — has the user made an explicit choice, and for which client? While this is unset
+// the picker keeps following viewedSession on tab-open; once set it is the user's, and nothing
+// re-targets it. Scoped by client id so switching venue starts clean.
+let _fullRptPickedId  = null;
+let _fullRptPickedFor = null;
+
+// The select's onchange. It records the choice and NOTHING ELSE — in particular it must never
+// touch viewedPeriodId: a report is a generated artifact for a NOMINATED period, and picking
+// August's report while browsing September is a legitimate thing to do.
+function fullRptSessionChanged() {
+  const c = activeClient; if (!c) return;
+  const sel = document.getElementById('fullrpt-session');
+  _fullRptPickedId  = sel ? sel.value : null;
+  _fullRptPickedFor = c.id;
+}
+
 // ─── Tab render: populate session selector ───────
 function renderFullReportTab() {
   const c = activeClient; if (!c) return;
   const sel = document.getElementById('fullrpt-session');
   if (sel) {
-    const sessions = c.auditSessions || [];
+    // r95 FIX 3 — NEWEST FIRST, by seq, not array order.
+    const sessions = reportSessionsNewestFirst(c);
     if (!sessions.length) {
-      sel.innerHTML = `<option value="-1">Current data (no saved session)</option>`;
+      sel.innerHTML = `<option value="">Current data (no saved session)</option>`;
     } else {
-      sel.innerHTML = sessions.map((s, i) => {
+      // r95 FIX 2 — SEED, scoped to tab-open. renderFullReportTab is reached only from
+      // switchRptTab('full'), so this runs when the Reports tab is opened and at no other
+      // time: changing the viewed period while the tab is already open cannot re-target a
+      // report, because nothing re-renders the picker.
+      //
+      // An explicit choice by this user, for THIS client, wins and is preserved across
+      // re-entry — the report keeps its own selector and is not driven by viewedSession
+      // thereafter. Until they choose, the picker follows the period they are already
+      // looking at (r60), which is what removes the "why is it offering August?" surprise.
+      // If a remembered choice no longer resolves, it falls through to the same seed.
+      const picked = (_fullRptPickedFor === c.id && _fullRptPickedId
+        && sessions.some(s => s && s.id === _fullRptPickedId)) ? _fullRptPickedId : null;
+      const seed = picked
+        || ((viewedSession(c) || currentSession(c)
+             || [...sessions].sort((a, b) => compareSessions(b, a))[0] || {}).id)
+        || sessions[0].id;
+      sel.innerHTML = sessions.map(s => {
         const from = s.openDate || s.label || '—', to = s.closeDate || '—';
-        const txt  = `${s.label || ('Period ' + (i + 1))} · ${from}${to && to !== from ? ' → ' + to : ''}${s.status ? ' (' + s.status + ')' : ''}`;
-        return `<option value="${i}"${i === sessions.length - 1 ? ' selected' : ''}>${rptEsc(txt)}</option>`;
+        const name = s.label || formatSessionLabel(s);
+        const txt  = `${name} · ${from}${to && to !== from ? ' → ' + to : ''}${s.status ? ' (' + s.status + ')' : ''}`;
+        return `<option value="${rptEsc(s.id)}"${s.id === seed ? ' selected' : ''}>${rptEsc(txt)}</option>`;
       }).join('');
     }
   }
@@ -4252,10 +4323,22 @@ async function generateFullReport() {
   const c = activeClient;
   if (!c) { alert('Select a client first.'); return; }
 
+  // r95 FIX 1 — resolved BY ID. `parseInt(sel.value)` indexed straight into an array that
+  // backfillAndSortSessions re-sorts on every load, so a stale index silently named a
+  // different period.
   const sel       = document.getElementById('fullrpt-session');
-  const sessIdx   = sel ? parseInt(sel.value, 10) : -1;
-  const sessions  = c.auditSessions || [];
-  const session   = (sessIdx >= 0 && sessions[sessIdx]) ? sessions[sessIdx] : (sessions[sessions.length - 1] || null);
+  const pickedId  = sel ? sel.value : '';
+  const resolved  = resolveReportSession(c, pickedId);
+  const session   = resolved.session;
+  // An id that no longer resolves is REPORTED, never absorbed: the user is told which period
+  // the report is actually for, and the picker is re-pointed so the screen agrees with it.
+  if (resolved.reason === 'fallback') {
+    const lbl = session ? (session.label || formatSessionLabel(session)) : 'the current data';
+    alert(`That audit period is no longer available — it may have been deleted, or the data reloaded.
+
+Generating the report for ${lbl} instead. Pick a different period from the dropdown if that is not what you want.`);
+    if (sel && session) { sel.value = session.id; _fullRptPickedId = session.id; _fullRptPickedFor = c.id; }
+  }
   const auditor   = (document.getElementById('fullrpt-auditor')?.value || '').trim() || '[Auditor name]';
   const company   = (document.getElementById('fullrpt-company')?.value || '').trim() || '[Your company name]';
   if (company && company !== '[Your company name]') c.companyName = company;
@@ -4289,7 +4372,8 @@ async function generateFullReport() {
     period, periodSafe: (session?.label || from || 'period').replace(/[^a-z0-9]+/gi, '-'),
     auditor, company,
     reportDate: new Date().toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' }),
-    sessionIdx: sessIdx >= 0 ? sessIdx : sessions.length - 1,
+    // r95 FIX 1 — the ID, not an array index. Same convention as r94's data.sessionId.
+    sessionId: (session && session.id) || null,
   };
   _fullReportData = data;
   _fullReportMeta = meta;
@@ -5238,8 +5322,9 @@ function saveReportRecord(meta, filename) {
     generatedBy: meta.auditor, pdfFilename: filename,
   };
   // Per spec: store on the audit session…
-  const sessions = c.auditSessions || [];
-  const sess = sessions[meta.sessionIdx] || sessions[sessions.length - 1];
+  // r95 FIX 1 — by ID. This WRITES onto the session, so an index that shifted under a reload
+  // filed the report record against the wrong period permanently.
+  const sess = resolveReportSession(c, meta.sessionId).session;
   if (sess) { if (!sess.reports) sess.reports = []; sess.reports.push(record); }
   // …and keep the flat list the "Saved reports" table reads.
   if (!c.reports) c.reports = [];
@@ -16459,7 +16544,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r94';
+const APP_VERSION = '2026-06-10-r95';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
