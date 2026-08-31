@@ -64,8 +64,8 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r93` | `index.html:16396` |
-| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r90` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86-r89 and r91-r93 are desktop-only**, so mobile correctly still reads the r90 mobile stamp) |
+| `index.html` | `2026-06-10-r94` | `index.html:16462` |
+| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r90` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86-r89 and r91-r94 are desktop-only**, so mobile correctly still reads the r90 mobile stamp) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
   Desktop logs it on load (`[AuditPro] build …`); mobile compares it against
@@ -1086,6 +1086,130 @@ resolution, and the report selector.
 
 ---
 
+## THE REPORT NOW DESCRIBES THE PERIOD IT IS TITLED WITH (r94)
+
+`calculateReportData(client, session)` called **`computeVariances(client)` with no session**, and
+said so in a comment: *"It targets the open / most-recent-with-purchases session; `session` here
+drives period labelling."* So selecting ANY period produced byte-identical variance figures —
+always the auto-picked current one — while the Purchase History page below had been
+period-scoped since r81. A report headed **"September 2026" listed $2,653.20 of invoices beside
+an executive summary reading "Purchases this period: $0.00."**
+
+It stayed hidden because **the selector defaults to the last session, which is exactly what
+`currentSession()` picks** — the default is self-consistent, and the contradiction only appears
+once the dropdown is changed.
+
+r92 stopped past-period computation from repricing the live catalogue; r93 added aggregate
+sanity so the corrected figures can be presented honestly. This build makes the report actually
+period-correct.
+
+### FIX 1 — the pass-through, resolved ONCE
+```javascript
+const _reportSession = session || currentSession(client);
+const varRows = computeVariances(client, _reportSession) || [];
+```
+`_reportSession` drives the variance rows, `periodDays`, `prevSess`, the purchase history AND
+the trend anchor, so no two halves of the report can disagree about which period they describe.
+`historyDeliveries` moved onto it too — it was already scoped, but off the raw `session`, so a
+null session left it reading the global list while variance read the auto-picked period.
+
+**A null `session` resolves to `currentSession()`, which is exactly what `computeVariances`
+would have auto-picked** — so behaviour there is unchanged, *including r92's active-period write
+gate*, which decides by identity against `currentSession()` and cannot tell the two forms apart
+(r92's own check C proved this).
+
+### FIX 2 — the trend anchor, and why it had to be the SAME commit
+The trend substitutes `data.totals.variancePct` into whichever period `_working` matches.
+`_working` was `currentSession(client)` **deliberately**: before FIX 1, `data.totals` always
+described the auto-picked period, so the two agreed. **FIX 1 alone breaks that agreement** —
+`data.totals` becomes the SELECTED period's while the anchor still points at the current one,
+writing the selected period's total onto a period the report is not even about.
+
+Measured, not asserted, by booting a third build with FIX 2 reverted:
+
+| build | select P1 (−10%), P2 is current (−50%) | trend table |
+|---|---|---|
+| pre-r94 | totals −50% (P2's), anchor P2 | `P1 −10.0%`, `P2 −50.0%` — internally consistent |
+| **FIX 1 only** | totals −10% (P1's), anchor P2 | `P1 −10.0%`, **`P2 −10.0%`** — corrupted |
+| r94 | totals −10%, anchor P1 | `P1 −10.0%`, `P2 −50.0%` — correct |
+
+`const _workingId = data.sessionId || null;` — **matched by ID, not object identity**, because
+`data` may have been built before a reload rebuilt `client.auditSessions`, and an identity miss
+would silently fall through to the stored/recomputed branch. `calculateReportData` returns
+`sessionId` for this; it is passed on `data` rather than as a new `renderReportDocument`
+argument so the report selector stays untouched (that is Build D).
+
+### FIX 3 — `prevSessionOf(c, sess)`: chain, then seq, never position
+`sessions.indexOf(session)` is **identity-based**. Pitfall #2: after a Supabase reload
+`client.auditSessions` is rebuilt wholesale, so a session held from before it is a DIFFERENT
+OBJECT with the same id — `indexOf` returns −1, `sessIdx > 0` is false, and `prevSess` silently
+becomes null. Nothing throws. Every product then reads `noSalesPrev = true`, and
+`deadStock = hasStock && noSalesNow && (prevSess ? noSalesPrev : true)` flags on this period
+alone. **Measured: September's `noSalesPrev` count jumps 26 → 48 across a simulated reload in
+the pre-r94 build; in r94 it is 27 either side.**
+
+1. **`prevId`** — the explicit chain link `rolloverPeriod` writes on both ends. Exact when it
+   names a real session, so it wins.
+2. **the SEQ-ordered predecessor** — the latest session that sorts strictly before `sess` under
+   `compareSessions` (seq → openDate → id), found by **scanning**, never by reading `arr[i-1]`.
+   Legacy chains predate `prevId` (r64's own note), so seq is the fallback rather than the
+   primary.
+
+Verified order-independent: reversing `auditSessions` and stripping every `prevId` both give
+identical answers (`July → null`, `September → July`, `August → September` — note **seq order,
+not label order**).
+
+### Measured impact on live data (FIX 4)
+Dual-build gate (`gate-r94.js`), all 3 periods twice each (as stored, forced `reopened`), field
+lists auto-derived: **22,250 comparisons · 2,093 values moved · 20 rows in one build only.**
+
+| | PRE (always August) | POST (the selected period) |
+|---|---|---|
+| **July** opening / stock on hand | $4,295.02 / $0.00 | **$0.00 / $3,383.20** |
+| **July** variance | −$4,295.02 | **+$6,298.19** |
+| **July** report products | 48 | **53** |
+| **September** opening / stock | $4,295.02 / $0.00 | **$3,383.20 / $4,295.02** |
+| **September** purchases (exec summary) | $0.00 | **$1,576.36** |
+| **September** variance | −$4,295.02 | **+$2,949.55** |
+| **September** loss leaders | Dashwood SB −746.13 … (August's) | **Kirin Hyoketsu Lemon −158.40 …** |
+| **August** — the auto-picked session | | **EXACT NO-OP** |
+
+- **CRITICAL ASSERTION — August: 0 values moved, 0 asymmetric rows, and the whole
+  `calculateReportData` payload is byte-identical.** Passing the auto-picked session explicitly
+  changes nothing, which is what proves the pass-through only selects a period.
+- **r92's invariant re-measured here: no run in either build mutated any product `costPrice`.**
+- **Dead stock 0 → 17 on July and September is FIX 1, not FIX 3.** Pre-r94 every period read
+  August's rows, where `actual` is 0 for everything, so `hasStock` was false and nothing could
+  be flagged. July's `prevSess` is legitimately null (it is the first period), and September's
+  resolves to July.
+- **The exec summary and Purchase History still differ in DOLLARS, and always will.**
+  `totals.purchaseVal` is units × catalogue cost **ex-GST, catalogue products only**;
+  `purchaseTotal` sums `d.t`, the invoice total **incl. GST plus freight/levies**. The bug was a
+  period with 9 invoices reporting **$0.00**; the invariant that actually holds is that **every
+  invoice ref the variance side consumed appears on that period's Purchase History page**, which
+  is asserted. (Separately, September's stored `d.t` sum of $2,653.20 is *below* its own line
+  sums of $3,671.98 incl-GST — a pre-existing stored-total question, untouched here.)
+- **August's $90 is an ADJUSTMENT** (`supplierTotal $0.00 / adjustmentTotal $90.00`), so its
+  `purchaseVal` of $0.00 is correct r81/r82 behaviour, not a residual bug.
+
+**Verified by `verify-r94.js` — 33 checks**: a closed period reads its own frozen purchases and
+its own deliveries; July's opening is $0 and September's opening equals July's closing (the
+chain carries); pre-r94 gave July and September identical figures; the reload test above; the
+three-way trend comparison; r93's suppression still holds (no live period plots a fabricated
+point, `% n/a` rows intact, infobox intact); and August's payload is byte-identical.
+
+**Regression note:** `gate-r93.js` now reports per-product movement and "fails". That is
+expected and correct — its pass condition was `perProduct === 0`, scoped to r93's claim that
+*that* build touched aggregates only. r94 deliberately changes which period the rows describe.
+r93's rules are regression-tested by `verify-r93.js` (52/52), which passes, as do r92's 26
+checks and r92's live gate.
+
+**Deliberately NOT in this build (Build D):** the report selector still seeds from the last
+array element and keys options by array INDEX (`meta.sessionIdx`) rather than by id, and does
+not follow `viewedSession`. r93's thresholds and r92's gate are untouched.
+
+---
+
 ## Density Architecture
 **`ap_master_products` is the single source of truth for product density.** Venue rows
 (`ap_clients.data.products`) hold per-venue copies for counts/stock/prices, but their
@@ -1436,6 +1560,8 @@ uploadInvoicePDF(file, ref, slug)               // Storage upload → signed URL
 currentSession(c) / viewedSession(c) / isClosedSession(s)
 compareSessions(a,b) / newSessionId() / nextSessionSeq(c) / formatSessionLabel(s)
 backfillAndSortSessions(c)  // assign missing seq, sort
+prevSessionOf(c, sess)      // r94 — the PREVIOUS period: prevId chain, else seq-ordered
+                            // predecessor. NEVER indexOf/array position (identity breaks on reload)
 switchAuditPeriod(id)       // Pin viewedPeriodId (null = follow active)
 updateAuditPeriodCtx(c)     // Top-bar period selector
 finalisePeriodAndRollover() // Close current + open the next (deep-copied opening)

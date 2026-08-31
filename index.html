@@ -3980,17 +3980,29 @@ function rptEsc(s) {
 
 // ─── Core calculation ────────────────────────────
 function calculateReportData(client, session) {
-  // computeVariances() is the app's canonical variance engine — reuse it so the
-  // report's numbers always match the Variance page. It targets the open /
-  // most-recent-with-purchases session; `session` here drives period labelling.
-  const varRows = computeVariances(client) || [];
+  // r94 FIX 1 — THE REPORT NOW DESCRIBES THE PERIOD IT IS TITLED WITH.
+  // This called computeVariances(client) with NO session, so every report — whichever period
+  // the user picked — carried the numbers of the AUTO-PICKED current period, while the
+  // Purchase History page below was already period-scoped (r81 FIX 6). A report headed
+  // "September 2026" therefore listed $2,653.20 of invoices beside an executive summary
+  // reading "Purchases this period: $0.00". It stayed hidden because the selector defaults to
+  // the LAST session, which is exactly what currentSession() picks — the default is
+  // self-consistent, and the contradiction only appears once the dropdown is changed.
+  //
+  // Resolved ONCE, here, and used for the variance rows, the period length, the purchase
+  // history and the trend anchor, so no two halves of the report can disagree about which
+  // period they describe. A null `session` (no saved sessions at all) resolves to
+  // currentSession(), which is exactly what computeVariances would have auto-picked, so
+  // behaviour there is unchanged — including r92's active-period write gate, which decides by
+  // identity against currentSession() and so cannot tell the two forms apart.
+  const _reportSession = session || currentSession(client);
+  const varRows = computeVariances(client, _reportSession) || [];
   const prodMap = {};
   (client.products || []).forEach(p => { prodMap[p.n || p.name] = p; });
 
-  const sessions  = client.auditSessions || [];
-  const sessIdx   = session ? sessions.indexOf(session) : sessions.length - 1;
-  const prevSess  = sessIdx > 0 ? sessions[sessIdx - 1] : null;
-  const periodDays = (session && session.periodDays) || 30;
+  // r94 FIX 3 — by chain/seq, never by array position or object identity. See prevSessionOf().
+  const prevSess  = prevSessionOf(client, _reportSession);
+  const periodDays = (_reportSession && _reportSession.periodDays) || 30;
   const prevSalesQty = name => {
     const s = prevSess && prevSess.sales && prevSess.sales[name];
     return s ? (parseFloat(s.qty) || 0) : 0;
@@ -4172,7 +4184,10 @@ function calculateReportData(client, session) {
   // was for. deliveriesForSession() is the same attribution the variance page uses
   // (resolveDeliveryPeriod: periodId -> ref-match -> date -> earliest). With no session to
   // scope to, fall back to the full list rather than printing an empty section.
-  const historyDeliveries = session ? deliveriesForSession(client, session) : (client.deliveries || []);
+  // r94 FIX 1 — the SAME resolved session the variance rows above were computed from. This
+  // page was already period-scoped while the summary was not, which is precisely the
+  // contradiction this build removes; both now read `_reportSession`.
+  const historyDeliveries = _reportSession ? deliveriesForSession(client, _reportSession) : (client.deliveries || []);
   const purchaseHistory = historyDeliveries.map(d => {
     // Prefer the stored invoice total (d.t, incl. GST) — it's the real invoice
     // grand total (freight/levies included) and can exceed the sum of captured
@@ -4204,6 +4219,11 @@ function calculateReportData(client, session) {
     products, categories, totals, actualGPavg, idealGPavg,
     lossLeaders, gainLeaders, deadStock, slowMovers, priorityIssues,
     purchaseHistory, purchaseTotal, supplierTotal, adjustmentTotal, adjustmentCount, periodDays,
+    // r94 FIX 2 — WHICH period these numbers describe, carried by ID. The trend chart has to
+    // know, and an id survives the reload that breaks object identity (see prevSessionOf).
+    // Passed on `data` rather than as a new renderReportDocument argument so the report
+    // selector is untouched (that is Build D).
+    sessionId: (_reportSession && _reportSession.id) || null,
   };
 }
 
@@ -4564,10 +4584,21 @@ function renderReportDocument(client, meta, data) {
   // Closed periods (finalised + rolled-over) are the trend's data points — a rolled-over
   // period must stay on the chart as history (STAGE 2, r58).
   const _finals   = _sessAll.filter(isClosedSession);
-  // Which session does computeVariances() (and therefore data.totals) reflect? Match that
-  // exact session (the deterministic current-period pick) so the latest trend point ties
-  // to the headline figure.
-  const _working  = currentSession(client);
+  // Which session does data.totals reflect? Match THAT session so its trend point ties to the
+  // headline figure.
+  //
+  // r94 FIX 2 — this was `currentSession(client)`, and it had to change in the SAME commit as
+  // FIX 1. The substitution below injects `data.totals.variancePct` into whichever period
+  // this matches; before FIX 1 data.totals always described the auto-picked current period,
+  // so anchoring to currentSession was correct. Now data.totals describes the SELECTED
+  // period, so leaving the anchor on currentSession would have written the selected period's
+  // total onto the CURRENT period's point — a fresh, worse inconsistency than the one FIX 1
+  // removes, because it would corrupt a period the report is not even about.
+  //
+  // Matched by ID, not by object identity: `data` may have been built before a Supabase
+  // reload rebuilt `client.auditSessions` (the same trap prevSessionOf exists for), and an
+  // identity miss here would silently fall through to the stored/recomputed branch.
+  const _workingId = data.sessionId || null;
   // r93 FIX 3 — a period whose overall % is not meaningful is OMITTED from the line, never
   // plotted at 0. A chart draws a LINE through its points, so a fabricated 0 is the same lie
   // in graphical form and is strictly worse than a gap: a line asserts continuity between
@@ -4584,7 +4615,7 @@ function renderReportDocument(client, meta, data) {
   // reader can see that the period exists and why it has no point.
   const trendRows = _finals.map(s => {
     let pct;
-    if (s === _working) {
+    if (_workingId && s && s.id === _workingId) {
       pct = data.totals.varPctValid === false ? null : data.totals.variancePct;
     } else {
       const stored = s.overallVariancePct;
@@ -16046,6 +16077,41 @@ function isClosedSession(s) {
 //   3. else the highest-seq session (only a lone rolledover period would land here).
 // A 'rolledover' period is history and is never auto-selected as current while any
 // open/finalised sibling exists. seq ordering comes from compareSessions (seq → openDate → id).
+// r94 FIX 3 — the period immediately BEFORE `sess`, resolved without ever using array
+// position or object identity.
+//
+// calculateReportData used `sessions.indexOf(session)`, which is identity-based. Pitfall #2:
+// after a Supabase reload `client.auditSessions` is rebuilt wholesale, so a `session` held
+// from before the reload is a DIFFERENT OBJECT with the same id — indexOf returns -1,
+// `sessIdx > 0` is false, and prevSess silently becomes null. Nothing throws. Every product
+// then reads `noSalesPrev = true`, and the dead-stock rule
+// (`hasStock && noSalesNow && (prevSess ? noSalesPrev : true)`) flags on this period alone,
+// so the report over-fires dead stock with no error anywhere.
+//
+// Order of preference:
+//   1. `prevId` — the explicit chain link rolloverPeriod writes on both ends. When it names a
+//      real session it is EXACT, so it wins.
+//   2. the SEQ-ordered predecessor — the highest session that sorts strictly before `sess`
+//      under compareSessions (seq -> openDate -> id), which is the codebase's single ordering
+//      rule. Legacy chains predate `prevId` (r64's own note), so seq is the fallback rather
+//      than the primary, and it is computed by SCANNING, never by reading `arr[i-1]` — the
+//      array's order is not a contract here.
+function prevSessionOf(c, sess) {
+  const arr = (c && c.auditSessions) || [];
+  if (!sess || !arr.length) return null;
+  if (sess.prevId) {
+    const linked = arr.find(s => s && s.id === sess.prevId);
+    if (linked) return linked;
+  }
+  let best = null;
+  arr.forEach(s => {
+    if (!s || s === sess || (s.id && sess.id && s.id === sess.id)) return;
+    if (compareSessions(s, sess) >= 0) return;                 // not before it
+    if (!best || compareSessions(s, best) > 0) best = s;        // the latest of those before
+  });
+  return best;
+}
+
 function currentSession(c) {
   const arr = (c && c.auditSessions) || [];
   if (!arr.length) return null;
@@ -16393,7 +16459,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r93';
+const APP_VERSION = '2026-06-10-r94';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
