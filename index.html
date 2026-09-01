@@ -184,8 +184,12 @@
   .sa-dir-btn.on-in{background:rgba(91,227,180,0.12);border-color:rgba(91,227,180,0.35);color:var(--green);}
   /* r96 — bulk cost-price grid: product | vessel | sell | current cost | new cost | status.
      Edits cost price ONLY — see the block comment at openBulkPricing(). */
-  .bp-line{display:grid;grid-template-columns:2.6fr 1fr 0.75fr 0.95fr 1.05fr 1.4fr;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--border);}
+  .bp-line{display:grid;grid-template-columns:2.5fr 0.95fr 0.7fr 0.9fr 1fr 0.5fr 1.25fr;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--border);}
   .bp-line input{padding:7px 10px;font-size:12px;width:100%;min-width:0;font-family:var(--font-mono);text-align:right;background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);outline:none;}
+  /* r97 — the free-product tick is a checkbox, not a cost box: the rule above is written
+     for the money input and would stretch it to the full cell. */
+  .bp-line input[type=checkbox]{width:16px;height:16px;padding:0;margin:0 auto;display:block;cursor:pointer;accent-color:var(--amber);}
+  .bp-free{font-size:10.5px;color:var(--text3);text-align:center;}
   .bp-name{font-size:12.5px;color:var(--text);min-width:0;overflow:hidden;}
   .bp-sub{font-size:10.5px;color:var(--text3);}
   .bp-meta{font-size:11.5px;color:var(--text2);min-width:0;overflow:hidden;}
@@ -1804,6 +1808,12 @@
   <div class="modal" style="width:560px;max-height:85vh;">
     <div class="modal-title">Review & finalise count</div>
     <p style="font-size:13px;color:var(--text2);margin-bottom:16px;margin-top:-10px;">Review all lines before locking the count. Locked counts feed directly into variance analysis.</p>
+    <!-- r97 FIX 2 — the cost-price warning. THIS IS THE FIRST OF THE TWO IDENTICAL
+         #finaliseModal blocks; getElementById returns this one and the copy below it can
+         never open, so the banner has to live here. Filled by renderFinaliseUnpricedWarning
+         from unpricedText() — the same wording the rollover confirm uses. It WARNS and never
+         blocks: the Lock button below is untouched. -->
+    <div id="fin-unpriced-warn" style="display:none;background:rgba(240,192,64,0.07);border:1px solid rgba(240,192,64,0.25);border-radius:10px;padding:11px 13px;margin-bottom:14px;font-size:12px;color:var(--amber);"></div>
     <div id="finalise-body" style="max-height:400px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;margin-bottom:16px;"></div>
     <div style="background:var(--bg3);border-radius:10px;padding:12px 14px;display:flex;justify-content:space-between;margin-bottom:4px;">
       <span style="font-size:13px;color:var(--text2);">Total lines</span>
@@ -2297,6 +2307,7 @@
       <div style="text-align:right;">Sell</div>
       <div style="text-align:right;">Current cost</div>
       <div style="text-align:right;">New cost (incl GST)</div>
+      <div style="text-align:center;" title="Tick a product that is genuinely free — it stops being reported as missing a price">Free</div>
       <div>Status</div>
     </div>
     <div id="bp-list" style="overflow-y:auto;flex:1;min-height:140px;"></div>
@@ -2460,6 +2471,16 @@
           <span style="font-size:10px;color:var(--text3);font-weight:400;"> — per unit inc GST</span>
         </label>
         <input type="number" id="pf-cost" placeholder="0.00" min="0" step="0.01" oninput="updateProdPreview()">
+        <!-- r97 FIX 1 — the ONLY way to say "genuinely free". The schema cannot otherwise
+             express it: every product carries costPrice, and a comped line at 0 is
+             byte-identical to one nobody has priced yet. This is a SILENCER, not a value —
+             it is read by the finalise warning, the rollover confirm and needsInfoAlert,
+             and by nothing that computes a number. -->
+        <label style="display:flex;align-items:center;gap:7px;margin-top:8px;font-size:11px;color:var(--text3);font-weight:400;cursor:pointer;">
+          <input type="checkbox" id="pf-nocost" style="width:auto;margin:0;flex-shrink:0;" onchange="pfMarkNoCost()">
+          <span>This product has no cost price &mdash; it is free (comp, giveaway, tap water)</span>
+        </label>
+        <div id="pf-nocost-hint" style="display:none;font-size:10.5px;color:var(--text3);margin-top:5px;line-height:1.45;">It stops being reported as missing a price. Its stock is still counted, and still has no dollar value in variance &mdash; nothing else changes.</div>
       </div>
       <div class="form-group">
         <label>Sell price ($)
@@ -4234,6 +4255,29 @@ function calculateReportData(client, session) {
     issues.push({ sev: _n * 2 + 10, color: 'grey',
                   text: `No cost price on ${_n} product${_n === 1 ? '' : 's'} (${_unassessable.map(c => c.cat).join(', ')}) — variance cannot be valued` });
   }
+  // r97 FIX 5 — ONE venue-wide line, and only for what r93 CANNOT already see.
+  // aggNotAssessable requires pricedCount === 0 for a WHOLE category, so the action above
+  // names only categories where not one product is priced. Every unpriced product sitting in
+  // a PARTIALLY priced category is invisible to it — 14 / 13 / 12 of them across the three
+  // live periods, silently excluded from that category's dollar figures while the category
+  // itself reads as assessed. This is that remainder and nothing else: it never restates a
+  // category r93 has already named, so the two lines can never say the same thing twice.
+  // Reads totals.unpricedCount, which r93 already computes; it adds no new counting rule.
+  //
+  // SEVERITY USES r93's OWN SHAPE (n * 2 + 8) rather than an ad-hoc figure, because this is
+  // the same KIND of finding — stock that is counted but cannot be valued — and ranking two
+  // instances of one finding by two different formulas is how the weaker one silently loses
+  // its place. The +8 sits just under r93's +10 so a category with NO priced product always
+  // outranks the scattered residual, which is the correct order: r93's names whole categories.
+  // Measured: this moves September's line from 4th (cut by a single RTD -29.5% line) to 3rd,
+  // and leaves July 3rd and August cut — August correctly, behind three genuine -100%
+  // variances, which must stay ranked above it.
+  const _naUnpriced = categories.filter(aggNotAssessable).reduce((s, c) => s + (c.unpricedCount || 0), 0);
+  const _residual   = Math.max(0, (totals.unpricedCount || 0) - _naUnpriced);
+  if (_residual > 0) {
+    issues.push({ sev: _residual * 2 + 8, color: 'grey',
+                  text: `${_residual} further product${_residual === 1 ? '' : 's'} in priced categories have no cost price — that stock is counted but not valued` });
+  }
   if (worstGP && worstGP.gap < -2) issues.push({ sev: Math.abs(worstGP.gap), color: 'red', text: `${worstGP.cat} GP gap ${fmtPct(worstGP.gap)}` });
   if (deadStock.length)  issues.push({ sev: deadStock.length * 3, color: 'red', text: `Dead stock: ${deadStock.length} item${deadStock.length !== 1 ? 's' : ''}` });
   if (slowMovers.length) issues.push({ sev: slowMovers.length, color: 'amber', text: `Slow movers: ${slowMovers.length} item${slowMovers.length !== 1 ? 's' : ''}` });
@@ -5638,6 +5682,7 @@ function snapshotCaseFields() {
   const cb = document.getElementById('pf-casebarcode');
   _caseFieldSnapshot = { size: cs ? cs.value : null, barcode: cb ? cb.value : null };
   pfMarkCaseSize();   // r85 — clear/repaint the required flag for whatever just loaded
+  pfMarkNoCost();     // r97 — same, for the free-product hint
 }
 
 // Opens the shared product modal in "add new" mode: blank fields, default vessel/units,
@@ -5654,6 +5699,7 @@ function openNewProductModal() {
   // Sensible defaults
   document.getElementById('pf-idealgp').value = '72';
   document.getElementById('pf-cat').value     = '';
+  if(document.getElementById('pf-nocost')) document.getElementById('pf-nocost').checked = false;   // r97
   document.getElementById('pf-parunit').value = 'Bottles';
   if(document.getElementById('pf-soldas'))       document.getElementById('pf-soldas').value       = 'Bottles';
   if(document.getElementById('pf-unitvol-unit')) document.getElementById('pf-unitvol-unit').value = 'ml'; // editProduct never resets this — clear stale 'L'
@@ -5663,6 +5709,7 @@ function openNewProductModal() {
   updateProdSubcats(true);  // rebuild subcats + auto-set default density (true = new product)
   updateProdSoldAs();       // show/hide vessel section (case section always shown — r73)
   snapshotCaseFields();     // r73 — baseline is the cleared fields; typing marks them touched
+  pfMarkNoCost();           // r97 — hide the free-product hint on a blank form
   updateProdPreview();      // hides the empty live preview
   openModal('newProductModal');
 }
@@ -5682,6 +5729,7 @@ function editProduct(idx) {
   document.getElementById('pf-tareg').value          = p.tareG || '';
   document.getElementById('pf-fullg').value          = p.fullG || '';
   document.getElementById('pf-cost').value           = p.costPrice || '';
+  if(document.getElementById('pf-nocost')) document.getElementById('pf-nocost').checked = p.noCostPrice === true;   // r97
   document.getElementById('pf-sell').value           = p.sellPrice || '';
   document.getElementById('pf-idealgp').value        = p.idealGP || '72';
   document.getElementById('pf-par').value            = parseFloat(p.par) || '';
@@ -6102,6 +6150,20 @@ async function saveProduct() {
     costHistory:  [{ price: costPrice, priceExGST: costPrice/1.15, date: new Date().toLocaleDateString('en-NZ'), source: 'manual' }],
   };
 
+  // r97 FIX 1 — the free-product flag. Written ONLY when ticked, so an ordinary product
+  // gains no new key and the catalogue does not widen by 60 rows. Unticking DROPS it, which
+  // happens for free by way of saveProduct rebuilding the whole object — the same
+  // self-clearing r79's _userAdded relies on.
+  //
+  // It is set here and NOWHERE ELSE on this path: costPrice, costPriceExGST, cost and
+  // costHistory are all left exactly as the fields above computed them. A free product is
+  // not a product priced at zero, so ticking this must never write a price — and in
+  // particular must never add another {price: 0} entry to the 56 poisoned costHistory rows
+  // this build deliberately leaves alone.
+  if(document.getElementById('pf-nocost') && document.getElementById('pf-nocost').checked) {
+    prod.noCostPrice = true;
+  }
+
   if(!c.products) c.products = [];
   if(prodEditIdx >= 0) {
     const prev = c.products[prodEditIdx];
@@ -6187,7 +6249,10 @@ function needsTareAlert(p) {
 function needsInfoAlert(p, dupNames) {
   // Returns array of missing fields
   const missing = [];
-  if(!p.costPrice || p.costPrice <= 0)   missing.push('cost price');
+  // r97 FIX 4 — routed through productHasNoCostPrice so a product explicitly ticked
+  // "no cost price" (noCostPrice: true) stops appearing here forever, instead of being
+  // nagged for a price it will never have. The test is otherwise identical.
+  if(productHasNoCostPrice(p))           missing.push('cost price');
   if(!p.unitVol   || p.unitVol <= 0)     missing.push('unit volume');
   if(needsTareAlert(p))                   missing.push('vessel weight');
   // r89 FIX 4 — DUPLICATE NAME. The name is the primary key of the whole data model, so
@@ -6260,12 +6325,21 @@ function renderProducts(c, query) {
       alertBanner.style.display = 'flex';
       const tareCnt  = missingTare.length;
       const infoCnt  = missingInfo.filter(p=>!needsTareAlert(p)||!p.costPrice||!p.unitVol).length;
+      // r97 FIX 4 — COUNTABLE AND SPECIFIC. "43 products have incomplete info" is true of
+      // 72% of this catalogue, which is why it has been read as wallpaper and ignored: it
+      // names no problem and offers no action. The cost-price case is by far the largest
+      // component (42 of the 43), it is the one that silently voids every dollar figure in
+      // the audit, and since r96 it is the one with a bulk surface to fix it in one pass —
+      // so it is stated separately, with its own number and its own button. No new alert and
+      // no new badge: this is the same banner saying something worth reading.
+      const costCnt  = missingInfo.filter(p=>productHasNoCostPrice(p)).length;
       // r89 FIX 4 — a name collision is called out separately from "incomplete info". It is
       // not a missing field: both rows can look complete while quietly sharing one key.
       const dupCnt   = missingInfo.filter(p=>needsInfoAlert(p, dupNames).includes('duplicate name')).length;
       alertBanner.innerHTML = `<span style="font-size:13px;">
         ${tareCnt  ? `⚖ <strong>${tareCnt} product${tareCnt!==1?'s':''}</strong> missing vessel weight &nbsp;·&nbsp;` : ''}
         ${dupCnt   ? `<strong style="color:var(--red);">⚠</strong> <strong>${dupCnt} product${dupCnt!==1?'s':''}</strong> share a name with another product — the count, purchases and sales of one will be read as the other. Rename one of each pair. &nbsp;·&nbsp;` : ''}
+        ${costCnt ? `<strong style="color:var(--red);">$</strong> <strong>${costCnt} product${costCnt!==1?'s':''}</strong> have no cost price — their stock cannot be valued in variance, GP or the loss leaders. <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;margin:0 4px;vertical-align:baseline;" onclick="openBulkPricing()">$ Price them</button> &nbsp;·&nbsp; ` : ''}
         <strong style="color:var(--red);">!</strong> <strong>${missingInfo.length} product${missingInfo.length!==1?'s':''}</strong> have incomplete info — click Edit to complete.
       </span>`;
     } else {
@@ -6496,6 +6570,11 @@ function applyBulkCostPrice(prod, price) {
   return true;
 }
 
+// r97 — canonical product NAME -> the ticked state of the free-product box. Kept in the
+// same shape and with the same authority as _bpDraft: the MAP is the truth, not the DOM, so
+// a tick made and then filtered off screen still saves. Only names whose state DIFFERS from
+// the stored flag are ever written.
+let _bpFree   = {};
 let _bpDraft  = {};        // canonical product NAME -> the raw string typed in its box
 let _bpNames  = {};        // row seq -> canonical product name (rebuilt on every render)
 let _bpRowSeq = 0;
@@ -6585,7 +6664,7 @@ function openBulkPricing() {
     alert('This venue has no products yet. Add the catalogue first — there is nothing to price.');
     return;
   }
-  _bpDraft = {}; _bpNames = {}; _bpRowSeq = 0; _bpFilter = 'needs'; _bpQuery = '';
+  _bpDraft = {}; _bpFree = {}; _bpNames = {}; _bpRowSeq = 0; _bpFilter = 'needs'; _bpQuery = '';
   const s = document.getElementById('bp-search'); if (s) s.value = '';
   const note = document.getElementById('bp-blank-note');
   if (note) note.textContent = BP_BLANK_MEANS_TEXT;
@@ -6611,7 +6690,11 @@ function bpRenderList() {
   const all = (c.products || []).filter(p => p && (p.n || p.name));
   const q   = _bpQuery.trim().toLowerCase();
   const pool = all.filter(p => {
-    if (_bpFilter === 'needs' && (Number(p.costPrice) || 0) > 0) return false;
+    // r97 — productHasNoCostPrice, not a bare costPrice test: a product ticked free must drop
+    // out of "Needs a price", or the one surface built to clear this list would keep serving
+    // it back forever. A tick made in THIS session counts immediately (bpFreeState), so a row
+    // does not vanish under the cursor mid-edit — it stays until the next filter change.
+    if (_bpFilter === 'needs' && !productHasNoCostPrice(p) && !bpFreeState(p)) return false;
     if (!q) return true;
     return ((p.n || p.name || '') + ' ' + (p.cat || '') + ' ' + (p.subcat || '')).toLowerCase().includes(q);
   });
@@ -6664,6 +6747,7 @@ function bpRowHtml(p) {
   const cur    = Number(p.costPrice) || 0;
   const sell   = Number(p.sellPrice) || 0;
   const draft  = String(_bpDraft[name] == null ? '' : _bpDraft[name]);
+  const free   = bpFreeState(p);
   const vol    = p.unitVol ? (p.unitVol >= 1000 ? (p.unitVol / 1000) + 'L' : p.unitVol + 'ml') : '—';
   const vessel = (p.soldAs || '—') + (p.soldAs === 'Cases' && p.caseSize ? ' ×' + p.caseSize : '');
   return '<div class="bp-line" id="bp-row-' + i + '">' +
@@ -6678,6 +6762,14 @@ function bpRowHtml(p) {
       : '<span class="bp-none">not priced</span>') + '</div>' +
     '<input type="text" inputmode="decimal" id="bp-cost-' + i + '" value="' + rptEsc(draft) + '" ' +
       'placeholder="unchanged" autocomplete="off" oninput="bpInput(' + i + ',this.value)">' +
+    // r97 — the free tick. Offered ONLY on a row with no price: a priced product does not
+    // need silencing, and showing the box there would invite someone to tick a product that
+    // demonstrably costs money. The handler token is the row SEQ, never the name (r71/r83 —
+    // a name carrying a quote breaks the dispatch).
+    '<div class="bp-free">' + (cur > 0 ? '<span style="color:var(--text3);">&mdash;</span>' :
+      '<input type="checkbox" id="bp-free-' + i + '" ' + (free ? 'checked ' : '') +
+      'title="This product is genuinely free (comp, giveaway, tap water)" ' +
+      'onchange="bpToggleFree(' + i + ',this.checked)">') + '</div>' +
     '<div class="bp-status" id="bp-st-' + i + '"></div>' +
   '</div>';
 }
@@ -6686,6 +6778,37 @@ function bpInput(i, v) {
   const name = _bpNames[i];
   if (name == null) return;
   if (String(v).trim() === '') delete _bpDraft[name]; else _bpDraft[name] = v;
+  bpMarkRow(i);
+  bpUpdateSummary();
+}
+
+// r97 — the effective free state of a product: this session's unsaved tick if there is one,
+// otherwise what is stored. One reader, so the filter, the row, the summary and the save can
+// never disagree about whether a box is ticked.
+function bpFreeState(p) {
+  const name = p && (p.n || p.name);
+  if (!name) return false;
+  return Object.prototype.hasOwnProperty.call(_bpFree, name) ? !!_bpFree[name] : (p.noCostPrice === true);
+}
+
+// r97 — tick/untick. Recorded in the draft map (never read back off the DOM), and only kept
+// when it actually DIFFERS from the stored flag, so re-ticking a box back to where it started
+// writes nothing at save time.
+//
+// Ticking CLEARS any price typed on that row: "this is free" and "this costs $12.50" are
+// contradictory answers to the same question, and silently keeping both would let the save
+// write a price onto a product the user has just declared free.
+function bpToggleFree(i, on) {
+  const name = _bpNames[i];
+  if (name == null) return;
+  const prod   = bpFindProduct(name);
+  const stored = !!(prod && prod.noCostPrice === true);
+  if (!!on === stored) delete _bpFree[name]; else _bpFree[name] = !!on;
+  if (on && _bpDraft[name] != null) {
+    delete _bpDraft[name];
+    const inp = document.getElementById('bp-cost-' + i);
+    if (inp) inp.value = '';
+  }
   bpMarkRow(i);
   bpUpdateSummary();
 }
@@ -6700,6 +6823,16 @@ function bpMarkRow(i) {
   const st  = document.getElementById('bp-st-' + i);
   const r   = bpReadDraft(name);
   let txt = r.short || '', col = 'var(--text3)', border = 'var(--border2)';
+  // r97 — a ticked row says so, and its cost box is disabled: the two are contradictory
+  // answers, and an enabled box beside a ticked one invites entering both.
+  const prodNow = bpFindProduct(name);
+  const freeNow = prodNow ? bpFreeState(prodNow) : false;
+  if (inp) inp.disabled = freeNow;
+  if (freeNow && r.state !== 'bad') {
+    if (inp) { inp.style.borderColor = 'var(--border2)'; inp.value = ''; }
+    if (st) { st.textContent = 'free — no cost price'; st.style.color = 'var(--amber)'; }
+    return;
+  }
   if (r.state === 'bad') {
     col = 'var(--red)'; border = 'var(--red)'; txt = '⚠ ' + (r.short || 'invalid');
   } else if (r.state === 'change') {
@@ -6720,8 +6853,10 @@ function bpUpdateSummary() {
     else if (r.state === 'same') same++;
     else if (r.state === 'bad')  bad++;
   });
+  const freeChanges = Object.keys(_bpFree).length;   // r97 — only DIFFERING states are kept
   const all   = (activeClient && activeClient.products) || [];
-  const needs = all.filter(p => p && !((Number(p.costPrice) || 0) > 0)).length;
+  // r97 — productHasNoCostPrice, so a product marked free is not still counted as "unpriced".
+  const needs = all.filter(p => p && productHasNoCostPrice(p) && !bpFreeState(p)).length;
   const shown = Object.keys(_bpNames).length;
   el.innerHTML =
     '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">' +
@@ -6729,6 +6864,7 @@ function bpUpdateSummary() {
       'price' + (changed !== 1 ? 's' : '') + ' will be written' +
       (same ? ' · <span style="color:var(--text3);">' + same + ' typed the same figure (nothing to write)</span>' : '') +
       (bad ? ' · <strong style="color:var(--red);">' + bad + ' need' + (bad !== 1 ? '' : 's') + ' fixing</strong>' : '') +
+      (freeChanges ? ' · <span style="color:var(--amber);">' + freeChanges + ' marked free</span>' : '') +
       '</span>' +
       '<span style="font-size:11px;color:var(--text3);">' + shown + ' row' + (shown !== 1 ? 's' : '') + ' shown · ' +
         needs + ' of ' + all.length + ' product' + (all.length !== 1 ? 's' : '') + ' in this venue still unpriced</span>' +
@@ -6736,7 +6872,8 @@ function bpUpdateSummary() {
     '<div style="font-size:11px;color:var(--text3);margin-top:6px;">Every other row is left exactly as it is. ' +
       rptEsc(BP_BLANK_MEANS_TEXT) + '</div>';
   const btn = document.getElementById('bp-save-btn');
-  if (btn) btn.textContent = changed ? ('✓ Save ' + changed + ' price' + (changed !== 1 ? 's' : '')) : '✓ Save prices';
+  const _n  = changed + freeChanges;
+  if (btn) btn.textContent = _n ? ('✓ Save ' + _n + ' change' + (_n !== 1 ? 's' : '')) : '✓ Save prices';
 }
 
 // The ONE refusal and the ONE wording (the r80 / r86 / r88 pattern). Returns TRUE when it
@@ -6773,7 +6910,11 @@ function saveBulkCostPrices() {
   });
   if (bpRefuseInvalidPrices(bad)) return;
 
-  if (!changes.length) {
+  // r97 — the free-product ticks. Only names whose state DIFFERS from the stored flag are
+  // in _bpFree, so this list is already the set of real changes.
+  const freeNames = Object.keys(_bpFree);
+
+  if (!changes.length && !freeNames.length) {
     alert('No cost price has been changed, so nothing was saved.\n\n' + BP_BLANK_MEANS_TEXT);
     return;
   }
@@ -6784,7 +6925,19 @@ function saveBulkCostPrices() {
     if (!prod) return;
     if (applyBulkCostPrice(prod, r.value)) written.push(r.name);
   });
-  if (!written.length) {
+  // r97 — the flag write is SEPARATE from applyBulkCostPrice, which stays byte-identical:
+  // its contract is "cost price and nothing else", and the way to keep that true is not to
+  // extend it. applyNoCostFlag touches costPrice / costPriceExGST / cost / costHistory on NO
+  // path — a product marked free is not a product priced at zero, and must never acquire a
+  // {price: 0} costHistory entry (the very non-decision r96 refused to record).
+  const flagged = [];
+  freeNames.forEach(n => {
+    const prod = bpFindProduct(n);               // re-resolve at WRITE time (pitfall #2)
+    if (!prod) return;
+    if (applyNoCostFlag(prod, !!_bpFree[n])) flagged.push(n);
+  });
+
+  if (!written.length && !flagged.length) {
     alert('No cost price has been changed, so nothing was saved.\n\n' + BP_BLANK_MEANS_TEXT);
     return;
   }
@@ -6793,13 +6946,234 @@ function saveBulkCostPrices() {
   // client's row. No master write and no cross-venue write — see the scope note above.
   dbSaveProducts(c);
   written.forEach(n => { delete _bpDraft[n]; });
-  console.log('[AuditPro] r96 — bulk cost pricing wrote ' + written.length + ' price(s):', written.join(', '));
+  flagged.forEach(n => { delete _bpFree[n]; });
+  if (written.length) console.log('[AuditPro] r96 — bulk cost pricing wrote ' + written.length + ' price(s):', written.join(', '));
+  if (flagged.length) console.log('[AuditPro] r97 — free-product flag changed on ' + flagged.length + ' product(s):', flagged.join(', '));
   closeModal('bulkPriceModal');
   renderProducts(c, (document.getElementById('prod-search') || {}).value || '');
-  showPersistToast('✓ ' + written.length + ' cost price' + (written.length !== 1 ? 's' : '') + ' saved');
+  const _parts = [];
+  if (written.length) _parts.push(written.length + ' cost price' + (written.length !== 1 ? 's' : '') + ' saved');
+  if (flagged.length) _parts.push(flagged.length + ' marked free');
+  showPersistToast('✓ ' + _parts.join(' · '));
 }
 
 
+
+// ═══ r97 — COST-PRICE COMPLETENESS GATE ══════════════════════════════════════════════
+// 42 of this venue's 60 products carry costPrice 0. Scoped to the period actually being
+// counted, 32 of the 50 stock-holding products cannot be valued — 64%, of which 18 are
+// Spirits, the highest-shrinkage category in the building. r93 reports that as a "Not
+// assessed" RAG state; r96 built the grid that makes it fixable. This is the push.
+//
+// THREE FINDINGS SHAPE THIS BUILD.
+//
+// (a) A PASSIVE ALERT ALREADY EXISTS AND IS ALREADY IGNORED. needsInfoAlert has flagged
+//     'cost price' on its first line since long before this build, and it is currently lit
+//     on 43 of 60 products — a 72% hit rate is wallpaper, not a signal. So r97 adds NO new
+//     passive surface. It makes the existing one SPECIFIC and COUNTABLE instead, and puts
+//     its one new message at the two moments that are actually decisions: finalise and
+//     rollover.
+//
+// (b) THE SCHEMA CANNOT EXPRESS "GENUINELY FREE". All 60 products have costPrice present
+//     (0 or positive) — there is no null to promote — and 56 carry a poisoned costHistory
+//     entry {price: 0, source: 'manual'} written by saveProduct's new-product branch from a
+//     blank form. PENGUINS GIN at 0 is byte-identical to a legitimately free line. So the
+//     distinction has to be STATED, not inferred: `noCostPrice: true` is a SILENCER, not a
+//     value, set only by a deliberate human tick.
+//
+//     IT IS READ BY THIS GATE AND BY needsInfoAlert, AND BY NOTHING ELSE. It is deliberately
+//     NOT wired into latestCostPrice, into r93's pricedCount/unpricedCount, into any
+//     valuation, or into anything that computes a number — so no figure moves anywhere and
+//     no re-valuation of stored history is possible. The flag cannot reach a number to move
+//     it, which is what makes this build safe to land on live periods.
+//
+// (c) A qty TEST WOULD MISS EVERY UNPRICED SPIRIT. 26 of the live closing entries are
+//     weighed spirits stored as {qty: 0, netWeightG: 798} — the grams live in netWeightG and
+//     qty is a literal 0 on every one of them. Testing entry.qty > 0 would therefore skip the
+//     entire category this build exists for. Stock is resolved through countToUnits, which is
+//     the one reader that understands both forms.
+//
+// WARN AT FINALISE, SOFT-BLOCK AT ROLLOVER — never a hard refusal at either.
+// Unit variance is genuinely useful with no prices attached, and a hard block at finalise
+// would corner the user on site at the end of a count with no invoices to hand. Rollover is
+// the last safe moment (the period becomes locked history), so that one asks a second time —
+// but it still takes yes for an answer, because an unflagged free product must never be able
+// to strand the period chain.
+
+// The ONE definition of "this product cannot be valued". A product is unpriced when it has
+// no usable cost price AND nobody has said it is free. Reads the product-level costPrice
+// directly — the same test r93 uses — and NEVER latestCostPrice, which would fold in an
+// invoice's per-unit figure and make the answer depend on which period is being looked at.
+function productHasNoCostPrice(p) {
+  if (!p) return false;
+  if (p.noCostPrice === true) return false;      // stated, not inferred — see (b)
+  return !((Number(p.costPrice) || 0) > 0);
+}
+
+// Products page ordering (CAT_ORDER_PROD, then name A→Z) so every r97 surface lists them the
+// same way the user already reads their catalogue.
+function sortProductsForDisplay(list) {
+  return (list || []).slice().sort((a, b) => {
+    const ai = CAT_ORDER_PROD.indexOf(a.cat || 'Other'), bi = CAT_ORDER_PROD.indexOf(b.cat || 'Other');
+    const av = ai === -1 ? 99 : ai, bv = bi === -1 ? 99 : bi;
+    if (av !== bv) return av - bv;
+    return String(a.n || a.name || '').localeCompare(String(b.n || b.name || ''));
+  });
+}
+
+// The products this period is actually COUNTING that cannot be valued. Not the catalogue:
+// 42 of 60 rows are unpriced, but only the ones carrying stock in this period distort this
+// period's numbers, and naming 42 when 32 matter is how a warning teaches people to ignore it.
+//
+// STOCK IS RESOLVED THROUGH countToUnits, NEVER entry.qty — see finding (c) above.
+function unpricedCountedProducts(c, sess) {
+  const out = [];
+  if (!c) return out;
+  const closing = (sess && sess.closing) || {};
+  const byName = {};
+  (c.products || []).forEach(p => { const k = p.n || p.name; if (k) byName[k] = p; });
+  Object.keys(closing).forEach(name => {
+    const prod = byName[name];
+    // Not in the catalogue: computeVariances builds rows only for catalogue names (r88), so
+    // this entry has no valuation to be missing from. r88's orphan banner is that report.
+    if (!prod || !productHasNoCostPrice(prod)) return;
+    if (countToUnits(closing[name], prod) > 0) out.push(prod);
+  });
+  return sortProductsForDisplay(out);
+}
+
+// The rows STAGED on the stocktake screen but not yet merged into a closing. A staged row is
+// on screen with its quantity in r.qty — including a weighed row, whose qty IS the gram
+// figure at this stage. countToUnits is required for STORED entries, where the grams have
+// moved into netWeightG and qty is 0; that is what unpricedCountedProducts handles.
+function unpricedStagedProducts(c, rows) {
+  const out = [], seen = {};
+  if (!c) return out;
+  const byName = {};
+  (c.products || []).forEach(p => { const k = p.n || p.name; if (k) byName[k] = p; });
+  (rows || []).forEach(r => {
+    const key = r && r.name;
+    if (!key || seen[key]) return;
+    const prod = byName[key];
+    if (!prod || !productHasNoCostPrice(prod)) return;
+    if ((parseFloat(r.qty) || 0) > 0) { seen[key] = 1; out.push(prod); }
+  });
+  return out;
+}
+
+// "Spirits 18, Beer & Cider 9, Wine 4" — worst categories first, for when the list is too
+// long to name product by product.
+function unpricedCatSummary(list) {
+  const by = {};
+  (list || []).forEach(p => { const k = p.cat || 'Other'; by[k] = (by[k] || 0) + 1; });
+  return Object.keys(by)
+    .sort((a, b) => by[b] - by[a] || String(a).localeCompare(String(b)))
+    .map(k => k + ' ' + by[k]).join(', ');
+}
+
+// The ONE wording (the r80 noOpenPeriodText / r86 invRefuseUnconfirmedPack / r96
+// BP_BLANK_MEANS_TEXT pattern), shared by the finalise banner and the rollover confirm so
+// the warning and the last-chance question can never drift apart.
+function unpricedText(list, when) {
+  const n = (list || []).length;
+  return n + ' product' + (n === 1 ? '' : 's') + ' counted in this period ' +
+    (n === 1 ? 'has' : 'have') + ' no cost price, so ' + (n === 1 ? 'its' : 'their') +
+    ' variance ' + (when === 'locked' ? 'is unit-only in the locked record' : 'cannot be valued') +
+    '. Unit variance still works; every dollar figure — cost impact, GP and the loss leaders — excludes them.';
+}
+
+// Name the products, or cap the list and say how many more.
+function unpricedNames(list, limit) {
+  const cap   = limit || 12;
+  const names = (list || []).map(p => p.n || p.name || '');
+  return names.length <= cap
+    ? names.map(n => '  • ' + n).join('\n')
+    : names.slice(0, cap).map(n => '  • ' + n).join('\n') + '\n  • …and ' + (names.length - cap) + ' more';
+}
+
+// The session finaliseStocktake will EXTEND. Extracted so the review modal warns about the
+// same period the finalise actually writes to — resolving it twice, differently, is how a
+// warning ends up describing a period the user is not in.
+function finaliseTargetSession(c) {
+  if (!c || !c.auditSessions) return null;
+  return c.auditSessions.find(s => s.status === 'open')
+      || (c.auditSessions.length ? c.auditSessions[c.auditSessions.length - 1] : null);
+}
+
+// Everything this finalise would leave unvalued: what is already in the target period's
+// closing, plus what is staged on screen right now.
+function unpricedForFinalise(c, rows) {
+  const stored = unpricedCountedProducts(c, finaliseTargetSession(c));
+  const staged = unpricedStagedProducts(c, rows);
+  const seen = {}, out = [];
+  stored.concat(staged).forEach(p => {
+    const k = p.n || p.name;
+    if (!k || seen[k]) return;
+    seen[k] = 1; out.push(p);
+  });
+  return sortProductsForDisplay(out);
+}
+
+// r97 FIX 2 — the WARNING, rendered into the FIRST #finaliseModal. getElementById returns
+// the first of the two byte-identical copies in the markup; the second (immediately below it)
+// is dead and can never open, so the banner must live in the first or it would never be seen.
+// It NEVER blocks: the Lock button is untouched and stays enabled. It is shown on the review
+// screen rather than at the moment of commit precisely because it is actionable there —
+// finaliseStocktake's first act is to close this modal.
+function renderFinaliseUnpricedWarning(c, rows) {
+  const el = document.getElementById('fin-unpriced-warn');
+  const list = unpricedForFinalise(c, rows);
+  if (!el) return list;
+  if (!list.length) { el.style.display = 'none'; el.innerHTML = ''; return list; }
+  const names = list.slice(0, 6).map(p => rptEsc(p.n || p.name || '')).join(', ');
+  const more  = list.length > 6 ? ' +' + (list.length - 6) + ' more' : '';
+  el.style.display = 'block';
+  el.innerHTML =
+    '<div style="display:flex;gap:9px;align-items:flex-start;">' +
+      '<span style="font-size:14px;line-height:1.25;">⚠</span>' +
+      '<div style="flex:1;min-width:0;">' +
+        '<div style="font-weight:700;margin-bottom:4px;">' + rptEsc(unpricedText(list, 'now')) + '</div>' +
+        '<div style="color:var(--text3);font-size:11px;margin-bottom:2px;">' + names + rptEsc(more) + '</div>' +
+        '<div style="color:var(--text3);font-size:11px;margin-bottom:8px;">By category: ' + rptEsc(unpricedCatSummary(list)) + '</div>' +
+        '<button class="btn btn-secondary" style="padding:5px 11px;font-size:11px;" onclick="finaliseGoPriceThem()">$ Price them now</button>' +
+        '<span style="font-size:11px;color:var(--text3);margin-left:9px;">You can finalise without this — the count is not blocked.</span>' +
+      '</div>' +
+    '</div>';
+  return list;
+}
+
+// Leave the review modal for the r96 grid. The staged count is untouched — clearStagedCount
+// only runs inside finaliseStocktake, so coming back to the count screen loses nothing.
+function finaliseGoPriceThem() {
+  closeModal('finaliseModal');
+  navigate('products');
+  openBulkPricing();
+}
+
+// r97 FIX 1 — write the free flag. Deliberately SEPARATE from r96's applyBulkCostPrice,
+// which is left byte-identical: that function's contract is "cost price and nothing else",
+// and the way to keep that true is not to extend it. Returns true when it wrote.
+//
+// Setting the flag NEVER touches costPrice, costPriceExGST, cost or costHistory — a free
+// product is not a product priced at zero, and writing a $0.00 into costHistory is the exact
+// non-decision r96 refused to record. Clearing it DELETES the key rather than storing false,
+// so an un-flagged product carries no r97 field at all and the catalogue gains no width.
+function applyNoCostFlag(prod, on) {
+  if (!prod) return false;
+  const cur = prod.noCostPrice === true;
+  if (cur === !!on) return false;
+  if (on) prod.noCostPrice = true; else delete prod.noCostPrice;
+  return true;
+}
+
+// Presentational only (the r85 pfMarkCaseSize / r96 bpMarkRow posture): reads no field into a
+// product and writes none.
+function pfMarkNoCost() {
+  const cb   = document.getElementById('pf-nocost');
+  const hint = document.getElementById('pf-nocost-hint');
+  if (!cb || !hint) return;
+  hint.style.display = cb.checked ? 'block' : 'none';
+}
 
 function switchProdTab(tab) {
   ['products','batches'].forEach(t=>{ showEl('prod-view-'+t, t===tab); setActive('prod-tab-'+t, t===tab); });
@@ -14877,6 +15251,12 @@ function showStocktakeReview() {
         </div>
       </div>`).join('')}`).join('');
 
+  // r97 FIX 2 — WARN, never block. Rendered here rather than in finaliseStocktake because
+  // this is the screen where it is still actionable: finaliseStocktake's first act is to
+  // close this modal. `all` is the staged rows; the helper unions them with whatever the
+  // target period's closing already holds, resolving stored stock through countToUnits.
+  renderFinaliseUnpricedWarning(activeClient, all);
+
   openModal('finaliseModal');
 }
 
@@ -14953,12 +15333,28 @@ function finaliseStocktake(){
     return;
   }
 
+  // r97 FIX 2 — THE COST-PRICE WARNING SITS BESIDE r84's REFUSAL, AND IS NOT ONE.
+  // r84 above refuses: an unresolvable pack size makes the count itself wrong, so nothing is
+  // written. An unpriced product does not make the count wrong — it makes the VALUATION of a
+  // correct count incomplete, and unit variance remains genuinely useful. A hard block here
+  // would corner the user on site at the end of a stocktake with no invoices to hand, so this
+  // path never refuses. The user-facing warning was rendered onto the review modal by
+  // renderFinaliseUnpricedWarning (which is where it is still actionable); this records the
+  // same set at the moment of commit so the console carries what was locked in unvalued.
+  const _unpricedAtFinalise = unpricedForFinalise(c, allRows);
+  if(_unpricedAtFinalise.length) {
+    console.warn('[AuditPro] r97 — finalising with ' + _unpricedAtFinalise.length +
+      ' unpriced counted product(s) (not blocked): ' +
+      _unpricedAtFinalise.map(p => p.n || p.name).join(', '));
+  }
+
   // r52 — Determine the audit session to EXTEND so post-finalise manual adds ACCUMULATE
   // into the same period instead of wiping it. Prefer the open session; else extend the
   // latest session (the period being counted); else (no prior session) create one below.
+  // r97 — resolved through finaliseTargetSession so the review modal's warning and this
+  // write can never be describing two different periods.
   if(!c.auditSessions) c.auditSessions = [];
-  let sess = c.auditSessions.find(s => s.status === 'open')
-          || (c.auditSessions.length ? c.auditSessions[c.auditSessions.length - 1] : null);
+  let sess = finaliseTargetSession(c);
 
   // Aggregate closing counts per product (sum across areas) ON TOP of the target session's
   // EXISTING closing. Seed from a DEEP CLONE so newly-staged rows add to prior counts and we
@@ -15417,6 +15813,34 @@ function rolloverPeriod() {
   // Guard — this step is one-way (the closed period becomes locked history).
   const ok = confirm('This closes the current period and starts a new one with opening stock carried over from this period’s closing count. The closed period is locked. Continue?');
   if(!ok) return;
+
+  // r97 FIX 3 — SOFT BLOCK, and deliberately not a refusal.
+  // This is the LAST moment the valuation can still be repaired: after this the period is
+  // 'rolledover' and correcting it means the reopen -> amend -> re-close-oldest-first walk,
+  // which re-runs the live merge and can move unrelated figures. So it asks a second time,
+  // stating what is about to become permanent. It NEVER refuses: an unflagged free product
+  // (a comp line nobody has ticked yet) would otherwise strand the entire period chain with
+  // no way forward, which is a far worse failure than an unvalued row. The single confirm
+  // above is untouched, so a fully priced venue sees exactly what it always saw.
+  const _unpriced = unpricedCountedProducts(c, cur);
+  if(_unpriced.length) {
+    const go = confirm(
+      unpricedText(_unpriced, 'locked') + '\n\n' +
+      unpricedNames(_unpriced) + '\n\n' +
+      'Products → "$ Bulk cost pricing" enters them in one pass, and re-running variance ' +
+      'before you roll over picks the prices up. If any of these are genuinely free, tick ' +
+      '"no cost price" on the product so they stop being counted as missing.\n\n' +
+      'Roll over anyway?'
+    );
+    if(!go) {
+      console.log('[AuditPro] r97 — rollover cancelled at the unpriced-stock confirm (' +
+                  _unpriced.length + ' product(s))');
+      return;
+    }
+    console.warn('[AuditPro] r97 — rolled over with ' + _unpriced.length +
+      ' unpriced counted product(s) locked into history: ' +
+      _unpriced.map(p => p.n || p.name).join(', '));
+  }
 
   const closingKeys = Object.keys(cur.closing || {}).length;
   const today       = new Date().toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'});
@@ -16993,7 +17417,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r96';
+const APP_VERSION = '2026-06-10-r97';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
