@@ -182,6 +182,18 @@
   .sa-dir-btn{flex:1;padding:9px 10px;border-radius:9px;font-family:var(--font-ui);font-size:12.5px;font-weight:700;cursor:pointer;border:1px solid var(--border2);background:var(--bg3);color:var(--text3);}
   .sa-dir-btn.on-out{background:rgba(240,80,80,0.14);border-color:rgba(240,80,80,0.4);color:var(--red);}
   .sa-dir-btn.on-in{background:rgba(91,227,180,0.12);border-color:rgba(91,227,180,0.35);color:var(--green);}
+  /* r96 — bulk cost-price grid: product | vessel | sell | current cost | new cost | status.
+     Edits cost price ONLY — see the block comment at openBulkPricing(). */
+  .bp-line{display:grid;grid-template-columns:2.6fr 1fr 0.75fr 0.95fr 1.05fr 1.4fr;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--border);}
+  .bp-line input{padding:7px 10px;font-size:12px;width:100%;min-width:0;font-family:var(--font-mono);text-align:right;background:var(--bg3);border:1px solid var(--border2);border-radius:7px;color:var(--text);outline:none;}
+  .bp-name{font-size:12.5px;color:var(--text);min-width:0;overflow:hidden;}
+  .bp-sub{font-size:10.5px;color:var(--text3);}
+  .bp-meta{font-size:11.5px;color:var(--text2);min-width:0;overflow:hidden;}
+  .bp-num{font-family:var(--font-mono);font-size:12px;text-align:right;}
+  .bp-cur{color:var(--text2);}
+  .bp-none{font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(240,80,80,0.12);color:var(--red);border:1px solid rgba(240,80,80,0.3);font-weight:700;white-space:nowrap;}
+  .bp-status{font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .bp-cathead{padding:8px 12px;display:flex;align-items:center;gap:8px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);}
   .var-filter{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;color:var(--text3);border:1px solid var(--border2);background:var(--bg3);font-family:var(--font-ui);transition:all 0.15s;}
   .var-filter:hover{color:var(--text);border-color:var(--border2);}
   .var-filter.active{background:rgba(200,240,100,0.12);color:var(--accent);border-color:rgba(200,240,100,0.3);}
@@ -1200,6 +1212,7 @@
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
           <div class="search-wrap" style="width:260px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input type="text" id="prod-search" placeholder="Search products…" oninput="filterProducts(this.value)"></div>
           <div style="display:flex;gap:8px;">
+            <button class="btn btn-secondary" onclick="openBulkPricing()" title="Enter cost prices for many products in one pass — cost price only">$ Bulk cost pricing</button>
             <button class="btn btn-primary" onclick="openNewProductModal()">+ Add product</button>
           </div>
         </div>
@@ -2245,6 +2258,54 @@
     <div class="modal-actions" style="flex-shrink:0;">
       <button class="btn btn-secondary" onclick="closeModal('invoiceReviewModal')">Cancel</button>
       <button class="btn btn-primary" id="irm-confirm-btn">✓ Confirm &amp; import to catalogue</button>
+    </div>
+  </div>
+</div>
+
+<!-- r96 — BULK COST PRICING.
+     One surface for entering many cost prices in a single save. It edits COST PRICE ONLY:
+     costPrice, costPriceExGST, the `cost` display mirror and costHistory. Nothing else on a
+     product is read into it and nothing else is written back — see the block comment at
+     openBulkPricing() for why it deliberately does NOT route through saveProduct().
+     The "New cost" box is type=text, NOT type=number, on purpose: a number input silently
+     yields '' for unparseable input, which this grid would then read as "unchanged" — the
+     exact silent no-op the blank-vs-zero rule exists to prevent. Text lets bpReadDraft see
+     what was actually typed and REFUSE it by name. -->
+<div class="modal-overlay" id="bulkPriceModal">
+  <div class="modal" style="width:920px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column;">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px;flex-shrink:0;">
+      <div>
+        <div class="modal-title" style="margin-bottom:2px;">Bulk cost pricing</div>
+        <div style="font-size:12px;color:var(--text3);">Price many products in one pass. This screen edits <strong style="color:var(--text2);">cost price only</strong> — no other field on a product is read or written.</div>
+      </div>
+      <button onclick="closeModal('bulkPriceModal')" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;line-height:1;flex-shrink:0;">&times;</button>
+    </div>
+
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-shrink:0;flex-wrap:wrap;">
+      <button class="var-filter active" id="bp-filter-needs" onclick="bpSetFilter('needs')">Needs a price</button>
+      <button class="var-filter" id="bp-filter-all" onclick="bpSetFilter('all')">All products</button>
+      <div class="search-wrap" style="width:230px;margin-left:auto;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input type="text" id="bp-search" placeholder="Search products&hellip;" oninput="bpSearchChanged(this.value)"></div>
+    </div>
+
+    <!-- The blank-means-unchanged rule. Filled from BP_BLANK_MEANS_TEXT so this note, the
+         per-row status cell and the refusal can never say different things. -->
+    <div id="bp-blank-note" style="background:rgba(240,192,64,0.07);border:1px solid rgba(240,192,64,0.2);border-radius:9px;padding:9px 13px;margin-bottom:10px;font-size:11.5px;color:var(--amber);flex-shrink:0;"></div>
+
+    <div class="bp-line" style="font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);border-bottom:1px solid var(--border2);flex-shrink:0;padding-bottom:8px;">
+      <div>Product</div>
+      <div>Vessel</div>
+      <div style="text-align:right;">Sell</div>
+      <div style="text-align:right;">Current cost</div>
+      <div style="text-align:right;">New cost (incl GST)</div>
+      <div>Status</div>
+    </div>
+    <div id="bp-list" style="overflow-y:auto;flex:1;min-height:140px;"></div>
+
+    <div id="bp-summary" style="background:var(--bg3);border-radius:10px;padding:11px 14px;font-size:12px;color:var(--text2);margin-top:12px;flex-shrink:0;"></div>
+
+    <div class="modal-actions" style="margin-top:14px;flex-shrink:0;">
+      <button class="btn btn-secondary" onclick="closeModal('bulkPriceModal')">Cancel</button>
+      <button class="btn btn-primary" id="bp-save-btn" onclick="saveBulkCostPrices()">&check; Save prices</button>
     </div>
   </div>
 </div>
@@ -6350,6 +6411,394 @@ function filterProducts(q) {
   const c = activeClient; if(!c) return;
   renderProducts(c, q);
 }
+
+// ═══ r96 — BULK COST PRICING ═══════════════════════════════════════════════════
+// 42 of this venue's 60 products carry costPrice 0, and 32 of the 50 products holding stock
+// in the current period therefore cannot be valued at all — 64%. The only way to enter a
+// price was the single-product modal, so closing that gap meant 42 open-edit-save round
+// trips. A cost-price completeness GATE is planned next; a gate that names a problem nobody
+// can efficiently fix is just noise, so the grid comes first.
+//
+// ── SCOPE: THIS SURFACE EDITS COST PRICE AND NOTHING ELSE ──
+// It never rebuilds a product object. It mutates, in place, exactly the four cost fields
+// that applyInvoiceToProducts already writes on its existing-product branch:
+//
+//     costPrice · costPriceExGST · cost (the display mirror) · costHistory
+//
+// Every other field — n/name, cat, subcat, soldAs, caseSize, caseBarcode, barcode,
+// barcodes, unitVol, serveVol, serves, tareG, fullG, density, sellPrice, idealGP, par,
+// parunit, supplier, supplierCode, supplierCodeFrom, sell, pc, pcv, _userAdded,
+// serveVolGuessed — is never read into a form and never written back. r73's preservation
+// semantics therefore hold in their STRONGEST form: a field this grid does not render
+// cannot be disturbed by it, because no code path here assigns to it.
+//
+// That is also precisely why the grid does NOT route through saveProduct(). saveProduct
+// REBUILDS the whole product object from the modal DOM — it is safe only because r73's
+// snapshot machinery, r85's Cases refusal and r89's uniqueness refusal all guard that
+// rebuild. Driving it from a grid would mean populating every one of those inputs for every
+// row, and any field left unpopulated would be erased. An in-place cost-only mutation is
+// strictly stronger than reproducing r73's three branches: there is nothing to preserve,
+// because there is nothing else being written.
+//
+// r89 (name uniqueness) and r85 (a Cases product must carry a pack size) are unaffected for
+// the same structural reason: names and vessel types are not editable here, so no edit made
+// on this screen can create a duplicate name or an unsized Cases product.
+//
+// ── NOT SYNCED, NOT WRITTEN TO MASTER ──
+// saveProduct's cross-venue `syncFields` list excludes costPrice on purpose (a price is
+// per-venue), and addToMasterCatalogue never assigns a cost onto an existing master row —
+// master is the density source of truth, not a price store. So this build makes zero writes
+// to ap_master_products and zero writes to any other client's row.
+
+// The distinct provenance stamp, so a grid edit is legible in the price history beside the
+// existing 'manual', 'manual edit', 'invoice' and 'barcode scan' sources.
+const BULK_PRICE_SOURCE = 'bulk price edit';
+
+// The ONE wording for the blank rule (the r80 noOpenPeriodText pattern), shared by the
+// standing note, the empty-save message and the refusal — so the instruction and the
+// refusal can never drift apart.
+const BP_BLANK_MEANS_TEXT = 'An empty box means UNCHANGED. It is never read as $0.00 — a price is only written where you typed one.';
+
+// The cost-price projection, derived exactly as saveProduct does: ex-GST is the incl-GST
+// figure divided by 1.15, and `cost` is the display string renderProducts prints in the
+// Cost price column — a mirror of costPrice, not an independent field. Leaving it stale
+// would print '—' beside a product that now has a price.
+// `pc`/`pcv` (pour cost) are deliberately NOT written: they are a function of sellPrice and
+// serveVol, which this grid does not touch, and the cost-only write in
+// applyInvoiceToProducts leaves them alone for the same reason.
+function bpCostFields(price) {
+  const cp = Number(price) || 0;
+  return { costPrice: cp, costPriceExGST: cp / 1.15, cost: cp > 0 ? '$' + cp.toFixed(2) : '—' };
+}
+
+// The ONE write, shaped exactly like the existing-product branch of applyInvoiceToProducts:
+// in place, and GATED ON A REAL CHANGE. Returns true when it wrote.
+//
+// The change gate is what keeps the costHistory promise: a no-op edit appends NOTHING. And
+// a price of 0 never reaches here (bpReadDraft refuses it), so this can never record the
+// {price: 0, source: 'manual'} non-decision that 56 of the 60 live products already carry
+// from saveProduct's new-product branch — a blank form logged as a pricing decision.
+function applyBulkCostPrice(prod, price) {
+  if (!prod) return false;
+  const f = bpCostFields(price);
+  if (!(f.costPrice > 0)) return false;
+  if (f.costPrice === (Number(prod.costPrice) || 0)) return false;
+  prod.costHistory = prod.costHistory || [];
+  prod.costHistory.push({
+    price:      f.costPrice,
+    priceExGST: f.costPriceExGST,
+    date:       new Date().toLocaleDateString('en-NZ'),
+    source:     BULK_PRICE_SOURCE,
+  });
+  prod.costPrice      = f.costPrice;
+  prod.costPriceExGST = f.costPriceExGST;
+  prod.cost           = f.cost;
+  return true;
+}
+
+let _bpDraft  = {};        // canonical product NAME -> the raw string typed in its box
+let _bpNames  = {};        // row seq -> canonical product name (rebuilt on every render)
+let _bpRowSeq = 0;
+let _bpFilter = 'needs';   // 'needs' (costPrice falsy) | 'all'
+let _bpQuery  = '';
+let _bpDups   = new Set(); // r89 duplicate-name set, refreshed per render and per save
+
+function bpRefreshDups() {
+  _bpDups = duplicateNameSet((activeClient && activeClient.products) || []);
+}
+
+// Pitfall #2 — a Supabase reload rebuilds client.products wholesale, so a held object or a
+// stored array index goes stale and degrades silently. Every read and every write
+// re-resolves by NAME with findIndex, which is the key the rest of the app already files
+// counts, purchases and sales under.
+function bpFindProduct(name) {
+  const want = String(name || '').trim();
+  if (!want) return null;
+  const ps = (activeClient && activeClient.products) || [];
+  const i  = ps.findIndex(p => p && (p.n || p.name || '') === want);
+  return i >= 0 ? ps[i] : null;
+}
+
+// Read one product's typed value. THE DRAFT MAP IS THE AUTHORITY, NOT THE DOM: a value
+// typed and then filtered or searched off screen must still save, or changing the filter
+// would silently discard work the user believes they entered.
+//
+// States: 'blank' (leave the stored price alone) · 'same' (typed the stored figure —
+// nothing to write) · 'change' · 'bad' (refuse the whole save and name this row).
+// `problem` is the sentence used in the refusal; `short` is the terse per-row cell label.
+function bpReadDraft(name) {
+  const raw  = String(_bpDraft[name] == null ? '' : _bpDraft[name]).trim();
+  const prod = bpFindProduct(name);
+  const out  = { name: name, prod: prod, raw: raw };
+  if (!prod) {
+    out.state = 'bad'; out.short = 'not in catalogue';
+    out.problem = 'is no longer in this venue’s catalogue';
+    return out;
+  }
+  // r89 — two products sharing a name collapse onto whichever row a reader reaches first,
+  // so bpFindProduct would price one of a colliding pair and leave the other looking
+  // untouched. Refuse rather than guess; renaming one (the existing duplicate-name badge)
+  // is the repair.
+  const key = String(name).trim().toLowerCase();
+  if (key && _bpDups.has(key)) {
+    out.state = 'bad'; out.short = 'duplicate name';
+    out.problem = 'shares its name with another product — rename one of them before pricing either';
+    return out;
+  }
+  out.cur = Number(prod.costPrice) || 0;
+  if (!raw) { out.state = 'blank'; out.short = 'unchanged'; return out; }
+
+  // A leading $, thousands commas and stray spaces are what a person actually types off an
+  // invoice. Everything else must FAIL LOUDLY rather than be coerced: Number('') is 0, so
+  // the emptiness test has to come first or junk would quietly price a product at zero.
+  const cleaned = raw.replace(/[$,\s]/g, '');
+  const n = Number(cleaned);
+  if (cleaned === '' || !Number.isFinite(n)) {
+    out.state = 'bad'; out.short = 'not a number';
+    out.problem = 'is not a number ("' + raw + '")';
+    return out;
+  }
+  if (n < 0) {
+    out.state = 'bad'; out.short = 'negative';
+    out.problem = 'is negative ("' + raw + '") — a cost price cannot be below zero';
+    return out;
+  }
+  // A typed 0 is REFUSED, not accepted as "clear the price". Blank already means unchanged,
+  // so 0 would be the one input whose meaning had to be guessed — and writing it would put
+  // a $0.00 pricing DECISION into costHistory, which is the very bug this build exists not
+  // to repeat. Refusing is what keeps blank-vs-zero unmistakable, which is the whole point.
+  if (n === 0) {
+    out.state = 'bad'; out.short = 'blank ≠ $0.00';
+    out.problem = 'is 0.00 — leave the box EMPTY to keep the current price; a typed 0 would record "costs nothing" as a decision';
+    return out;
+  }
+  out.value = n;
+  out.state = (n === out.cur) ? 'same' : 'change';
+  out.short = (out.state === 'same') ? 'no change' : '';
+  return out;
+}
+
+function openBulkPricing() {
+  const c = activeClient;
+  if (!c) { alert('Select a client first.'); return; }
+  if (!((c.products || []).length)) {
+    alert('This venue has no products yet. Add the catalogue first — there is nothing to price.');
+    return;
+  }
+  _bpDraft = {}; _bpNames = {}; _bpRowSeq = 0; _bpFilter = 'needs'; _bpQuery = '';
+  const s = document.getElementById('bp-search'); if (s) s.value = '';
+  const note = document.getElementById('bp-blank-note');
+  if (note) note.textContent = BP_BLANK_MEANS_TEXT;
+  bpRenderList();
+  openModal('bulkPriceModal');
+}
+
+function bpSetFilter(mode) {
+  _bpFilter = (mode === 'all') ? 'all' : 'needs';
+  bpRenderList();
+}
+
+function bpSearchChanged(q) { _bpQuery = String(q == null ? '' : q); bpRenderList(); }
+
+// The products this render shows, grouped and ordered the way the Products page itself
+// orders them: CAT_ORDER_PROD, then the per-category SUBCAT_ORDER, then name A→Z.
+function bpRenderList() {
+  const wrap = document.getElementById('bp-list');
+  const c    = activeClient;
+  if (!wrap || !c) return;
+  bpRefreshDups();
+
+  const all = (c.products || []).filter(p => p && (p.n || p.name));
+  const q   = _bpQuery.trim().toLowerCase();
+  const pool = all.filter(p => {
+    if (_bpFilter === 'needs' && (Number(p.costPrice) || 0) > 0) return false;
+    if (!q) return true;
+    return ((p.n || p.name || '') + ' ' + (p.cat || '') + ' ' + (p.subcat || '')).toLowerCase().includes(q);
+  });
+
+  _bpNames = {}; _bpRowSeq = 0;
+
+  const byCat = {};
+  pool.forEach(p => { const k = p.cat || 'Other'; (byCat[k] = byCat[k] || []).push(p); });
+  const orderedCats = CAT_ORDER_PROD.filter(k => byCat[k])
+    .concat(Object.keys(byCat).filter(k => !CAT_ORDER_PROD.includes(k)).sort());
+
+  wrap.innerHTML = orderedCats.length ? orderedCats.map(cat => {
+    const cc    = CAT_COLORS_PROD[cat] || { bg:'rgba(155,152,144,0.12)', text:'#9b9890', icon:'📦' };
+    const order = SUBCAT_ORDER[cat] || [];
+    const items = byCat[cat].slice().sort((a, b) => {
+      const ai = order.indexOf(a.subcat || 'Other'), bi = order.indexOf(b.subcat || 'Other');
+      const av = ai === -1 ? 99 : ai, bv = bi === -1 ? 99 : bi;
+      if (av !== bv) return av - bv;
+      const asc = String(a.subcat || ''), bsc = String(b.subcat || '');
+      if (asc !== bsc) return asc.localeCompare(bsc);
+      return String(a.n || a.name || '').localeCompare(String(b.n || b.name || ''));
+    });
+    const unpriced = items.filter(p => !((Number(p.costPrice) || 0) > 0)).length;
+    return '<div class="bp-cathead" style="background:' + cc.bg + ';">' +
+      '<span style="font-size:15px;">' + cc.icon + '</span>' +
+      '<span style="font-size:12.5px;font-weight:700;color:' + cc.text + ';">' + rptEsc(cat) + '</span>' +
+      '<span style="font-size:11px;color:var(--text3);">' + items.length + ' shown' +
+        (unpriced ? ' · ' + unpriced + ' unpriced' : '') + '</span>' +
+      '</div>' + items.map(p => bpRowHtml(p)).join('');
+  }).join('')
+  : '<div style="text-align:center;padding:38px 20px;color:var(--text3);font-size:13px;">' +
+      (_bpFilter === 'needs' && !q
+        ? 'Every product in this catalogue already has a cost price.'
+        : 'No products match this filter.') +
+    '</div>';
+
+  // Repaint each row from the surviving drafts — a re-render must never lose a typed value.
+  Object.keys(_bpNames).forEach(seq => bpMarkRow(Number(seq)));
+  setActive('bp-filter-needs', _bpFilter === 'needs');
+  setActive('bp-filter-all',   _bpFilter === 'all');
+  bpUpdateSummary();
+}
+
+// One row. The seq is the handler token — a product NAME is NEVER interpolated into an
+// oninput attribute (r71/r83: a name carrying a quote breaks the dispatch).
+function bpRowHtml(p) {
+  const i    = _bpRowSeq++;
+  const name = (p.n || p.name || '');
+  _bpNames[i] = name;
+  const cur    = Number(p.costPrice) || 0;
+  const sell   = Number(p.sellPrice) || 0;
+  const draft  = String(_bpDraft[name] == null ? '' : _bpDraft[name]);
+  const vol    = p.unitVol ? (p.unitVol >= 1000 ? (p.unitVol / 1000) + 'L' : p.unitVol + 'ml') : '—';
+  const vessel = (p.soldAs || '—') + (p.soldAs === 'Cases' && p.caseSize ? ' ×' + p.caseSize : '');
+  return '<div class="bp-line" id="bp-row-' + i + '">' +
+    '<div class="bp-name">' +
+      '<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + rptEsc(name) + '</div>' +
+      '<div class="bp-sub">' + rptEsc(p.subcat || '—') + '</div>' +
+    '</div>' +
+    '<div class="bp-meta">' + rptEsc(vessel) + '<div class="bp-sub">' + rptEsc(vol) + '</div></div>' +
+    '<div class="bp-num" style="color:var(--text3);">' + (sell > 0 ? '$' + sell.toFixed(2) : '—') + '</div>' +
+    '<div class="bp-num">' + (cur > 0
+      ? '<span class="bp-cur">$' + cur.toFixed(2) + '</span>'
+      : '<span class="bp-none">not priced</span>') + '</div>' +
+    '<input type="text" inputmode="decimal" id="bp-cost-' + i + '" value="' + rptEsc(draft) + '" ' +
+      'placeholder="unchanged" autocomplete="off" oninput="bpInput(' + i + ',this.value)">' +
+    '<div class="bp-status" id="bp-st-' + i + '"></div>' +
+  '</div>';
+}
+
+function bpInput(i, v) {
+  const name = _bpNames[i];
+  if (name == null) return;
+  if (String(v).trim() === '') delete _bpDraft[name]; else _bpDraft[name] = v;
+  bpMarkRow(i);
+  bpUpdateSummary();
+}
+
+// PURELY PRESENTATIONAL (the r85 pfMarkCaseSize / r86 invMarkCaseSize posture): it reads no
+// field into a product and writes none. Its only job is to make blank-vs-zero-vs-changed
+// impossible to mistake at a glance.
+function bpMarkRow(i) {
+  const name = _bpNames[i];
+  if (name == null) return;
+  const inp = document.getElementById('bp-cost-' + i);
+  const st  = document.getElementById('bp-st-' + i);
+  const r   = bpReadDraft(name);
+  let txt = r.short || '', col = 'var(--text3)', border = 'var(--border2)';
+  if (r.state === 'bad') {
+    col = 'var(--red)'; border = 'var(--red)'; txt = '⚠ ' + (r.short || 'invalid');
+  } else if (r.state === 'change') {
+    col = 'var(--green)'; border = 'rgba(91,227,180,0.45)';
+    txt = (r.cur > 0 ? '$' + r.cur.toFixed(2) + ' → ' : '→ ') + '$' + r.value.toFixed(2);
+  }
+  if (inp) inp.style.borderColor = border;
+  if (st) { st.textContent = txt; st.style.color = col; }
+}
+
+function bpUpdateSummary() {
+  const el = document.getElementById('bp-summary');
+  if (!el) return;
+  let changed = 0, same = 0, bad = 0;
+  Object.keys(_bpDraft).forEach(n => {
+    const r = bpReadDraft(n);
+    if (r.state === 'change')    changed++;
+    else if (r.state === 'same') same++;
+    else if (r.state === 'bad')  bad++;
+  });
+  const all   = (activeClient && activeClient.products) || [];
+  const needs = all.filter(p => p && !((Number(p.costPrice) || 0) > 0)).length;
+  const shown = Object.keys(_bpNames).length;
+  el.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">' +
+      '<span><strong style="color:' + (changed ? 'var(--green)' : 'var(--text2)') + ';">' + changed + '</strong> ' +
+      'price' + (changed !== 1 ? 's' : '') + ' will be written' +
+      (same ? ' · <span style="color:var(--text3);">' + same + ' typed the same figure (nothing to write)</span>' : '') +
+      (bad ? ' · <strong style="color:var(--red);">' + bad + ' need' + (bad !== 1 ? '' : 's') + ' fixing</strong>' : '') +
+      '</span>' +
+      '<span style="font-size:11px;color:var(--text3);">' + shown + ' row' + (shown !== 1 ? 's' : '') + ' shown · ' +
+        needs + ' of ' + all.length + ' product' + (all.length !== 1 ? 's' : '') + ' in this venue still unpriced</span>' +
+    '</div>' +
+    '<div style="font-size:11px;color:var(--text3);margin-top:6px;">Every other row is left exactly as it is. ' +
+      rptEsc(BP_BLANK_MEANS_TEXT) + '</div>';
+  const btn = document.getElementById('bp-save-btn');
+  if (btn) btn.textContent = changed ? ('✓ Save ' + changed + ' price' + (changed !== 1 ? 's' : '')) : '✓ Save prices';
+}
+
+// The ONE refusal and the ONE wording (the r80 / r86 / r88 pattern). Returns TRUE when it
+// refused, so the caller returns without writing anything.
+function bpRefuseInvalidPrices(bad) {
+  if (!bad || !bad.length) return false;
+  const shown = bad.slice(0, 12).map(r => '  • ' + r.name + ' — ' + r.problem).join('\n') +
+    (bad.length > 12 ? '\n  • …and ' + (bad.length - 12) + ' more' : '');
+  alert(
+    'Nothing has been saved.\n\n' +
+    bad.length + ' row' + (bad.length !== 1 ? 's' : '') + ' cannot be read as a cost price:\n\n' + shown +
+    '\n\n' + BP_BLANK_MEANS_TEXT
+  );
+  // Refuse with the offending fields ON SCREEN (the r86 posture), never about rows the
+  // current filter or search has hidden — so clear both and repaint before returning.
+  _bpFilter = 'all'; _bpQuery = '';
+  const s = document.getElementById('bp-search'); if (s) s.value = '';
+  bpRenderList();
+  return true;
+}
+
+// Save. Refuse-then-write, never a partial save: every draft is validated first and a single
+// unreadable row stops the whole batch (the r84 finaliseStocktake / r86 pack-size posture).
+function saveBulkCostPrices() {
+  const c = activeClient;
+  if (!c) { alert('Select a client first.'); return; }
+  bpRefreshDups();
+
+  const bad = [], changes = [];
+  Object.keys(_bpDraft).forEach(n => {
+    const r = bpReadDraft(n);
+    if (r.state === 'bad')         bad.push(r);
+    else if (r.state === 'change') changes.push(r);
+  });
+  if (bpRefuseInvalidPrices(bad)) return;
+
+  if (!changes.length) {
+    alert('No cost price has been changed, so nothing was saved.\n\n' + BP_BLANK_MEANS_TEXT);
+    return;
+  }
+
+  const written = [];
+  changes.forEach(r => {
+    const prod = bpFindProduct(r.name);          // re-resolve at WRITE time (pitfall #2)
+    if (!prod) return;
+    if (applyBulkCostPrice(prod, r.value)) written.push(r.name);
+  });
+  if (!written.length) {
+    alert('No cost price has been changed, so nothing was saved.\n\n' + BP_BLANK_MEANS_TEXT);
+    return;
+  }
+
+  // The same single persistence call saveProduct and deleteProduct use: one PATCH of this
+  // client's row. No master write and no cross-venue write — see the scope note above.
+  dbSaveProducts(c);
+  written.forEach(n => { delete _bpDraft[n]; });
+  console.log('[AuditPro] r96 — bulk cost pricing wrote ' + written.length + ' price(s):', written.join(', '));
+  closeModal('bulkPriceModal');
+  renderProducts(c, (document.getElementById('prod-search') || {}).value || '');
+  showPersistToast('✓ ' + written.length + ' cost price' + (written.length !== 1 ? 's' : '') + ' saved');
+}
+
 
 
 function switchProdTab(tab) {
@@ -16544,7 +16993,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r95';
+const APP_VERSION = '2026-06-10-r96';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();

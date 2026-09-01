@@ -64,8 +64,8 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r95` | `index.html:16547` |
-| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r90` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86-r89 and r91-r95 are desktop-only**, so mobile correctly still reads the r90 mobile stamp) |
+| `index.html` | `2026-06-10-r96` | `index.html:16996` |
+| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r90` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86-r89 and r91-r96 are desktop-only**, so mobile correctly still reads the r90 mobile stamp) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
   Desktop logs it on load (`[AuditPro] build …`); mobile compares it against
@@ -1303,6 +1303,158 @@ report is pointed at and how that choice is represented.
 
 ---
 
+---
+
+## A GATE THAT NAMES AN UNFIXABLE PROBLEM IS NOISE — SO THE GRID CAME FIRST (r96)
+
+**42 of this venue's 60 products carry `costPrice` 0**, and **32 of the 50 products holding
+stock in the current period cannot be valued — 64%**. There was **no bulk pricing surface and
+no catalogue import anywhere in the app**, so closing that gap meant 42 separate modal
+round-trips. A cost-price completeness **gate** is the next build; a gate naming a problem
+nobody can efficiently fix just becomes noise, so the grid lands first.
+
+**Products page → `$ Bulk cost pricing`** (`index.html:1215`) opens `#bulkPriceModal`
+(`:2274`): every product listed with the context needed to price it — name, sub-category,
+vessel/`soldAs` (+ pack size), unit volume, sell price, current cost — one inline box each,
+one save. Default filter is **Needs a price** (`costPrice` falsy); **All products** is one
+click away so an existing price can be corrected. Grouped by `CAT_ORDER_PROD`, then
+`SUBCAT_ORDER`, then name A→Z — the Products page's own ordering.
+
+### FIX 1 — the write footprint is FOUR FIELDS, and it is structural
+The grid mutates, **in place**, exactly the four cost fields `applyInvoiceToProducts` already
+writes on its existing-product branch:
+
+> `costPrice` · `costPriceExGST` · `cost` (the display mirror) · `costHistory`
+
+**It never rebuilds a product object.** Every other field — `n`/`name`, `cat`, `subcat`,
+`soldAs`, `caseSize`, `caseBarcode`, `barcode`, `barcodes`, `unitVol`, `serveVol`, `serves`,
+`tareG`, `fullG`, `density`, `sellPrice`, `idealGP`, `par`, `parunit`, `supplier`,
+`supplierCode`, `supplierCodeFrom`, `sell`, `pc`, `pcv`, `_userAdded`, `serveVolGuessed` — is
+never read into a form and never written back.
+
+- **It deliberately does NOT route through `saveProduct`.** `saveProduct` REBUILDS the whole
+  product from the modal DOM; it is safe only because r73's snapshot machinery, r85's Cases
+  refusal and r89's uniqueness refusal all guard that rebuild. Driving it from a grid would
+  mean populating every one of those inputs for every row, and any field left unpopulated
+  would be **erased**. An in-place cost-only mutation is **strictly stronger** than
+  reproducing r73's three branches: there is nothing to preserve because there is nothing
+  else being written.
+- **`pc`/`pcv` are deliberately not rewritten** — pour cost is a function of `sellPrice` and
+  `serveVol`, which this grid does not touch, and the cost-only write in
+  `applyInvoiceToProducts` leaves them alone for the same reason.
+- **`cost` IS written**: it is the display string `renderProducts` prints in the Cost price
+  column (`:6303`), a mirror of `costPrice`, not an independent field. Leaving it stale would
+  print `—` beside a product that now has a price.
+- **r89 and r85 are unaffected structurally, not by assertion**: names and vessel types are
+  not editable here, so no edit made on this screen can create a duplicate name or an unsized
+  `Cases` product. Every `<input>` the grid emits is a cost box — the harness counts them.
+- **No master write, no cross-venue write.** `saveProduct`'s `syncFields` excludes `costPrice`
+  on purpose (a price is per-venue) and `addToMasterCatalogue` never assigns a cost onto an
+  existing master row. One `dbSaveProducts(c)` PATCH, and nothing else.
+
+### FIX 2 — `costHistory` is appended on a CHANGE, never on a no-op
+`applyBulkCostPrice(prod, price)` (`:6481`) is the ONE write, shaped exactly like
+`applyInvoiceToProducts`' existing-product branch and **gated on a real change**. Returns true
+when it wrote.
+
+- A **no-op edit appends nothing** — typing `$3.5` into a product already stored at `3.50`
+  leaves the product **byte-identical**.
+- **A price of 0 never reaches it**, so it can never record the `{price: 0, source: 'manual'}`
+  non-decision that **56 of the 60 live products already carry** from `saveProduct`'s
+  new-product branch (a blank form logged as a pricing decision). That existing bug is
+  **measured** by the harness, not assumed — and deliberately **not fixed here**, because
+  rewriting `saveProduct`'s history rules is a data change this build has no business making.
+- `bpCostFields(price)` (`:6469`) is the projection, derived exactly as `saveProduct` does:
+  ex-GST is `price / 1.15` and `cost` is `price > 0 ? '$' + toFixed(2) : '—'`. The harness
+  drives the **real `saveProduct`** for the same six prices and compares, so "the same way" is
+  measured rather than claimed.
+- Source stamp is **`BULK_PRICE_SOURCE = 'bulk price edit'`** (`:6455`) — distinct from
+  `manual`, `manual edit`, `invoice` and `barcode scan`, so provenance stays legible.
+
+### FIX 3 — A BLANK BOX IS NOT $0.00, and the UI cannot let you think otherwise
+`BP_BLANK_MEANS_TEXT` (`:6460`) is the ONE wording (the r80 `noOpenPeriodText` pattern), used
+by the standing note above the grid, the summary, the empty-save message and the refusal — so
+the instruction and the refusal can never drift apart.
+
+`bpReadDraft(name)` (`:6529`) returns a state, and **each one fails for a different reason**:
+
+| typed | state | presented as |
+|---|---|---|
+| empty / whitespace | `blank` | grey `unchanged`; the product is not touched |
+| the stored figure (`3.5`, `$3.50`) | `same` | grey `no change`; **no costHistory entry** |
+| a new figure | `change` | green `$3.50 → $12.50` on the row |
+| `abc`, `12abc` | `bad` | red `not a number` — **refuses the batch** |
+| `-5` | `bad` | red `negative` |
+| **`0` / `0.00`** | `bad` | red **`blank ≠ $0.00`** |
+
+- **A typed 0 is REFUSED, not accepted as "clear the price."** Blank already means unchanged,
+  so 0 would be the one input whose meaning had to be guessed — and writing it would put a
+  $0.00 pricing *decision* into `costHistory`, the exact bug above. Refusing is what keeps
+  blank-vs-zero unmistakable, which is the whole point.
+- **The box is `type="text"`, not `type="number"`.** A number input silently yields `''` for
+  unparseable input, which the grid would then read as **"unchanged"** — the silent no-op the
+  rule exists to prevent. Text lets `bpReadDraft` see what was actually typed and refuse it
+  **by name**. `$`, thousands commas and stray spaces are tolerated because that is what a
+  person types off an invoice; everything else fails loudly. `Number('')` is 0, so the
+  emptiness test runs **before** the finite test or junk would quietly price at zero.
+- **`bpRefuseInvalidPrices`** (`:6744`) is the ONE refusal and the ONE wording, returns `true`
+  when it refused. One unreadable row **refuses the whole batch** and writes nothing (the r84
+  `finaliseStocktake` / r86 pack-size posture) — never a partial save. It then forces the
+  filter to **All products** and clears the search, so the named rows are **on screen** when
+  the refusal is read (the r86 posture).
+- `bpMarkRow` (`:6696`) is **purely presentational** (the r85 `pfMarkCaseSize` posture): it
+  reads no field into a product and writes none.
+
+### FIX 4 — the draft map is the authority, not the DOM
+`_bpDraft` is keyed by canonical product **NAME**; `_bpNames` maps row seq → name and is
+rebuilt on every render. A value typed and then filtered or searched **off screen still
+saves** — otherwise changing the filter would silently discard work the user believes they
+entered. The seq is the handler token: a product name is **never** interpolated into an
+`oninput` attribute (r71/r83 — a name carrying a quote breaks the dispatch).
+
+**Pitfall #2 throughout:** every read and every write re-resolves by name with `findIndex`,
+including a second resolve at write time. A reload that rebuilds and reorders
+`client.products` still prices the right product; a product that vanishes between typing and
+saving is **refused by name**, not silently skipped.
+
+### Verified — 86 checks + a dual-build live-data gate
+**`verify-r96.js` — 86 checks** (scratchpad, not committed; the repo tracks no harnesses),
+driving the REAL `openBulkPricing` / `bpRenderList` / `bpInput` / `saveBulkCostPrices` in a
+node `vm` against the DOM stub.
+
+**The load-bearing claim of this build is a NEGATIVE one** — "cost price and nothing else" —
+so the footprint checks **diff whole product objects and derive the changed-key set**, never
+list the keys expected. A hand-listed expectation cannot catch a field nobody thought about.
+On the live catalogue, pricing all **23 unpriced spirits in one save** yields a changed-key
+set of exactly `[cost, costHistory, costPrice, costPriceExGST]` and leaves the other **37
+products byte-identical**. Plus: the r73/r79/r88 field spot-check, ex-GST parity against the
+real `saveProduct`, every validation state, one-bad-row-refuses-all, draft survival across
+filter/search, list order and per-row context, reload/reorder resolution, the r89 duplicate
+refusal, the persistence footprint (**exactly one PATCH**, zero `ap_master_products`, the
+other venue byte-identical), and negative controls — including that **pre-r96 has no such
+surface at all**.
+
+**`gate-r96.js` — the r86–r95 dual-build live-data gate.** Real `computeVariances` **and**
+real `calculateReportData` from the pre- and post-r96 builds, all 3 stored periods **twice
+each** (as stored, forced `reopened`), field lists **auto-derived** from the union of row keys:
+
+> **23,666 field comparisons · 0 values moved · 0 new fields · 0 rows in one build only.**
+
+**r92's invariant re-measured here, and it matters more than usual in this build:** no run in
+either build mutated any product `costPrice`. r96 is a build *about* writing `costPrice`, so
+proving that merely COMPUTING still writes nothing is what separates "the grid writes prices"
+from "the app started writing prices."
+
+r95's 26 checks + gate, r94's 33 + gate, r93's 52 and r92's 26 + gate all still pass.
+`gate-r93.js` still reports the per-product movement **r94** introduced — and its output is
+**byte-identical whether the "post" build is pre-r96 or post-r96**, which is the control
+proving r96 contributes nothing to it.
+
+**Deliberately NOT in this build (the next one):** the `noCostPrice` flag, any gate at
+finalise or rollover, `needsInfoAlert`'s wording, and r93's `pricedCount`/`unpricedCount`.
+`saveProduct`'s own `{price: 0, source: 'manual'}` history bug is measured here and left
+alone.
+
 ## Density Architecture
 **`ap_master_products` is the single source of truth for product density.** Venue rows
 (`ap_clients.data.products`) hold per-venue copies for counts/stock/prices, but their
@@ -1698,6 +1850,17 @@ invMarkCaseSize(id, i)             // presentational: red border + 'Units per ca
 // Products
 renderProducts(c, query) / editProduct(idx) / deleteProduct(idx) / saveProduct()
 addToMasterCatalogue(p) / getMasterProduct(name) / masterSlug(name) / syncMasterToClient(c)
+
+// Bulk cost pricing (r96) — edits costPrice / costPriceExGST / cost / costHistory and
+// NOTHING else. In place, never a product rebuild, so it never routes through saveProduct.
+openBulkPricing() / bpRenderList() / bpRowHtml(p) / bpInput(i, raw) / bpSetFilter(mode)
+bpCostFields(price)                  // { costPrice, costPriceExGST, cost } — saveProduct's derivation
+applyBulkCostPrice(prod, price)      // the ONE write; change-gated, appends costHistory only on a change
+bpReadDraft(name)                    // 'blank' | 'same' | 'change' | 'bad' (+ problem / short)
+bpFindProduct(name)                  // findIndex by NAME at read AND write time (pitfall #2)
+bpRefuseInvalidPrices(bad)           // TRUE = refused; reveals hidden rows, writes nothing
+bpMarkRow(i) / bpUpdateSummary()     // presentational only
+saveBulkCostPrices()                 // refuse-then-write, never a partial save
 countToUnits(entry, prod, packOut)  // Count entry → units. packOut is an OPTIONAL out-param:
                             // pass {} and it returns with .unknown set when a Cases entry had
                             // no resolvable pack size (r87). Two-arg calls still work.
@@ -1772,7 +1935,9 @@ const AGG_PCT_MAX_ABS         // r93 - 100%; a variance may not exceed the holdi
 const PACK_UNKNOWN_TITLE      // :7424 — the ONE unexpanded-case wording (r87)
 const ADJUSTMENT_REASONS      // :12727 — transfer_in/out, wastage, breakage, staff, promo, sample, other (r82)
 const INV_CONFIDENT_KINDS     // r88 — ['code','barcode','exact']: green + collapsed
-const APP_VERSION             // :16182
+const BULK_PRICE_SOURCE       // :6455 — 'bulk price edit' (r96 costHistory provenance)
+const BP_BLANK_MEANS_TEXT     // :6460 — the ONE 'a blank box is not $0.00' wording (r96)
+const APP_VERSION             // :16996
 ```
 
 ---
