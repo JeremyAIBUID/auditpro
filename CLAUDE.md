@@ -64,8 +64,8 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r96` | `index.html:16996` |
-| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r90` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86-r89 and r91-r96 are desktop-only**, so mobile correctly still reads the r90 mobile stamp) |
+| `index.html` | `2026-06-10-r97` | `index.html:17420` |
+| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r90` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86-r89 and r91-r97 are desktop-only**, so mobile correctly still reads the r90 mobile stamp) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
   Desktop logs it on load (`[AuditPro] build …`); mobile compares it against
@@ -111,6 +111,44 @@ for f in ['index.html','mobile.html','mobile2.html']:
 "
 # index.html has 4 <script> blocks, mobile has 2 — every diff must be 0.
 ```
+
+### ⚠️ BRACE BALANCE ALONE IS NOT SUFFICIENT — `node --check` IS MANDATORY
+Brace balance counts `{` against `}`. It is **blind to every error that does not change that
+count**, and it has now passed a genuinely broken file **twice**:
+
+| build | the defect | brace balance | `node --check` |
+|---|---|---|---|
+| **r84** | an unterminated string literal | **passed** | caught it |
+| **r97** | a bash heredoc ate the `\n` escapes in the rollover `confirm`, putting **real newlines inside a string literal** | **passed** | caught it |
+
+Both would have shipped a file that throws on load — and a render-time throw looks exactly
+like a stale GitHub Pages cache, which is the single most expensive way to lose an afternoon.
+
+**Run `node --check` on EVERY `<script>` block on EVERY build.** Extract the blocks to files
+first; the checker must be given a real path, not a pipe:
+
+```bash
+python - <<'PY'
+import re, io, os, subprocess
+REPO = r'C:\Users\Sculp\Documents\auditpro'
+OUT  = os.environ.get('TMP', '.')
+ok = True
+for f in ['index.html', 'mobile.html', 'mobile2.html']:
+    c = io.open(os.path.join(REPO, f), encoding='utf-8').read()
+    for i, x in enumerate(re.findall(r'<script[^>]*>(.*?)</script>', c, re.DOTALL)):
+        p = os.path.join(OUT, 'chk_%s_%d.js' % (f.replace('.html',''), i))
+        io.open(p, 'w', encoding='utf-8').write(x)
+        r = subprocess.run(['node','--check',p], capture_output=True, text=True)
+        print('%-13s block %d  %s' % (f, i, 'OK' if r.returncode==0 else 'FAIL\n'+r.stderr))
+        ok &= r.returncode == 0
+print('ALL VALID' if ok else 'BROKEN')
+PY
+```
+
+**Windows trap that CAUSED the r97 case:** a bash heredoc — even a quoted `<<'PY'` one —
+mangled `\n` escapes on the way into Python, so a JS `'\n\n'` reached the file as two literal
+newlines. **Write multi-line edit scripts to a real `.py` file** (the `Write` tool) and run
+that, instead of piping a heredoc, whenever the content contains backslash escapes.
 
 ### Repo files
 | File | Status |
@@ -1455,6 +1493,186 @@ finalise or rollover, `needsInfoAlert`'s wording, and r93's `pricedCount`/`unpri
 `saveProduct`'s own `{price: 0, source: 'manual'}` history bug is measured here and left
 alone.
 
+## A PASSIVE ALERT NOBODY READS IS NOT A GATE (r97)
+
+**32 of the 50 products holding stock in the counted period cannot be valued — 64%, of which
+18 are Spirits**, the highest-shrinkage category in the building. r93 reports it as a "Not
+assessed" RAG state; r96 built the grid that makes it fixable. r97 is the push, placed at the
+two moments that are actually decisions.
+
+Three findings shaped the build, and each one changed the design.
+
+**(a) A PASSIVE ALERT ALREADY EXISTED AND WAS ALREADY IGNORED.** `needsInfoAlert` has flagged
+`'cost price'` on its **first line** for many revisions — the red `!` nav badge, the
+products-page banner and the per-row pill were all already lit, on **43 of 60 products**. A
+72% hit rate is wallpaper, not a signal: it names no problem and offers no action. So r97 adds
+**no new passive surface**. It makes the existing one specific and countable, and puts its one
+new message where a decision is being made.
+
+**(b) THE SCHEMA COULD NOT EXPRESS "GENUINELY FREE".** All 60 products carry `costPrice`
+(0 or positive) — **0 are absent, so there was no null to promote** — and 38 carry a single
+`{price: 0, source: 'manual'}` `costHistory` entry written by `saveProduct`'s new-product
+branch from a blank form. PENGUINS GIN at 0 is **byte-identical** to a comped line. The
+distinction therefore has to be **STATED, not inferred**.
+
+**(c) A `qty` TEST WOULD HAVE MISSED EVERY UNPRICED SPIRIT.** 19 of September's closing
+entries are weighed spirits stored as `{qty: 0, netWeightG: 798}` — the grams live in
+`netWeightG` and `qty` is a literal **0** on every one of them.
+
+> **Measured on live September: `countToUnits` finds 32 unpriced counted products; a
+> `entry.qty > 0` test finds 14, missing 18 — and 17 of those 18 are Spirits.**
+
+That number is the whole reason the rule exists. **Stock is resolved through `countToUnits`,
+never `entry.qty`,** at every r97 read site.
+
+### FIX 1 — `noCostPrice` is a SILENCER, not a value
+One boolean, `noCostPrice: true`, set **only** by a deliberate human tick — `#pf-nocost` on the
+product form (`index.html:2480`) and a per-row tick in r96's grid.
+
+- **It is read by this gate and by `needsInfoAlert`, AND BY NOTHING ELSE.** Deliberately NOT
+  wired into `latestCostPrice`, into r93's `pricedCount`/`unpricedCount`, into any valuation,
+  or into anything that computes a number. Proven structurally: `noCostPrice` occurs at 9
+  sites and is **absent from the brace-matched body** of `latestCostPrice`, `computeVariances`,
+  `calculateReportData`, `countToUnits`, `aggVarPct`, `aggCatRAG`, `aggNotAssessable`,
+  `freezeSessionSnapshot` and `reportRAG`. **The flag cannot reach a number to move it** —
+  which is what makes this build safe to land on live periods.
+- **Written only when ticked** (`:6155`), so an ordinary product gains no key and the catalogue
+  does not widen by 60 rows. Unticking DROPS it, for free, by way of `saveProduct` rebuilding
+  the whole object — the same self-clearing r79's `_userAdded` relies on.
+- **`applyNoCostFlag(prod, on)` (`:7161`) is SEPARATE from r96's `applyBulkCostPrice`,** which
+  stays byte-identical. That function's contract is "cost price and nothing else", and the way
+  to keep it true is not to extend it. The flag write touches `costPrice`, `costPriceExGST`,
+  `cost` and `costHistory` on **no path**: a free product is not a product priced at zero, and
+  must never acquire the `{price: 0}` `costHistory` entry r96 refused to record.
+- **Clearing deletes the key rather than storing `false`.** Harness-derived footprint (whole-
+  object diff, never a listed expectation): set writes exactly `[noCostPrice]`, clear removes
+  exactly `[noCostPrice]`, and clearing restores the product **byte-identically**.
+- **Mobile cannot erase it.** `saveMobileProduct`'s object has no `noCostPrice` key and
+  `pushProductToSupabase` spreads `{...cur, ...prod}` — an absent key preserves. No mobile
+  change was needed or made.
+
+### FIX 2 — WARN at finalise, NEVER block
+`renderFinaliseUnpricedWarning(c, rows)` (`:7123`) fills `#fin-unpriced-warn` (`:1816`).
+
+- **The banner is in the FIRST of the two identical `#finaliseModal` divs** (`:1807` and
+  `:1834`). `getElementById` returns the first; **the second is dead and can never open**, so
+  a banner placed there would never be seen.
+- **It warns and never refuses.** It sits beside r84's pack-size refusal in `finaliseStocktake`
+  (`:15298`) and is deliberately not one: r84 refuses because an unresolvable pack size makes
+  the count itself **wrong**; an unpriced product makes the **valuation of a correct count
+  incomplete**, and unit variance remains genuinely useful. A hard block here would corner the
+  user on site at the end of a stocktake with no invoices to hand. Harness-proven:
+  `finaliseStocktake` commits, the count is written in full, and no alert is raised.
+- It is rendered on the **review screen** (`showStocktakeReview`), not at the moment of commit,
+  because that is where it is still actionable — `finaliseStocktake`'s first act is
+  `closeModal('finaliseModal')`. The commit path computes the same set and **logs** it.
+- `unpricedForFinalise` unions the target period's stored closing (via `countToUnits`) with the
+  rows staged on screen (whose `qty` IS the gram figure at that stage, pre-merge).
+- **`finaliseTargetSession(c)` (`:7097`) was extracted** so the warning and the write can never
+  describe two different periods.
+
+### FIX 3 — SOFT-BLOCK at rollover
+`rolloverPeriod` (`:15787`) asks a **second** confirm when unpriced counted stock remains.
+
+- This is the **last moment the valuation can still be repaired**: afterwards the period is
+  `rolledover`, and correcting it means the reopen → amend → re-close-oldest-first walk, which
+  re-runs the live merge and can move unrelated figures.
+- **It never refuses.** An unflagged free product would otherwise **strand the entire period
+  chain** with no way forward — a far worse failure than an unvalued row.
+- The original single confirm is **untouched**, so a fully priced venue sees exactly what it
+  always saw. Verified: pre-r97 asks 1, post asks 2, yes rolls over, no stops it.
+- **On live data today it is correctly SILENT** — `currentSession()` is August, whose `closing`
+  is empty (0 entries), so nothing is counted and nothing is warned about.
+
+### FIX 4 — `needsInfoAlert` reworded, not extended
+- `productHasNoCostPrice(p)` (`:7007`) replaces the inline `!p.costPrice || p.costPrice <= 0`,
+  so a ticked product stops appearing. The test is otherwise identical.
+- The banner gains a **separate, countable** cost-price clause (`:6342`) with an inline
+  `$ Price them` button into the r96 grid. "42 products have no cost price — their stock cannot
+  be valued" beats "43 products have incomplete info", which is true of 72% of the catalogue.
+- Measured: 43 of 60 lit, **42 of them for cost price** — which is why it earns its own line.
+  Unflagged behaviour is unchanged from pre-r97 (43 → 43).
+
+### FIX 5 — ONE venue-wide report action, for the residual r93 CANNOT see
+`aggNotAssessable` requires `pricedCount === 0` for a **whole category**, so r93's action names
+only categories where not one product is priced. Every unpriced product in a **partially priced**
+category is invisible to it — **14 / 13 / 12** across the three live periods, silently excluded
+from that category's dollar figures while the category itself reads as assessed.
+
+- The line reports **that remainder and nothing else**, so the two can never say the same thing
+  twice. It reads `totals.unpricedCount`, which r93 already computes; no new counting rule.
+- **Severity uses r93's own shape — `residual * 2 + 8`, not an ad-hoc figure.** This is the same
+  KIND of finding (stock counted but not valuable), and ranking two instances of one finding by
+  two different formulas is how the weaker one silently loses its place. The `+8` sits just
+  under r93's `+10`, so a category with NO priced product always outranks the scattered
+  residual — the correct order, since r93's names whole categories.
+
+| period | residual | severity | position |
+|---|---|---|---|
+| July | 14 | 36 | 3rd (dead stock 57, r93 56) |
+| September | 13 | 34 | **3rd** — the tune; at `+6` it was cut 4th by a single `RTD −29.5%` (29) |
+| August | 12 | 32 | **cut**, behind three genuine −100% variances (101/100/99) — correct, and must stay so |
+
+### Verified — 81 checks + a dual-build live-data gate
+**`gate-r97.js`** (the r86–r96 pattern): real `computeVariances` **and** real
+`calculateReportData` from the pre- and post-r97 builds against live `ap_clients` +
+`ap_audit_sessions`, all 3 stored periods **twice each** (as stored, forced `reopened`), field
+lists **auto-derived** from the union of row keys:
+
+> **23,666 field comparisons · NUMERIC/structural movement 0 · 0 new fields · 0 rows in one
+> build only.** r92's invariant re-measured: **neither build repriced the catalogue.**
+
+Movement is **classified**, because this build makes one deliberate presentational change: the
+FIX 5 action text is reported separately (4 of 12 runs) so a pass can never quietly absorb a
+numeric move that happened to land in the same bucket.
+
+**`verify-r97.js` — 81 checks, all passing**, driving the REAL `finaliseStocktake`,
+`rolloverPeriod`, `renderFinaliseUnpricedWarning`, `needsInfoAlert` and `calculateReportData`:
+the weighed-Spirit catch **measured against a `qty` test in the same run**; finalise commits
+with unpriced stock; rollover asks twice and takes yes; ticking the flag leaves
+`computeVariances` and `calculateReportData` **byte-identical** and r93's counts and RAG states
+unmoved; the `applyNoCostFlag` footprint **derived** from a whole-object diff; negative controls
+on a fully priced venue and on pre-r97 (15 functions absent).
+
+**Two harness lessons, both caught only because the results were checked against reality:**
+- **A test can pass VACUOUSLY.** The first rollover trial ran against live data, where
+  `currentSession()` is August with an **empty closing** — so the soft-block never fired and
+  "ticking the flag removes the second confirm" passed while proving nothing. It now runs
+  against a fixture where the current period **has** a closing.
+- Three other "failures" were **over-tight thresholds in the harness**, not defects. Diff
+  against measured reality before believing a red test — the r88 lesson again.
+
+**Deliberately NOT in this build:** `saveProduct`'s `{price: 0, source: 'manual'}` history bug
+(38 products — a data change, still out of scope), r93's counts/RAG/thresholds, r96's write
+path, `latestCostPrice`, and any change that moves a valuation.
+
+### `verify-r96.js` after r97 — and a prediction that was wrong
+r97 breaks three of r96's 86 checks. **It was predicted that the FOOTPRINT assertion would be
+the casualty — it was not.** A2/H3/K4 assert the grid's changed-key set is exactly
+`[cost, costHistory, costPrice, costPriceExGST]`, and all three still **pass**: they type
+prices without ticking anything, and `openBulkPricing` resets `_bpFree`, so no flag is written
+on those paths. The prediction was made by reasoning about the code; the truth came from
+running it. **Run the old harness before describing how the new build breaks it.**
+
+What actually broke, and how each was repaired so the CLAIM survives rather than the assertion:
+
+| check | why it broke | repair |
+|---|---|---|
+| **F15** | the save button reads `✓ Save 1 change`, not `✓ Save 1 price` — r97 widened the noun because the count now covers price changes **and** free ticks | assert the new label; the claim ("the button names the count") is unchanged |
+| **H5** | "every input in the grid is a cost box" — there is now also `id="bp-free-N"` | admit the tick **BY NAME**, never by relaxing to "any input is fine" |
+| **H6** | 5 rendered rows now emit 9 inputs | count **cost boxes** per row, not inputs |
+
+H5's intent is the load-bearing part: **no name, vessel, volume or barcode input is reachable
+from that screen**, which is what makes r89 and r85 structurally safe there. Relaxing it to
+"any input" would have kept the harness green while silently retiring the thing it exists to
+catch. Two checks were **added** instead — `H7` (a free tick appears ONLY on unpriced rows) and
+`H8` (no identity/vessel input is reachable, asserted directly). **88 passing.**
+
+**A harness that fails for the wrong reason trains you to ignore it** — but one loosened until
+it passes is worse, because it still looks like cover.
+
+---
+
 ## Density Architecture
 **`ap_master_products` is the single source of truth for product density.** Venue rows
 (`ap_clients.data.products`) hold per-venue copies for counts/stock/prices, but their
@@ -1861,6 +2079,20 @@ bpFindProduct(name)                  // findIndex by NAME at read AND write time
 bpRefuseInvalidPrices(bad)           // TRUE = refused; reveals hidden rows, writes nothing
 bpMarkRow(i) / bpUpdateSummary()     // presentational only
 saveBulkCostPrices()                 // refuse-then-write, never a partial save
+bpFreeState(p) / bpToggleFree(i, on) // r97 — the per-row free tick; ticking CLEARS a typed price
+
+// Cost-price completeness gate (r97) — noCostPrice is read HERE and by needsInfoAlert, and by
+// NOTHING that computes a number. Stock is resolved via countToUnits, NEVER entry.qty.
+productHasNoCostPrice(p)             // :7007 — the ONE 'cannot be valued' test (honours the flag)
+unpricedCountedProducts(c, sess)     // :7029 — stored closing, via countToUnits
+unpricedStagedProducts(c, rows)      // :7049 — rows on screen, pre-merge (qty IS the grams there)
+unpricedForFinalise(c, rows)         // :7105 — the union of both
+finaliseTargetSession(c)             // :7097 — the session finaliseStocktake will EXTEND
+unpricedText(list, when) / unpricedNames(list, limit) / unpricedCatSummary(list)  // ONE wording
+renderFinaliseUnpricedWarning(c, rows)  // :7123 — the WARNING; #fin-unpriced-warn, FIRST modal
+finaliseGoPriceThem()                // :7147 — leave the review modal for the r96 grid
+applyNoCostFlag(prod, on)            // :7161 — the ONE flag write; SEPARATE from applyBulkCostPrice
+pfMarkNoCost()                       // :7171 — presentational only
 countToUnits(entry, prod, packOut)  // Count entry → units. packOut is an OPTIONAL out-param:
                             // pass {} and it returns with .unknown set when a Cases entry had
                             // no resolvable pack size (r87). Two-arg calls still work.
@@ -1921,23 +2153,24 @@ saveToStorage() / resetForNextAudit() / updateCountUI() / editCountItem(idx)
 
 ## Constants in the Desktop App
 ```javascript
-const PROD_SUBCATS            // index.html:5326 — { Spirits:[…], Beer:[…], … }
-const CAT_ORDER_PROD          // :5729 — ['Spirits','Beer','Wine','RTD','Soft drinks','Food','Cocktails','Other']
-const CAT_COLORS_PROD         // :5730 — { Spirits:{bg,text,icon}, … }
-const SUBCAT_ORDER            // :5740
-const SUBCAT_ICONS            // :5745 — { Gin:'🌿', Vodka:'🫧', … }
-const SUBCAT_BREAKDOWN_CATS   // :6206 — new Set(['Spirits'])
-const DENSITY                 // :6230 — { spirits:0.9467, wine:0.9805, beer:1.014, liqueur:1.06 }
-const REPORT_CAT_THRESHOLDS   // :3779
-const VAR_PCT_MIN_EXPECTED    // :7277 — 1 unit; below this no variance % is quoted (r81)
-const AGG_PCT_MIN_EXPECTED_VAL // r93 - $1 of expected holding required to quote an AGGREGATE %
-const AGG_PCT_MAX_ABS         // r93 - 100%; a variance may not exceed the holding it measures
-const PACK_UNKNOWN_TITLE      // :7424 — the ONE unexpanded-case wording (r87)
-const ADJUSTMENT_REASONS      // :12727 — transfer_in/out, wastage, breakage, staff, promo, sample, other (r82)
-const INV_CONFIDENT_KINDS     // r88 — ['code','barcode','exact']: green + collapsed
-const BULK_PRICE_SOURCE       // :6455 — 'bulk price edit' (r96 costHistory provenance)
-const BP_BLANK_MEANS_TEXT     // :6460 — the ONE 'a blank box is not $0.00' wording (r96)
-const APP_VERSION             // :16996
+// Line refs verified at r97. They drift on EVERY build — re-grep, never trust the number.
+const PROD_SUBCATS            // index.html:5809 — { Spirits:[…], Beer:[…], … }
+const CAT_ORDER_PROD          // :6280 — ['Spirits','Beer','Wine','RTD','Soft drinks','Food','Cocktails','Other']
+const CAT_COLORS_PROD         // :6281 — { Spirits:{bg,text,icon}, … }
+const SUBCAT_ORDER            // :6291
+const SUBCAT_ICONS            // :6296 — { Gin:'🌿', Vodka:'🫧', … }
+const SUBCAT_BREAKDOWN_CATS   // :7461 — new Set(['Spirits'])
+const DENSITY                 // :7485 — { spirits:0.9467, wine:0.9805, beer:1.014, liqueur:1.06 }
+const REPORT_CAT_THRESHOLDS   // :3861
+const VAR_PCT_MIN_EXPECTED    // :8676 — 1 unit; below this no variance % is quoted (r81)
+const AGG_PCT_MIN_EXPECTED_VAL // :3983 — r93: $1 of expected holding required to quote an AGGREGATE %
+const AGG_PCT_MAX_ABS         // :3984 — r93: 100%; a variance may not exceed the holding it measures
+const PACK_UNKNOWN_TITLE      // :8823 — the ONE unexpanded-case wording (r87)
+const ADJUSTMENT_REASONS      // :14258 — transfer_in/out, wastage, breakage, staff, promo, sample, other (r82)
+const INV_CONFIDENT_KINDS     // :12524 — r88: ['code','barcode','exact']: green + collapsed
+const BULK_PRICE_SOURCE       // :6529 — 'bulk price edit' (r96 costHistory provenance)
+const BP_BLANK_MEANS_TEXT     // :6534 — the ONE 'a blank box is not $0.00' wording (r96)
+const APP_VERSION             // :17420
 ```
 
 ---
