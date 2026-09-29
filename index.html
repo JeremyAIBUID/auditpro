@@ -1689,6 +1689,28 @@
           </div>
         </div>
 
+        <!-- r99 — BACKUP. Placed here because rollover, immediately above, is the moment a
+             period becomes permanent history, and it takes an automatic snapshot of its own. -->
+        <div class="card" style="margin-top:18px;">
+          <div class="card-header"><span class="card-title">&#128190; Backup</span></div>
+          <div class="card-body">
+            <button id="fin-backup-btn" class="btn btn-secondary" style="width:100%;padding:13px;font-size:14px;" onclick="downloadBackupNow(this)">
+              &#11015; Download backup
+            </button>
+            <div style="font-size:12px;color:var(--text2);line-height:1.65;margin-top:10px;">
+              Reads <strong>fresh from the database</strong> and saves one JSON file holding every venue, every
+              product, every audit period &mdash; from <em>both</em> stores, because the two can disagree &mdash; every
+              invoice, the recipes and the shared master catalogue. If any table cannot be read,
+              <strong>nothing is written</strong>: a backup missing one table would still look complete, and would
+              be trusted.
+              <br><br>
+              A snapshot is taken <strong>automatically</strong> every time you close a period and roll over. The file
+              can contain site codes from Client info, so keep it somewhere private. Invoice PDFs live in Supabase
+              Storage and are <strong>not</strong> in it.
+            </div>
+          </div>
+        </div>
+
         <!-- Legacy done-state container — retired in r58 (kept hidden for back-compat) -->
         <div id="fin-done-area" style="display:none;">
           <div style="background:rgba(91,227,180,0.08);border:1px solid rgba(91,227,180,0.2);border-radius:14px;padding:24px;text-align:center;">
@@ -15933,9 +15955,10 @@ function rolloverPeriod() {
   viewedPeriodId = null;
 
   // 4) Persist both sessions + the client.
-  dbSaveSession(c, cur);
-  dbSaveSession(c, newSess);
-  dbSaveClient(c);
+  //    r99 FIX 3 — the promises are CAPTURED (they were fire-and-forget) purely so the
+  //    automatic snapshot below can wait for these three writes to land before it reads the
+  //    server back. Nothing here awaits them, so the rollover behaves exactly as before.
+  const _rollSaves = [dbSaveSession(c, cur), dbSaveSession(c, newSess), dbSaveClient(c)];
   updateAuditPeriodCtx(c);
 
   // 5) Clear any staged rows so the new period starts from an empty count, then land the
@@ -15943,6 +15966,15 @@ function rolloverPeriod() {
   clearStagedCount();
   showPersistToast(`✓ Period closed. New period started — opening carried over from last closing (${closingKeys} products).`);
   navigate('stocktake');
+  // 6) r99 FIX 3 — AUTOMATIC SNAPSHOT. Detached on purpose: the rollover is COMPLETE and must
+  //    stand whatever happens here, so nothing awaits this and no failure path returns into the
+  //    rollover. It waits on the three writes above only so that what it reads back from the
+  //    server INCLUDES this rollover — allSettled, not all, because a write that failed has
+  //    already been reported loudly by r98 and must not stop the backup from capturing whatever
+  //    is genuinely on the server.
+  Promise.allSettled(_rollSaves)
+    .then(() => backupSnapshotAfterRollover(c, cur))
+    .catch(e => console.error('[AuditPro] r99 — rollover snapshot failed:', e));
 }
 
 // ─── STAGE 3 (r62) — REOPEN A CLOSED PERIOD ──────
@@ -17678,6 +17710,332 @@ function dbDownNoticeHTML(full) {
     + '</div></div>';
 }
 
+// ══ r99 — A BACKUP IS THE ONLY COPY THAT SURVIVES THE SERVER ═════════════════════════
+// r98 made a silent backend failure HONEST. It did not make the data RECOVERABLE. The
+// incident behind both: the Supabase project auto-paused after two weeks idle (free tier),
+// its hostname stopped resolving, and the app loaded nothing at all.
+//
+// THE DATA SURVIVED BECAUSE THE PROJECT WAS PAUSED, NOT DELETED — luck, not design. The
+// three live audit periods, their invoices and their closing counts existed ONLY on that
+// server. The only local copy of anything was backup-pre-r18.json, taken by hand on 13 June,
+// which predates all three periods and contains none of them.
+//
+// So: ONE export that holds everything needed to rebuild a venue from nothing, read FRESH
+// from the server, REFUSING rather than writing a partial file, and taken AUTOMATICALLY at
+// the one moment a period stops being editable and becomes permanent history.
+
+const BACKUP_SCHEMA_VERSION = 1;
+
+// ── THE FOUR TABLES dbLoadAll READS, and therefore the four a backup must carry. Verified
+// against dbLoadAll, which reads ap_master_products, ap_clients, ap_audit_sessions and
+// ap_batches — in that order — and nothing else.
+//
+// ap_audit_sessions is NOT redundant with the copy inside ap_clients.data.auditSessions.
+// dbLoadAll loads the client row FIRST and then OVERWRITES each matching session from the
+// table, so the TABLE copy is the one that wins. That is the r80 live-data lesson exactly:
+// September's openDate had to be corrected in BOTH stores, because patching only the client
+// copy let the stale table value win at the next load. A backup that captured one copy would
+// therefore be a backup of a venue that cannot be reproduced.
+const BACKUP_TABLES = [
+  { table: 'ap_clients',         why: 'venues — products, auditSessions (client copy), deliveries, invoiceArchive, recipes, suppliers, sales, wasteRows, importedCounts, _salesBlacklist, info' },
+  { table: 'ap_audit_sessions',  why: 'audit periods — opening/purchases/sales/closing/varRows/amendments. THIS is the copy that wins at load, overwriting the client copy.' },
+  { table: 'ap_master_products', why: 'shared master catalogue — the single source of truth for density' },
+  { table: 'ap_batches',         why: 'cocktail batches' },
+];
+
+// Stated in the header rather than left to be discovered by whoever eventually needs it. A
+// reader must be able to tell what a backup does NOT contain as easily as what it does —
+// "whether it is complete" is only answerable against a stated definition of complete.
+const BACKUP_NOT_INCLUDED = [
+  'Invoice PDFs. They live in Supabase STORAGE (private bucket "Invoices", path {clientSlug}/{invoiceRef}.pdf), not in any table. The signed URLs stored on each delivery (d.pdfUrl) point into that bucket and would not survive the project being deleted.',
+  'ap_mobile_counts — the mobile-to-desktop count handoff. Transient by design: a count is staged there under a session code, imported into a period, and thereafter lives in that period. It also remains on the phone in localStorage until the next audit.',
+  'ap_products — legacy/unused. It holds no live data; it appears only in the bootstrap SQL.',
+  'API keys. No key of any kind is written into this file.',
+];
+
+// The Supabase project ref, from the configured URL — https://<ref>.supabase.co. Recorded so
+// a future reader can tell WHICH project a backup came from without holding a key.
+function backupProjectRef() {
+  const m = String(SUPABASE_CONFIG.url || '').match(/^https?:\/\/([^.\/]+)\./);
+  return m ? m[1] : '';
+}
+
+// A filesystem-safe filename part. Collapses every run of non-alphanumerics into one dash, so
+// a venue called "1 Up Sports Bar" and a period called "September 2026 (from 3 Sep)" both come
+// out usable on Windows, macOS and Linux.
+function backupNamePart(s, max) {
+  const out = String(s == null ? '' : s).replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return out.slice(0, max || 48) || 'unknown';
+}
+
+// ── FIX 4 — ONE filename builder, so the manual export and the automatic rollover snapshot
+// can never be named by two different rules. The format is:
+//
+//   auditpro-backup_<venue>_<YYYY-MM-DD>[_rollover-<period closed>]_build-<APP_VERSION>.json
+//
+// e.g.  auditpro-backup_1-Up-Sports-Bar_2026-09-29_build-2026-06-10-r99.json
+//       auditpro-backup_1-Up-Sports-Bar_2026-09-29_rollover-September-2026_build-2026-06-10-r99.json
+//
+// VENUE first so one venue's backups group together in a folder; the ISO date next so they
+// sort chronologically within that venue; the closed period only on a rollover snapshot, where
+// it is what makes the file self-describing; the build stamp LAST, because it is constant
+// across a day and must not disturb the sort. The stamp carries its own date (the build date,
+// not today's), which is why it is written behind an explicit `build-` label — two bare dates
+// in one filename would be ambiguous.
+function backupFilename(venueName, closedPeriodLabel) {
+  const iso = new Date().toISOString().slice(0, 10);
+  return 'auditpro-backup_' + backupNamePart(venueName)
+    + '_' + iso
+    + (closedPeriodLabel ? '_rollover-' + backupNamePart(closedPeriodLabel, 40) : '')
+    + '_build-' + backupNamePart(APP_VERSION, 24)
+    + '.json';
+}
+
+// ── FIX 4 — the download mechanism, REUSED rather than invented. The PDF export path ends at
+// jsPDF's pdf.save(), which can only emit a PDF; the generic mechanism underneath it is the one
+// already in this file, in viewInvoicePDF's popup-blocked fallback — an object URL on a
+// synthetic <a download>, clicked, then revoked. That is precisely what jsPDF's save() does
+// internally, so this is the same mechanism and not a second one.
+//
+// The anchor IS attached to the document before the click and removed after. A detached anchor
+// works in Chromium but has historically not in Firefox, and an export that silently does
+// nothing is the exact failure mode this whole build exists to remove.
+function downloadTextFile(filename, text, mime) {
+  const blob = new Blob([text], { type: mime || 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    if (a.parentNode) a.parentNode.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 2000);
+  return filename;
+}
+
+// ── FIX 2 — FETCH FRESH, AND REFUSE RATHER THAN WRITE A PARTIAL FILE.
+//
+// It deliberately does NOT serialise `clients` / `masterProducts` / `batches` out of memory.
+// In-memory state can be mid-edit, half-loaded (r98's dbLoadAll returns false on exactly that:
+// ap_clients answered but ap_audit_sessions did not, so the periods in memory are incomplete),
+// or stale behind another device's write. A backup is only worth taking from the authority.
+//
+// Every read goes through r98's DB.getResult, so the three outcomes stay distinguishable:
+// 'unreachable' (fetch REJECTED — no HTTP conversation at all, a paused project), 'http' (the
+// server answered and refused — RLS, 401, 5xx) and a GENUINELY EMPTY table. Only reason 'ok'
+// is accepted — and an empty table IS a clean read: ap_batches legitimately holds zero rows at
+// this venue today and must never refuse a backup.
+//
+// Ordered by `id.asc` on every table (all four carry `id SERIAL PRIMARY KEY`) so two backups
+// of the same data are byte-comparable.
+//
+// Returns { ok, tables, counts, failed }; failed is [{ table, reason, status }].
+async function fetchBackupTables() {
+  const tables = {};
+  const counts = {};
+  const failed = [];
+  // for...of with await — forEach would not sequence these (pitfall #3).
+  for (const spec of BACKUP_TABLES) {
+    const res = await DB.getResult(spec.table, '?order=id.asc');
+    if (!res || !res.ok) {
+      failed.push({ table: spec.table, reason: (res && res.reason) || 'unknown', status: (res && res.status) || 0 });
+      continue;
+    }
+    tables[spec.table] = Array.isArray(res.rows) ? res.rows : [];
+    counts[spec.table] = tables[spec.table].length;
+  }
+  return { ok: failed.length === 0, tables: tables, counts: counts, failed: failed };
+}
+
+// The ONE wording for a refused backup — the r80 noOpenPeriodText / r86 invRefuseUnconfirmedPack
+// / r96 BP_BLANK_MEANS_TEXT / r98 dbDownText pattern. The manual button and the rollover
+// snapshot share it, so they can never describe the same failure two different ways.
+function backupRefuseText(failed, trigger) {
+  const lines = (failed || []).map(f => '  • ' + f.table + ' — ' + (
+      f.reason === 'unreachable' ? 'could not be reached at all — no connection was made'
+    : f.reason === 'http'        ? 'the database answered with an error (' + (f.status || '?') + ')'
+    : f.reason === 'notready'    ? 'the database is not configured in this browser'
+    :                              'the read failed (' + f.reason + ')'
+  )).join('\n');
+  return 'BACKUP NOT WRITTEN\n\n'
+    + 'These tables could not be read:\n' + lines + '\n\n'
+    + 'NOTHING has been saved to your computer. A backup that quietly leaves a table out is '
+    + 'worse than no backup at all, because it would be trusted: a file missing '
+    + 'ap_audit_sessions looks complete and contains not one of your audit periods.\n\n'
+    + (trigger === 'rollover'
+        ? 'THE ROLLOVER ITSELF SUCCEEDED and stands — this only means no snapshot file was '
+        + 'written for it. Take one by hand from Finalise audit → "Download backup" as soon as '
+        + 'the database is reachable again.\n\n'
+        : '')
+    + 'The most common cause is the Supabase project being PAUSED — the free tier pauses a '
+    + 'project after about a week idle. Resume it from the Supabase dashboard and try again.';
+}
+
+// ── FIX 1 — the header block. A future reader must be able to tell AT A GLANCE what this file
+// holds and whether it is complete, WITHOUT parsing the body: the schema version, the build
+// that wrote it, an ISO timestamp, the source project, per-table row counts and a per-venue
+// summary — plus what a backup deliberately does not contain.
+//
+// `backup_taken` and `note` are ALSO emitted at the top level, matching this repo's existing
+// backup-pre-r18.json exactly, so anything written against that file still reads this one.
+//
+// auditSessionsInClient vs auditSessionsInTable are reported SEPARATELY and on purpose: they
+// are two stores of the same periods, the table copy wins at load, and a reader comparing a
+// backup against a rebuilt venue needs to see that they can disagree.
+function buildBackupBundle(fetched, trigger, closedPeriodLabel) {
+  const now = new Date();
+  const sessByClient = {};
+  (fetched.tables['ap_audit_sessions'] || []).forEach(r => {
+    const k = r && r.client_slug;
+    if (k) sessByClient[k] = (sessByClient[k] || 0) + 1;
+  });
+  const venues = (fetched.tables['ap_clients'] || []).map(r => {
+    const d = (r && r.data) || {};
+    return {
+      slug:                  r ? r.slug : null,
+      id:                    d.id == null ? null : d.id,
+      name:                  d.name || null,
+      products:              (d.products        || []).length,
+      auditSessionsInClient: (d.auditSessions   || []).length,
+      auditSessionsInTable:  sessByClient[r ? r.slug : ''] || 0,
+      deliveries:            (d.deliveries      || []).length,
+      invoiceArchive:        (d.invoiceArchive   || []).length,
+      suppliers:             (d.suppliers       || []).length,
+      importedCounts:        (d.importedCounts  || []).length,
+      wasteRows:             (d.wasteRows       || []).length,
+      // _salesBlacklist is an OBJECT on live data — { cats: [], products: [] } — not the
+      // array the docs describe, so a plain .length reports undefined and JSON.stringify
+      // then drops the field entirely. Counted for BOTH shapes: a header that silently
+      // omits a field is the same class of failure as a backup that silently omits a table.
+      salesBlacklist:        Array.isArray(d._salesBlacklist) ? d._salesBlacklist.length
+                             : (d._salesBlacklist ? ((d._salesBlacklist.cats || []).length
+                                                   + (d._salesBlacklist.products || []).length) : 0),
+      recipes:               Object.keys(d.recipes || {}).length,
+      hasInfo:               !!d.info,
+    };
+  });
+  const header = {
+    app:           'Jeremyaibuild',
+    kind:          'auditpro-full-backup',
+    schemaVersion: BACKUP_SCHEMA_VERSION,
+    build:         APP_VERSION,
+    takenAt:       now.toISOString(),
+    takenAtLocal:  now.toLocaleString('en-NZ'),
+    trigger:       trigger || 'manual',
+    closedPeriod:  closedPeriodLabel || null,
+    source: {
+      supabaseUrl: SUPABASE_CONFIG.url,
+      projectRef:  backupProjectRef(),
+    },
+    scope:     'Whole tables — EVERY venue in the account, not only the active one. The venue in the filename is the one the backup was taken from.',
+    readFresh: 'Read directly from the database at takenAt, not serialised from the app’s memory.',
+    tables:    BACKUP_TABLES.map(t => ({ table: t.table, rows: fetched.counts[t.table], contains: t.why })),
+    rowCounts: fetched.counts,
+    venues:    venues,
+    notIncluded: BACKUP_NOT_INCLUDED,
+    sensitive: 'ap_clients[].data.info can hold site credentials entered on the Client info page (WiFi password, alarm code, safe code — the ones marked sensitive). Store this file accordingly.',
+    restore:   'There is deliberately NO restore button in the app (r99): a bad restore is worse than no backup. To restore, upsert these rows back with the SERVICE ROLE key — POST /rest/v1/<table>?on_conflict=<slug for ap_clients and ap_master_products, session_id for ap_audit_sessions> with Prefer: resolution=merge-duplicates,return=minimal. Restore ap_clients AND ap_audit_sessions: the session-table copy overwrites the client copy at load, so restoring only one lets the other win. Verify with a GET — a PATCH/POST can return 204 while RLS blocks the write.',
+  };
+  const bundle = {
+    _backup:      header,
+    // Precedent aliases — the same two top-level keys backup-pre-r18.json carries.
+    backup_taken: header.takenAt,
+    note:         'Jeremyaibuild full backup (schema ' + BACKUP_SCHEMA_VERSION + ', build ' + APP_VERSION + ') — '
+                  + BACKUP_TABLES.map(t => t.table + ' ' + (fetched.counts[t.table] || 0)).join(', ')
+                  + (closedPeriodLabel ? ' — automatic snapshot on closing ' + closedPeriodLabel : ''),
+  };
+  BACKUP_TABLES.forEach(t => { bundle[t.table] = fetched.tables[t.table] || []; });
+  return bundle;
+}
+
+// The ONE export action, shared by the button and the rollover snapshot. `trigger` is 'manual'
+// or 'rollover'; `closedPeriodLabel` names the period a rollover just closed.
+//
+// It NEVER throws: the rollover snapshot calls it from a detached promise chain and must not be
+// able to take anything down with it. Returns { ok, filename, counts, failed, bundle }.
+async function runBackupExport(opts) {
+  const o       = opts || {};
+  const trigger = o.trigger || 'manual';
+  try {
+    // Deliberately NOT gated on dbIsDown(). A backup is a READ, and r98 leaves every read
+    // usable; attempting it IS the retry, since the project may have been resumed since the
+    // last failure. Refusing before trying would be the app asserting something it has not
+    // checked — the mistake r98's DB.init log was making.
+    const fetched = await fetchBackupTables();
+    if (!fetched.ok) {
+      console.error('[AuditPro] r99 — BACKUP REFUSED (incomplete read, nothing written):', fetched.failed);
+      if (!o.silent) alert(backupRefuseText(fetched.failed, trigger));
+      return { ok: false, failed: fetched.failed, counts: fetched.counts, filename: null, bundle: null };
+    }
+    const bundle   = buildBackupBundle(fetched, trigger, o.closedPeriodLabel || '');
+    const filename = backupFilename(o.venueName || 'All-venues', o.closedPeriodLabel || '');
+    const text     = JSON.stringify(bundle, null, 2);
+    if (!o.noDownload) downloadTextFile(filename, text, 'application/json');
+    console.log('[AuditPro] r99 — backup written: ' + filename + ' ('
+      + BACKUP_TABLES.map(t => t.table + ' ' + (fetched.counts[t.table] || 0)).join(', ')
+      + ', ' + text.length + ' bytes, trigger ' + trigger + ')');
+    return { ok: true, failed: [], counts: fetched.counts, filename: filename, bundle: bundle, bytes: text.length };
+  } catch (e) {
+    console.error('[AuditPro] r99 — backup failed unexpectedly:', e);
+    if (!o.silent) {
+      alert('BACKUP NOT WRITTEN\n\nThe export failed unexpectedly: ' + (e && e.message ? e.message : String(e))
+        + '\n\nNothing has been saved to your computer.'
+        + (trigger === 'rollover' ? '\n\nTHE ROLLOVER ITSELF SUCCEEDED and stands.' : ''));
+    }
+    return { ok: false, failed: [{ table: '(export)', reason: 'error', status: 0 }], counts: {}, filename: null, bundle: null };
+  }
+}
+
+// The manual button on the Finalise page. The button itself reports progress, because the four
+// reads take a moment and a silent button is indistinguishable from a broken one.
+async function downloadBackupNow(btn) {
+  const c     = activeClient;
+  const label = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Reading the database…'; }
+  try {
+    const res = await runBackupExport({
+      trigger:   'manual',
+      venueName: (c && c.name) || 'All-venues',
+    });
+    if (res.ok) {
+      const venues = (res.bundle && res.bundle._backup.venues || []).length;
+      showPersistToast('💾 Backup saved — ' + venues + ' venue' + (venues === 1 ? '' : 's') + ', '
+        + (res.counts['ap_audit_sessions'] || 0) + ' period'
+        + ((res.counts['ap_audit_sessions'] || 0) === 1 ? '' : 's'));
+    }
+    return res;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = label; }
+  }
+}
+
+// ── FIX 3 — the AUTOMATIC snapshot. Rollover is the deliberate, infrequent moment a period
+// stops being editable and becomes locked history, which makes it the one checkpoint worth
+// taking unprompted.
+//
+// It runs AFTER the rollover's three writes have SETTLED, not beside them. Those writes are
+// fire-and-forget, so reading the server first would capture the state BEFORE the rollover and
+// produce a snapshot that does not contain the very thing it was taken for.
+//
+// It can NEVER block or undo the rollover: the rollover has already completed and been
+// persisted by the time this starts, nothing awaits it, and a failure is reported to the user
+// and nothing more.
+async function backupSnapshotAfterRollover(client, closedSess) {
+  const label = closedSess ? (closedSess.label || formatSessionLabel(closedSess)) : '';
+  console.log('[AuditPro] r99 — automatic rollover snapshot (period closed: ' + (label || '?') + ')…');
+  const res = await runBackupExport({
+    trigger:           'rollover',
+    venueName:         (client && client.name) || 'All-venues',
+    closedPeriodLabel: label,
+  });
+  if (res.ok) showPersistToast('💾 Rollover backup saved — ' + res.filename);
+  return res;
+}
+
+
 
 
 // Wrap addClient to also persist
@@ -17740,7 +18098,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r98';
+const APP_VERSION = '2026-06-10-r99';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
