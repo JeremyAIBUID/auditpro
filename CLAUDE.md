@@ -64,7 +64,7 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r97` | `index.html:17420` |
+| `index.html` | `2026-06-10-r98` | `index.html:17743` |
 | `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r90` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86-r89 and r91-r97 are desktop-only**, so mobile correctly still reads the r90 mobile stamp) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
@@ -1673,6 +1673,161 @@ it passes is worse, because it still looks like cover.
 
 ---
 
+## A SILENT FAILURE IS INDISTINGUISHABLE FROM AN EMPTY ACCOUNT (r98)
+
+**This one happened live.** The Supabase project **auto-paused** (free tier pauses a project
+after about a week idle) during a two-week absence. Its hostname stopped resolving — NXDOMAIN,
+so **no HTTP conversation happened at all**. What the app then did:
+
+1. `DB.get` caught the fetch rejection, retried once, and **returned `null`**.
+2. `dbLoadAll`'s `if (dbClients && dbClients.length)` **skipped the block**.
+3. Nothing threw, so **`dbLoadAll`'s own `catch` never fired**.
+4. It ran to completion and **RETURNED TRUE**, logging `Loaded from Supabase — clients: 0`.
+5. `renderDropdown` mapped an empty array to an empty string.
+
+The result was **byte-for-byte what a brand-new account with no venues looks like** — no error,
+no banner, no failure state. The owner only realised because he knew 1 Up should be there. **On
+site mid-audit, that same silence reads as "my data has vanished."**
+
+### FIX 1 — THREE outcomes, not one `null`
+`DB.get` collapsed three genuinely different things into `null`. The distinction is drawn on
+**whether an HTTP response was received**, which is exactly the line `fetch` itself draws
+between rejecting and resolving:
+
+| outcome | what happened | `reason` |
+|---|---|---|
+| **never reached** | fetch **REJECTS** — NXDOMAIN (a paused project), offline, TLS, CORS | `unreachable` |
+| **answered an error** | fetch **RESOLVES**, `r.ok` false — RLS, 401, 5xx | `http` (+ `status`) |
+| **genuinely empty** | `r.ok` true, rows `[]` — **a real answer** | `ok` |
+
+`DB.getResult(table, params)` returns `{ ok, rows, reason, status, error }` in the r80/r95
+`{ value, reason }` house style. **`DB.get` is kept as a back-compat wrapper** (`rows | null`)
+so no other caller changes — and there were none: all four call sites are inside `dbLoadAll`.
+`DB.upsertResult` / `DB.deleteResult` mirror it for the write side.
+
+- **`ap_clients` is the read that DECIDES.** If it did not answer we know nothing about what
+  venues exist, so `dbLoadAll` **returns false** instead of running on to `return true`.
+- **A PARTIAL load is not a success either.** If `ap_clients` answered but `ap_audit_sessions`
+  did not, periods are missing from the view — and a period that looks uncounted is one a user
+  would **recount**. `dbLoadAll` returns false and the console says *do not recount on this basis*.
+- Master-catalogue and batches failures are logged and tolerated — they degrade, they do not lie.
+
+### FIX 2 — the banner is PERSISTENT, and denies the empty-account reading by name
+`showPersistToast` fades after 1.8 s, which is exactly the wrong surface for a condition that
+does not go away and that the user may meet mid-count. `renderDbDownBanner` builds on
+`showLoadingBanner`'s existing fixed-top pattern rather than inventing a new one: red, `z-index`
+10000, **no timeout**, with a **Retry** button (read-only — it re-runs the load and nothing
+else, so it is always safe to press) and a *What does this mean?* button carrying the full text.
+
+**`dbDownText(what)` is the ONE wording** (the r80 `noOpenPeriodText` / r86 / r96 pattern),
+shared by the banner, every refusal and the sidebar badge, so they can never disagree. It says
+in capitals that **THIS IS NOT AN EMPTY ACCOUNT**, and names the actual cause — a paused
+Supabase project — and the fix.
+
+### FIX 3 — the app must not LOOK usable
+- **`renderDropdown` and `renderOverview` prefix an offline notice** while the backend is down,
+  so neither can render as a normal empty state. Anything already in memory is still listed —
+  the notice is a prefix, not a replacement.
+- **`refuseWriteBackendDown(what)`** is the ONE refusal, returning **TRUE when it refused**
+  (the r80 `refuseWriteNoOpenPeriod` / r84 / r89 convention). Wired into **eight** write
+  entry points: `addClient`, `saveProduct`, `saveBulkCostPrices`, `applyInvoiceToProducts`,
+  `saveStockAdjustment`, `importByCode`, `finaliseStocktake`, `rolloverPeriod`.
+- **`applyInvoiceToProducts` returns `false`** — r80's ONE refusal signal — so
+  `applyDumpEnrichment`'s `=== false` bail still holds.
+- **`finaliseStocktake` refuses BEFORE `closeModal`**, so the review screen stays on the page
+  while the refusal is read (the r86/r96 posture).
+- **Deliberately left usable:** every READ — navigation, variance, reports, PDF export,
+  viewing invoices, search. If the backend dropped *after* a good load, the in-memory data is
+  real and the user should still be able to read it.
+
+### FIX 4 — the WRITE side was worse than the read side
+| function | before | after |
+|---|---|---|
+| **`dbSaveClient`** | **no `r.ok` check** and `showPersistToast('✓ Saved')` ran **unconditionally** — fetch only REJECTS on a network failure, so every **HTTP** rejection (RLS/401/5xx) reported **✓ Saved**. **A FALSE SUCCESS on the main persistence path.** No try/catch either, so a network failure **rejected the promise at 25 fire-and-forget call sites**. | resolves in every case, returns `true`/`false`, never claims a save that did not land |
+| **`dbSaveSession`** | **ENTIRELY silent** — `DB.upsert` swallowed every failure into `null` and the return value was discarded. This is the **finalise / rollover / amend** path. | checks the result, names the period in the banner |
+| **`dbSaveProducts`** | already detected its failures, but reported them in a **1.8 s toast** | same detection, routed to the persistent banner |
+
+`reportWriteFailure(what, reason, status)` is the ONE write-failure surface. **An `http`
+failure does NOT flip `_dbDown`** — the server is alive and rejected *this* request, so
+refusing later writes would be wrong; only `unreachable` is a reachability claim.
+
+### FIX 6 — the console and the badge stopped lying
+`DB.init` printed `[AuditPro] Supabase connected → <url>` **having never contacted the
+server** — it only checks that the config literals are non-empty. During the outage the
+console and the sidebar both asserted a healthy connection. Now:
+- `DB.init` logs `Supabase configured → <url> (not contacted yet)`;
+- `dbLoadAll` logs `Supabase REACHABLE — ap_clients answered with N row(s)` **only after a
+  read actually comes back**;
+- `renderDbStatus` has **three** states — configured/connecting (grey), connected (green,
+  earned), unreachable (red, click to retry).
+
+### FIX 5 — MOBILE: same defect on the load path, REPORTED NOT FIXED
+- **`loadProductsFromSupabase` (`mobile.html:1255`) is silent in four ways**: two bare
+  `return`s (`!res.ok`, no client row), a `catch` that only `console.warn`s, and a success
+  toast gated on `added > 0` — so "loaded nothing" and "failed to load" produce **identical**
+  UI. It is called **fire-and-forget** at `:1251` (connect) and `:1563` (switch venue),
+  **after** `toast('Connected to …')` and `showScreen('screen-areas')`. The phone therefore
+  says *Connected* and starts a count against a stale or empty catalogue with no warning.
+- **Mobile is less severe than desktop, for two measured reasons:** counts persist to
+  `localStorage['auditpro_mobile_v1']`, and **the SYNC path is already loud** —
+  `pushCountToSupabase` checks `res.ok`, paints a red persistent `#sync-status-row`, and points
+  at the CSV download fallback. Work is not silently lost; it fails loudly at sync.
+- **Not fixed here.** It needs a banner surface on the areas/count screen, the three silent
+  returns separated, wiring at two call sites, the **byte-identical twin** discipline and its
+  own version bump. That is its own build.
+
+### Verified — 109 checks + a dual-build gate
+**`verify-r98.js` — 109 checks, all passing** (scratchpad, not committed; the repo tracks no
+harnesses), driving the REAL script in a node `vm` against a DOM stub, in **both** builds so
+every "it used to be silent" claim is **measured**:
+
+| scenario | PRE-r98 (measured) | POST |
+|---|---|---|
+| **unreachable** (NXDOMAIN) | `dbLoadAll` **returned TRUE**, no banner, **empty dropdown**, sidebar said **"Supabase connected"** | returns false, persistent banner, offline notice, 8 writes refused |
+| **HTTP 503** | **returned TRUE** | returns false, `reason:'http'`, status carried |
+| **partial** (sessions fail) | **returned TRUE** | returns false, "do not recount" |
+| **genuinely empty account** | renders normally | **renders normally, NO banner** (the negative control) |
+| **healthy load** | loads | **byte-identical dropdown markup** |
+| **write, HTTP 500** | **"✓ Saved"** — false success | returns false, banner, "NOT saved" |
+| **write, network** | **promise REJECTED** (×25 call sites) | never rejects, returns false |
+| **`dbSaveSession` failure** | **no banner, no toast** | banner naming the period |
+| **recovery** | — | banner clears, writes re-allowed |
+
+**`gate-r98.js` — the r86–r97 dual-build gate, in two parts.**
+
+**PART 1 (structural, corpus-independent):** a **mode-stack scanner** extracts 32 functions
+from both builds and compares them byte-for-byte. **27 are IDENTICAL**, including
+`computeVariances`, `calculateReportData`, `renderReportDocument`, `countToUnits`,
+`resolvePackSize`, `freezeSessionSnapshot`, `sessionOverallVariancePct`, `aggVarPct`,
+`aggCatRAG`, `reportRAG`, `buildSalesDepletion` and `latestCostPrice`. **CRITICAL compute
+functions changed: NONE.** The 5 that changed are exactly the five this build edits —
+`applyInvoiceToProducts`, `finaliseStocktake`, `rolloverPeriod` (one refusal line each) and
+`renderDropdown` / `renderOverview` (the offline notice). *If the body is identical, no input
+can make it produce a different number* — a stronger guarantee than a field diff.
+
+**PART 2 (behavioural):** real `computeVariances` **and** real `calculateReportData` from both
+builds, 3 periods × {as-stored, forced-`reopened`}, field lists **AUTO-DERIVED** from the union
+of keys (the r86 lesson), a **fresh deep clone per run** (the r92 lesson — the PRE build
+mutates the catalogue as a side effect of computing):
+
+> **23,730 field comparisons · 0 values moved · 0 rows asymmetric · 0 fields in one build only.**
+> **r92 invariant re-measured: neither build repriced the catalogue.**
+
+**CORPUS NOTE — stated, not papered over.** The live gate could **not** be run against live
+Supabase rows, because the project is paused and its hostname does not resolve — that is the
+incident itself. The corpus is the **real production 1 Up Sports Bar client row** from
+`backup-pre-r18.json` (54 products, as at 2026-06-13), extended into a three-period chain so
+both the live-merge and frozen branches are exercised. Part 1 is corpus-independent and carries
+the load here.
+
+**Harness lesson:** the first run failed one check — `importByCode` validates the session code
+**before** reaching the reachability gate, so the stub's empty input never got there and the
+test passed on the *wrong* alert. Fixed by giving the test a valid code, **not** by loosening
+the assertion (the r97 lesson: a harness loosened until it passes still looks like cover).
+
+**Deliberately NOT in this build:** mobile (above), an offline write queue, and any change to
+`latestCostPrice`, r93's thresholds, r96's write path or r97's flag.
+
 ## Density Architecture
 **`ap_master_products` is the single source of truth for product density.** Venue rows
 (`ap_clients.data.products`) hold per-venue copies for counts/stock/prices, but their
@@ -2008,6 +2163,22 @@ redrawn into the clone.
 ## Key Functions — Desktop
 
 ```javascript
+// Backend reachability — "loaded nothing" vs "failed to load" (r98)
+// DB.getResult / DB.upsertResult / DB.deleteResult — { ok, rows, reason, status, error }.
+// reason: 'ok' (answered, rows may be []) | 'unreachable' (fetch REJECTED — no HTTP at all)
+//       | 'http' (answered non-2xx; status carried) | 'notready'. DB.get/upsert/delete remain
+// as back-compat wrappers returning rows|null.
+dbIsDown()                           // TRUE only after a real attempt failed to REACH the server
+dbDownText(what) / dbDownShort()     // the ONE wording; denies the empty-account reading by name
+renderDbDownBanner()                 // PERSISTENT red banner (#db-down-banner) — never a toast
+dbRetryConnect()                     // read-only retry; always safe to press
+refuseWriteBackendDown(what)         // TRUE = refused (r80 convention). 8 write entry points.
+reportWriteFailure(what, reason, status, detail)   // a write that did not land is LOUD
+noteWriteOk()                        // a write reached the server → reachability proven
+dbDownNoticeHTML(full)               // the inline notice in the dropdown / overview grid
+// NB: _dbDown is NEVER inferred from clients.length === 0 — a genuinely empty account must
+// render normally with no banner. That negative control is what stops it becoming wallpaper.
+
 // Navigation
 navigate(page) / renderPage(page)
 selectClientOnly(id)        // Set activeClient without navigating
@@ -2153,7 +2324,7 @@ saveToStorage() / resetForNextAudit() / updateCountUI() / editCountItem(idx)
 
 ## Constants in the Desktop App
 ```javascript
-// Line refs verified at r97. They drift on EVERY build — re-grep, never trust the number.
+// Line refs verified at r98. They drift on EVERY build — re-grep, never trust the number.
 const PROD_SUBCATS            // index.html:5809 — { Spirits:[…], Beer:[…], … }
 const CAT_ORDER_PROD          // :6280 — ['Spirits','Beer','Wine','RTD','Soft drinks','Food','Cocktails','Other']
 const CAT_COLORS_PROD         // :6281 — { Spirits:{bg,text,icon}, … }
@@ -2170,7 +2341,7 @@ const ADJUSTMENT_REASONS      // :14258 — transfer_in/out, wastage, breakage, 
 const INV_CONFIDENT_KINDS     // :12524 — r88: ['code','barcode','exact']: green + collapsed
 const BULK_PRICE_SOURCE       // :6529 — 'bulk price edit' (r96 costHistory provenance)
 const BP_BLANK_MEANS_TEXT     // :6534 — the ONE 'a blank box is not $0.00' wording (r96)
-const APP_VERSION             // :17420
+const APP_VERSION             // :17743
 ```
 
 ---
