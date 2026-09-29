@@ -64,7 +64,7 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r98` | `index.html:17743` |
+| `index.html` | `2026-06-10-r99` | `index.html:18101` |
 | `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r90` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86-r89 and r91-r97 are desktop-only**, so mobile correctly still reads the r90 mobile stamp) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
@@ -158,7 +158,7 @@ that, instead of piping a heredoc, whenever the content contains backslash escap
 | `sw.js` | cache `auditpro-v11`. **Not registered by either app** — legacy, inert |
 | `manifest-desktop.json` | name "Jeremyaibuild Stock Count". **Not linked from any page** — inert |
 | `manifest.json` (517 KB) | **misnamed junk** — it is a stale full HTML snapshot of the old desktop app, not a manifest |
-| `backup-pre-r18.json`, `backup-pre-r19.json` | old client-data backups |
+| `backup-pre-r18.json`, `backup-pre-r19.json` | old hand-taken client-data backups. `backup-pre-r18.json` is the **shape precedent** for r99's export (top-level `backup_taken` / `note` + table-named row arrays). **Backups r99 writes are NOT committed** — they are ~950 KB of venue data and can carry site codes from Client info, and this repo is public. |
 | `icon-512.png`, `README.md` | as named |
 
 ---
@@ -241,7 +241,8 @@ All test periods/counts were **wiped on 2026-07-24** (client JSON + `ap_audit_se
   sales: {...},           // Sales data by product name
   wasteRows: [...],
   importedCounts: [...],  // { code, at, lines } — mobile codes already imported (r45)
-  _salesBlacklist: [...], // POS lines never to match to a product
+  _salesBlacklist: { cats: [], products: [] },  // POS lines/cats never matched to a product
+                          // NB an OBJECT, not an array (measured r99) — `.length` on it is undefined
   lastAudit: '…',
 }
 ```
@@ -349,7 +350,8 @@ live** (status still `open`/`reopened`), then the status flips — mirror this o
 new close path.
 
 ### Rollover chain
-`finalisePeriodAndRollover()`:
+`rolloverPeriod()` (the older docs call this `finalisePeriodAndRollover()` — that name has
+never existed in the code):
 1. Requires a `finalised` current period, and **no** period left in `reopened` state.
 2. `cur.status = 'rolledover'`.
 3. Creates the new `open` period with `opening = JSON.parse(JSON.stringify(cur.closing))` —
@@ -1828,6 +1830,190 @@ the assertion (the r97 lesson: a harness loosened until it passes still looks li
 **Deliberately NOT in this build:** mobile (above), an offline write queue, and any change to
 `latestCostPrice`, r93's thresholds, r96's write path or r97's flag.
 
+## A BACKUP IS THE ONLY COPY THAT SURVIVES THE SERVER (r99)
+
+r98 made a silent backend failure **honest**. It did not make the data **recoverable**. The
+incident behind both: the Supabase project auto-paused after two weeks idle, its hostname
+stopped resolving, and the app loaded nothing at all.
+
+**THE DATA SURVIVED BECAUSE THE PROJECT WAS PAUSED, NOT DELETED — luck, not design.** The three
+live audit periods, their invoices and their closing counts existed ONLY on that server. The
+only local copy of anything was `backup-pre-r18.json`, taken by hand on 13 June, which predates
+all three periods and contains none of them.
+
+### FIX 1 — ONE file that can rebuild a venue from nothing
+**Finalise audit → `⬇ Download backup`** (`index.html:1697`) exports **all four tables
+`dbLoadAll` reads** — confirmed against `dbLoadAll`, which reads `ap_master_products`,
+`ap_clients`, `ap_audit_sessions` and `ap_batches`, in that order, and nothing else.
+`BACKUP_TABLES` (`:17739`) is that list, and the harness asserts it IS those four.
+
+- **`ap_audit_sessions` is NOT redundant with `ap_clients.data.auditSessions`.** `dbLoadAll`
+  loads the client row FIRST and then **overwrites** each matching session from the table, so
+  the **table copy wins**. That is the r80 live-data lesson exactly: September's `openDate` had
+  to be corrected in BOTH stores, because patching only the client copy let the stale table
+  value win at the next load. A backup holding one copy could not reproduce the venue, so both
+  are captured and the header counts them **separately** (`auditSessionsInClient` /
+  `auditSessionsInTable`) so a reader can see they may disagree.
+- **Whole tables, every venue** — not only the active one. The venue in the *filename* is the
+  one the backup was taken from; `_backup.scope` says so in the file.
+- **The header block answers "what have I got and is it complete?" without parsing the body:**
+  `schemaVersion`, `build`, `takenAt` (ISO) + `takenAtLocal`, `trigger`, `closedPeriod`,
+  `source.{supabaseUrl, projectRef}`, `rowCounts`, a per-table `contains` note, a per-venue
+  summary, `sensitive`, `restore`, and **`notIncluded`** — invoice PDFs (Supabase **Storage**,
+  not a table; `d.pdfUrl` points into the private `Invoices` bucket), `ap_mobile_counts`
+  (transient handoff staging), `ap_products` (legacy/unused), and **no API key of any kind**.
+  "Whether it is complete" is only answerable against a **stated** definition of complete, so
+  the exclusions are a named constant (`BACKUP_NOT_INCLUDED`, `:17749`), not prose.
+- **`backup_taken` and `note` are ALSO emitted at the top level**, matching this repo's existing
+  `backup-pre-r18.json` byte-for-byte in shape, so anything written against that file reads this
+  one.
+- **The harness found a real bug in this build's own header code.** `_salesBlacklist` is an
+  **OBJECT** on live data — `{cats: [], products: []}` — **not the array CLAUDE.md described**
+  (corrected below). A plain `.length` on it returned `undefined` and `JSON.stringify` then
+  **dropped the field entirely**. Counted for both shapes now. The first assertion failed for
+  the wrong reason, and in failing exposed the right one.
+
+### FIX 2 — read FRESH, and REFUSE rather than write a partial file
+`fetchBackupTables()` (`:17836`) deliberately does **not** serialise `clients` /
+`masterProducts` / `batches` out of memory. In-memory state can be mid-edit, **half-loaded**
+(r98's `dbLoadAll` returns false on exactly that — `ap_clients` answered but
+`ap_audit_sessions` did not, so the periods in memory are incomplete), or stale behind another
+device's write. A backup is only worth taking from the authority.
+
+- Every read goes through **r98's `DB.getResult`**, so the three outcomes stay distinguishable:
+  `unreachable` (fetch REJECTED — no HTTP conversation at all, a paused project), `http` (the
+  server answered and refused) and a **genuinely EMPTY** table. **Only reason `'ok'` is
+  accepted.**
+- **An empty table is a clean READ.** `ap_batches` legitimately holds **0 rows** at this venue
+  today and must never refuse. That negative control is what stops the refusal becoming
+  wallpaper — the r97 `needsInfoAlert` lesson.
+- **Any failing table refuses the WHOLE export and writes nothing**, naming the table (the r84
+  `finaliseStocktake` / r86 pack-size posture). `backupRefuseText()` (`:17856`) is the ONE
+  wording — the r80 `noOpenPeriodText` / r86 / r96 / r98 `dbDownText` pattern — shared by the
+  button and the rollover snapshot, and it says *why*: a file missing `ap_audit_sessions` looks
+  complete and would be **trusted**.
+- Ordered `?order=id.asc` on every table (all four carry `id SERIAL PRIMARY KEY`), so two
+  backups of the same data are byte-comparable.
+- **Not gated on `dbIsDown()`.** A backup is a READ, and r98 leaves every read usable —
+  attempting it IS the retry, since the project may have been resumed. And a successful backup
+  read does **not** clear `_dbDown`: that state belongs to `dbLoadAll`, and the banner would
+  otherwise lie about what is *loaded*.
+
+### FIX 3 — AUTOMATIC snapshot at rollover
+Rollover is the deliberate, infrequent moment a period stops being editable and becomes locked
+history, which makes it the one checkpoint worth taking unprompted.
+`backupSnapshotAfterRollover()` (`:18026`) is called from `rolloverPeriod` (`:15975`).
+
+- **It waits on the rollover's three writes, and that is the point.** Those writes were
+  fire-and-forget; reading the server first would capture the state **BEFORE** the rollover and
+  produce a snapshot missing the very thing it was taken for. The promises are now **captured**
+  into `_rollSaves` (`:15961`) purely so `Promise.allSettled` can gate the read. `allSettled`,
+  not `all`: a write that failed has already been reported loudly by r98 and must not stop the
+  backup from capturing whatever is genuinely on the server. **Measured: the snapshot holds 4
+  periods, not 3.**
+- **It can never block or undo the rollover.** It is a fully detached chain after
+  `navigate('stocktake')`; nothing awaits it and no failure path returns into the rollover.
+  Harness-proven with an injected read failure: the closed period is still `rolledover`, the new
+  open period is still there, and no file was written.
+- **A failed snapshot is loud** — it names the table and states `THE ROLLOVER ITSELF SUCCEEDED
+  and stands`, then points at the manual export, so nobody tries to undo a good rollover.
+- r97's soft-block and the original single confirm are **untouched**.
+
+### FIX 4 — filenames, and the download mechanism REUSED
+`backupFilename()` (`:17785`) is the ONE builder, so the manual export and the automatic
+snapshot can never be named by two rules:
+
+```
+auditpro-backup_<venue>_<YYYY-MM-DD>[_rollover-<period closed>]_build-<APP_VERSION>.json
+
+auditpro-backup_1-Up-Sports-Bar_2026-09-29_build-2026-06-10-r99.json
+auditpro-backup_1-Up-Sports-Bar_2026-09-29_rollover-August-2026_build-2026-06-10-r99.json
+```
+
+**Venue** first so one venue's backups group together; the **ISO date** next so they sort
+chronologically within that venue; the **closed period** only on a rollover snapshot, where it
+is what makes the file self-describing; the **build stamp last**, because it is constant across
+a day and must not disturb the sort. The stamp carries its own (build) date, which is why it
+sits behind an explicit `build-` label — two bare dates in one filename would be ambiguous.
+`backupNamePart()` collapses every run of non-alphanumerics to one dash and degrades an empty
+part to `unknown`, never to an empty segment.
+
+**The download mechanism is reused, not invented.** The PDF export path ends at jsPDF's
+`pdf.save()`, which can only emit a **PDF**; the generic mechanism underneath it is the one
+already in this file, in `viewInvoicePDF`'s popup-blocked fallback — an object URL on a
+synthetic `<a download>`, clicked, then revoked. That is precisely what jsPDF's `save()` does
+internally, so `downloadTextFile()` (`:17803`) is the same mechanism and not a second one. It
+**attaches the anchor to the document** before the click and removes it after: a detached
+anchor works in Chromium but has historically not in Firefox, and an export that silently does
+nothing is the exact failure mode this build exists to remove.
+
+### FIX 5 — deliberately NOT in this build
+- **No restore/import path.** A bad restore is worse than no backup; it is its own, riskier
+  build. The header's `restore` field documents the manual route (service-role upsert,
+  `on_conflict=slug` / `session_id`, **both** session stores, verify with a GET because a
+  PATCH/POST returns 204 even when RLS blocks the write) — documentation, not a code path.
+- **No second Supabase table.** It would not survive project deletion, which is the scenario
+  this exists for.
+- **No compute change, no mobile change.** Mobile is byte-identical and its twin still matches.
+
+### Verified — 117 checks + a two-part dual-build gate
+**`verify-r99.js` — 117 checks, all passing** (scratchpad, not committed; the repo tracks no
+harnesses), driving the REAL `runBackupExport` / `fetchBackupTables` / `buildBackupBundle` /
+`rolloverPeriod` in a node `vm` against a DOM stub and a **mutable** mock of the Supabase REST
+endpoint seeded from the actual live rows — writes are APPLIED, which is what makes the FIX 3
+ordering claim measurable rather than asserted.
+
+| | measured |
+|---|---|
+| a live export | **60 products · 3 sessions from BOTH stores · 10 deliveries · 66 master rows**, header counts agreeing with the body |
+| fetch-fresh | the in-memory catalogue is poisoned and emptied; the export still carries 60 products and no trace of the poison |
+| refusal | each of the four tables refuses individually, on `unreachable` **and** on `http` (503, 401), naming itself, status carried, **zero** files written |
+| negative control | `ap_batches` empty (0 rows) ⇒ **no refusal, no alert** |
+| rollover | snapshot taken with no user action; stamped `trigger:'rollover'`; names the closed period in the header AND the filename; **holds 4 periods, not 3** |
+| failed rollover snapshot | no file; period still `rolledover`; new period still present; alert names the table and says the rollover stands |
+| round-trip | parses cleanly (944,229 bytes); all four tables **byte-identical** to the live rows; `KAHLUA` `weights:[491,614]` / `netWeightG:1105` / `qty:0` verbatim; all 27 weighed July entries; the unsized `CHURCH ROAD CHARDONNAY` Cases line and all 9 stamped `caseSize` lines verbatim |
+| security | no Supabase JWT (anon or service role) anywhere in the file |
+| negative control | **pre-r99 has all 10 of these functions ABSENT and writes NO backup on rollover** |
+
+**A real live run, no mock in the path** (`live-export.js` against the resumed project):
+`ap_clients 1, ap_audit_sessions 3, ap_master_products 66, ap_batches 0`, 944,229 bytes, 0
+alerts, filename exactly as specified.
+
+**`gate-r99.js` — the r86→r98 dual-build gate, in two parts.**
+
+**PART 1 (structural, corpus-independent):** a **mode-stack scanner** extracts **80** functions
+from both builds and compares them **byte-for-byte**. **79 are IDENTICAL**, including
+`computeVariances`, `calculateReportData`, `renderReportDocument`, `countToUnits`,
+`resolvePackSize`, `freezeSessionSnapshot`, `sessionOverallVariancePct`, `aggVarPct`,
+`aggCatRAG`, `aggNotAssessable`, `reportRAG`, `varPctDisplay`, `buildSalesDepletion`,
+`latestCostPrice`, `prevSessionOf`, `finaliseStocktake`, `applyInvoiceToProducts`, `dbLoadAll`
+and `saveProduct`. **CRITICAL compute functions changed: NONE.** The one change is
+`rolloverPeriod` — the one pre-existing function this build edits. *If the body is identical, no
+input can make it produce a different number* — a stronger guarantee than a field diff, which is
+why it carries the load here.
+
+**PART 2 (behavioural):** real `computeVariances` **and** real `calculateReportData` from both
+builds over the live rows, 3 periods × {as stored, forced `reopened`} plus the auto-picked
+(null-session) path, field lists **AUTO-DERIVED** by flattening every payload to dotted leaf
+paths (the r86 lesson — nothing can be missed because nobody listed it), a **fresh deep clone
+per run** (the r92 lesson — the PRE build mutates the catalogue as a side effect of computing):
+
+> **34,790 field comparisons · 0 values moved · 0 rows asymmetric · 0 compute errors.**
+> **r92 invariant re-measured: neither build repriced the catalogue on any run.**
+
+**Two stale-doc corrections this gate surfaced**, both fixed in this file:
+- **`finalisePeriodAndRollover()` does not exist** — it appears **0 times** in `index.html` in
+  both builds. The real function is `rolloverPeriod()`. The gate's "a listed function must be
+  found" rule is correct and was kept; the phantom was removed from the LIST rather than the
+  rule relaxed (the r97 lesson: a harness loosened until it passes still looks like cover).
+- **`_salesBlacklist` is an OBJECT**, `{cats: [], products: []}` — 1 cat + 12 products on live
+  data — not the array it was documented as.
+
+**Harness lesson:** the delivery line array is **`d.lines`**, not `d.items`. A diagnostic script
+written as `d.items or d.lines` masked that and three round-trip assertions then failed against
+the wrong key. **Never let a fallback in a diagnostic decide a field name** — it makes the
+harness agree with itself instead of with the data.
+
 ## Density Architecture
 **`ap_master_products` is the single source of truth for product density.** Venue rows
 (`ap_clients.data.products`) hold per-venue copies for counts/stock/prices, but their
@@ -2179,6 +2365,22 @@ dbDownNoticeHTML(full)               // the inline notice in the dropdown / over
 // NB: _dbDown is NEVER inferred from clients.length === 0 — a genuinely empty account must
 // render normally with no banner. That negative control is what stops it becoming wallpaper.
 
+// Backup — the only copy that survives the server (r99). Desktop only.
+// Reads FRESH through r98's DB.getResult; only reason 'ok' is accepted, so an EMPTY table is a
+// clean read while unreachable/http REFUSE the whole export. Never serialises memory.
+BACKUP_TABLES / BACKUP_NOT_INCLUDED / BACKUP_SCHEMA_VERSION  // the four tables dbLoadAll reads
+fetchBackupTables()                  // :17836 — { ok, tables, counts, failed }; failed names the table
+backupRefuseText(failed, trigger)    // :17856 — the ONE wording (r80/r86/r96/r98 pattern)
+buildBackupBundle(fetched, trigger, closedPeriodLabel)   // :17888 — header block + the four tables
+runBackupExport(opts)                // :17959 — the ONE export action; NEVER throws
+downloadBackupNow(btn)               // :17994 — the Finalise-page button
+backupSnapshotAfterRollover(c, sess) // :18026 — FIX 3; detached, waits on _rollSaves, cannot undo
+backupFilename(venue, closedPeriod) / backupNamePart(s, max) / backupProjectRef()
+downloadTextFile(name, text, mime)   // :17803 — the object-URL + <a download> mechanism, reused
+// NB NOT gated on dbIsDown() — a backup is a READ and attempting it IS the retry; and a
+// successful backup read does NOT clear _dbDown (that state belongs to dbLoadAll).
+// There is deliberately NO restore path (FIX 5) and nothing writes a backup to Supabase.
+
 // Navigation
 navigate(page) / renderPage(page)
 selectClientOnly(id)        // Set activeClient without navigating
@@ -2201,7 +2403,9 @@ prevSessionOf(c, sess)      // r94 — the PREVIOUS period: prevId chain, else s
                             // predecessor. NEVER indexOf/array position (identity breaks on reload)
 switchAuditPeriod(id)       // Pin viewedPeriodId (null = follow active)
 updateAuditPeriodCtx(c)     // Top-bar period selector
-finalisePeriodAndRollover() // Close current + open the next (deep-copied opening)
+rolloverPeriod()            // Close current + open the next (deep-copied opening).
+                            // NB there is NO finalisePeriodAndRollover() — 0 occurrences in
+                            // index.html (measured r99); the section above uses the old name.
 freezeSessionSnapshot(c, s) // Freeze varRows + resolved purchases + overall %
 eligibleReopenSession(c) / oldestReopenedSession(c)
 reopenPeriod(sessionId) / recloseReopenedPeriod()   // + one-hop forward cascade
@@ -2324,7 +2528,7 @@ saveToStorage() / resetForNextAudit() / updateCountUI() / editCountItem(idx)
 
 ## Constants in the Desktop App
 ```javascript
-// Line refs verified at r98. They drift on EVERY build — re-grep, never trust the number.
+// Line refs verified at r99. They drift on EVERY build — re-grep, never trust the number.
 const PROD_SUBCATS            // index.html:5809 — { Spirits:[…], Beer:[…], … }
 const CAT_ORDER_PROD          // :6280 — ['Spirits','Beer','Wine','RTD','Soft drinks','Food','Cocktails','Other']
 const CAT_COLORS_PROD         // :6281 — { Spirits:{bg,text,icon}, … }
@@ -2341,7 +2545,10 @@ const ADJUSTMENT_REASONS      // :14258 — transfer_in/out, wastage, breakage, 
 const INV_CONFIDENT_KINDS     // :12524 — r88: ['code','barcode','exact']: green + collapsed
 const BULK_PRICE_SOURCE       // :6529 — 'bulk price edit' (r96 costHistory provenance)
 const BP_BLANK_MEANS_TEXT     // :6534 — the ONE 'a blank box is not $0.00' wording (r96)
-const APP_VERSION             // :17743
+const BACKUP_SCHEMA_VERSION   // :17727 — r99 export schema (1)
+const BACKUP_TABLES           // :17739 — the four tables dbLoadAll reads, and a backup must hold
+const BACKUP_NOT_INCLUDED     // :17749 — stated exclusions: Storage PDFs, ap_mobile_counts, keys
+const APP_VERSION             // :18101
 ```
 
 ---
@@ -2371,7 +2578,11 @@ const APP_VERSION             // :17743
     `client.products`, so a master-named purchase key is money that vanishes without a message.
     `_cleanName` must BE a catalogue name; when it is not, the live merge discards it and
     re-matches. Never validate the review modal's name field on non-emptiness alone.
-13. **`clients = []` at boot** — there is no hardcoded demo data; everything loads from Supabase.
+13. **A backup must capture BOTH session stores** (r99). `ap_audit_sessions` **overwrites**
+    `ap_clients.data.auditSessions` at load, so one copy alone cannot reproduce the venue — the
+    same reason r80's live `openDate` fix had to be applied twice. And an export must read the
+    server, never memory: a half-loaded state (r98) looks complete once serialised.
+14. **`clients = []` at boot** — there is no hardcoded demo data; everything loads from Supabase.
 
 ### Test-harness patterns that have worked
 - **Extract-fn-and-diff-vs-HEAD** — pull a single function out of both revisions and diff, to
@@ -2394,6 +2605,9 @@ const APP_VERSION             // :17743
 6. **Finalise & run variance** → freezes the snapshot (`finalised`)
 7. **Close & roll over** → locks the period (`rolledover`) and opens the next with opening
    stock carried over
+8. A **backup snapshot downloads automatically** on rollover (r99). Keep it — the three live
+   periods only ever existed on the server. Take one any time from Finalise audit →
+   **Download backup**.
 
 **To correct locked history:** Finalise page → **Reopen** (newest closed first, contiguous
 block) → edit invoices / amend closing counts → **Re-close oldest-first** (cascades the
