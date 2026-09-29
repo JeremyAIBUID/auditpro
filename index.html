@@ -2732,7 +2732,12 @@ function closeDropdown(){ document.getElementById('client-dropdown').classList.r
 document.addEventListener('click',e=>{ if(!e.target.closest('.client-switcher')) closeDropdown(); });
 
 function renderDropdown() {
-  document.getElementById('dropdown-items').innerHTML = clients.map(c=>`
+  // r98 FIX 3 — while the backend is unreachable this list is NOT "the venues you have";
+  // it is "the venues we failed to load". Prefixing the notice means the dropdown can never
+  // render as a plain empty state, and still lists anything already in memory.
+  const _el = document.getElementById('dropdown-items');
+  if(!_el) return;
+  _el.innerHTML = dbDownNoticeHTML(false) + clients.map(c=>`
     <div class="client-dropdown-item ${activeClient&&activeClient.id===c.id?'selected':''}" onclick="event.stopPropagation();selectClient(${c.id})">
       <div class="cdi-dot" style="background:${c.color};">${c.initials}</div>
       <div style="flex:1;"><div class="cdi-name">${c.name}</div><div class="cdi-city">${c.city}</div></div>
@@ -2771,7 +2776,9 @@ function renderOverview() {
   document.getElementById('ov-alerts').textContent      = alertCount;
   document.getElementById('ov-outstanding').textContent = outstanding;
   document.getElementById('ov-audits-month').textContent= auditsMonth;
-  document.getElementById('overview-grid').innerHTML = clients.map(c=>`
+  // r98 FIX 3 — same rule on the overview: an empty grid during an outage reads as
+  // "you have no venues", which is the single most alarming way to be wrong.
+  document.getElementById('overview-grid').innerHTML = dbDownNoticeHTML(true) + clients.map(c=>`
     <div class="overview-card" style="position:relative;">
       <button onclick="event.stopPropagation();deleteClient(${c.id})" style="position:absolute;top:12px;right:12px;width:26px;height:26px;border-radius:6px;background:transparent;border:none;color:var(--text3);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0.4;z-index:2;" title="Delete client">×</button>
       <div onclick="selectClient(${c.id})" style="padding:18px 20px;display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--border);cursor:pointer;padding-right:44px;">
@@ -5638,6 +5645,9 @@ document.addEventListener('click', e => {
 });
 
 function addClient() {
+  // r98 — a venue created while the database is unreachable lives only in this tab and
+  // vanishes on refresh. Refuse rather than mint a ghost the user will count against.
+  if (refuseWriteBackendDown('A new venue')) return;
   const name=document.getElementById('nc-name').value.trim()||'New Venue';
   const contact=document.getElementById('nc-contact')?document.getElementById('nc-contact').value.trim()||'—':'—';
   const city=document.getElementById('nc-city').value.trim()||'—';
@@ -6006,6 +6016,9 @@ function removeProdServeRow(i) {
 
 async function saveProduct() {
   const c = activeClient; if(!c) return;
+  // r98 — refuse at the top, beside r89's uniqueness refusal, so nothing is written locally
+  // and then lost.
+  if (refuseWriteBackendDown('This product')) return;
   const name = document.getElementById('pf-name').value.trim();
   const cat  = document.getElementById('pf-cat').value;
   if(!name) { alert('Product name is required.'); return; }
@@ -6900,6 +6913,9 @@ function bpRefuseInvalidPrices(bad) {
 function saveBulkCostPrices() {
   const c = activeClient;
   if (!c) { alert('Select a client first.'); return; }
+  // r98 — above r96's own refusals, and before any mutation: this grid can carry dozens of
+  // typed prices, and a silent loss of the batch is the worst outcome on this screen.
+  if (refuseWriteBackendDown('These cost prices')) return;
   bpRefreshDups();
 
   const bad = [], changes = [];
@@ -13384,6 +13400,9 @@ async function attachInvoicePDF(idx, input) {
 function applyInvoiceToProducts(id) {
   const c   = activeClient;
   if(!c) { alert('No client selected — please select a client first.'); return; }
+  // r98 — sits with the r80, r86 and r88 refusals, above every write. Returns FALSE, which
+  // is r80's ONE refusal signal, so applyDumpEnrichment's `=== false` bail still holds.
+  if (refuseWriteBackendDown('This invoice')) return false;
   const res = document.getElementById(id+'-results');
   if(!res) { console.error('applyInvoiceToProducts: results div not found for id:', id); return; }
 
@@ -14603,6 +14622,10 @@ function saveStockAdjustment() {
   const c = activeClient;
   if (!c) { alert('Select a client first.'); return; }
 
+  // r98 — reachability is checked first: there is no point resolving a period for a write
+  // that cannot leave the browser.
+  if (refuseWriteBackendDown('This adjustment')) return;
+
   // r82 FIX 5 — the period could have been closed from another surface while this form sat
   // open, so the open-time refusal is re-tested here. Same helper, same wording (r80).
   if (refuseWriteNoOpenPeriod(c, 'This adjustment')) return;
@@ -14816,6 +14839,9 @@ function setImportTab(tab, btn) {
 async function importByCode() {
   const code = document.getElementById('import-code-input').value.trim().toUpperCase();
   if(code.length < 4){ alert('Enter a valid session code e.g. AP-4821'); return; }
+  // r98 — the count is safe on the phone. Importing it into a desktop that cannot save
+  // would stage it into memory and lose it on refresh, while the phone marks it consumed.
+  if (refuseWriteBackendDown('This mobile count')) return;
   closeModal('importCountModal');
 
   // Try Supabase first
@@ -15296,6 +15322,10 @@ function freezeSessionSnapshot(c, sess) {
 }
 
 function finaliseStocktake(){
+  // r98 — BEFORE closeModal, so the review screen stays on the page while the refusal is
+  // read (the r86/r96 posture: refuse with the work still visible). Finalising a count that
+  // cannot be persisted is the single most expensive silent failure in the app.
+  if (refuseWriteBackendDown('This stocktake')) return;
   closeModal('finaliseModal');
   const c = activeClient; if(!c) return;
 
@@ -15786,6 +15816,9 @@ function finalisePageReview() {
 // period to be FINALISED first (the safe path): rollover never silently finalises.
 function rolloverPeriod() {
   const c = activeClient; if(!c) return;
+  // r98 — rollover rewrites the period chain across two sessions plus the client row. A
+  // half-written chain is the hardest state in the app to recover from.
+  if (refuseWriteBackendDown('This period rollover')) return;
 
   // Precondition — there must be a CURRENT, FINALISED period to roll over FROM.
   const cur = currentSession(c);
@@ -16787,7 +16820,13 @@ const DB = {
       return false;
     }
     this._ready = true;
-    console.log('[AuditPro] Supabase connected →', SUPABASE_CONFIG.url);
+    // r98 FIX 6 — this verifies THE CONFIG LITERALS ONLY. No request has been made, so the
+    // project may be paused, deleted or otherwise unreachable and this line would still
+    // print. Saying "connected" here is a large part of why a paused Supabase project was
+    // indistinguishable from a healthy empty account: the console asserted a connection
+    // that had never been attempted. The genuine reachability message is logged by
+    // dbLoadAll, after a read actually comes back.
+    console.log('[AuditPro] Supabase configured →', SUPABASE_CONFIG.url, '(not contacted yet)');
     return true;
   },
 
@@ -16804,29 +16843,71 @@ const DB = {
     return `${SUPABASE_CONFIG.url}/rest/v1/${table}${params}`;
   },
 
-  async get(table, params = '') {
-    if (!this._ready) return null;
+  // ── r98 FIX 1 — THREE OUTCOMES, NOT ONE NULL ─────────────────────────────
+  // The old `get` collapsed three genuinely different things into a single `null`:
+  //
+  //   (1) THE SERVER WAS NEVER REACHED   — fetch REJECTS. DNS/NXDOMAIN (a paused Supabase
+  //       project), offline, TLS or CORS. No HTTP conversation happened at all.
+  //   (2) THE SERVER ANSWERED AN ERROR   — fetch RESOLVES, `r.ok` false. RLS, 401, 5xx.
+  //       The server is alive; this request was rejected.
+  //   (3) THE TABLE IS GENUINELY EMPTY   — `r.ok` true, rows `[]`. A real answer.
+  //
+  // ONLY (3) is knowledge. (1) and (2) mean WE DO NOT KNOW what the table holds, and must
+  // never be presented to the user as "no data" — that is precisely the failure this build
+  // exists to end. The distinction is drawn on whether an HTTP RESPONSE WAS RECEIVED, which
+  // is exactly the line `fetch` itself draws between rejecting and resolving.
+  //
+  // Returns { ok, rows, reason, status, error } in the r80/r95 { value, reason } house style:
+  //   'ok'          — answered; `rows` is the array, possibly empty — a real answer
+  //   'unreachable' — no HTTP conversation happened (case 1)
+  //   'http'        — answered with a non-2xx; `status` carries it (case 2)
+  //   'notready'    — no url/key configured; nothing was attempted
+  async getResult(table, params = '') {
+    if (!this._ready) return { ok:false, rows:null, reason:'notready', status:0, error:null };
     const attempt = async () => {
       const r = await fetch(this.url(table, params), { headers: this.headers });
-      if (!r.ok) throw new Error(await r.text());
+      if (!r.ok) {
+        const body = await r.text().catch(() => '');
+        const e = new Error(body || ('HTTP ' + r.status));
+        e._http = true; e._status = r.status;
+        throw e;
+      }
       return await r.json();
     };
-    try {
-      return await attempt();
-    } catch(e) {
-      // Retry once after short delay — handles file:// CORS warmup
+    const run = async () => {
       try {
-        await new Promise(r => setTimeout(r, 600));
-        return await attempt();
-      } catch(e2) {
-        console.error('[DB.get]', table, e2);
-        return null;
+        return { ok:true, rows: await attempt(), reason:'ok', status:200, error:null };
+      } catch(e) {
+        // A thrown _http marker means the server answered. Anything else — a TypeError from
+        // fetch itself — means it did not. Never conflate them.
+        if (e && e._http) return { ok:false, rows:null, reason:'http', status:e._status||0, error:e };
+        return { ok:false, rows:null, reason:'unreachable', status:0, error:e };
       }
+    };
+    let res = await run();
+    if (!res.ok) {
+      // Retry once after a short delay — the original reason this retry exists is file://
+      // CORS warmup. A second failure is reported with its reason intact, not flattened.
+      await new Promise(r => setTimeout(r, 600));
+      res = await run();
     }
+    if (!res.ok) console.error('[DB.get]', table, '—', res.reason, res.status || '', res.error);
+    return res;
   },
 
-  async upsert(table, data) {
-    if (!this._ready) return null;
+  // Back-compat wrapper — the original contract (rows | null) for any caller that only wants
+  // the data. dbLoadAll uses getResult directly because it is the one caller that MUST tell
+  // an empty table apart from an unreachable one.
+  async get(table, params = '') {
+    const r = await this.getResult(table, params);
+    return r.ok ? r.rows : null;
+  },
+
+  // r98 FIX 4 — the WRITE side needs the same distinction, and needs it more. A failed read
+  // shows the user too little; a failed write lets them believe work is saved when it is not.
+  // Same { ok, reason, status } shape as getResult.
+  async upsertResult(table, data) {
+    if (!this._ready) return { ok:false, rows:null, reason:'notready', status:0, error:null };
     // Each table has a different unique conflict column
     const conflictCol = {
       'ap_clients':         'slug',
@@ -16842,18 +16923,43 @@ const DB = {
         headers: { ...this.headers, 'Prefer': 'resolution=merge-duplicates,return=representation' },
         body:    JSON.stringify(data),
       });
-      if (!r.ok) throw new Error(await r.text());
-      return await r.json();
-    } catch(e) { console.error('[DB.upsert]', table, e); return null; }
+      if (!r.ok) {
+        const body = await r.text().catch(() => '');
+        console.error('[DB.upsert]', table, '— http', r.status, body);
+        return { ok:false, rows:null, reason:'http', status:r.status, error:new Error(body) };
+      }
+      return { ok:true, rows: await r.json(), reason:'ok', status:r.status, error:null };
+    } catch(e) {
+      console.error('[DB.upsert]', table, '— unreachable', e);
+      return { ok:false, rows:null, reason:'unreachable', status:0, error:e };
+    }
+  },
+
+  // Back-compat wrapper — unchanged contract (rows | null).
+  async upsert(table, data) {
+    const r = await this.upsertResult(table, data);
+    return r.ok ? r.rows : null;
+  },
+
+  async deleteResult(table, params) {
+    if (!this._ready) return { ok:false, reason:'notready', status:0, error:null };
+    try {
+      const r = await fetch(this.url(table, params), { method: 'DELETE', headers: this.headers });
+      if (!r.ok) {
+        const body = await r.text().catch(() => '');
+        console.error('[DB.delete]', table, '— http', r.status, body);
+        return { ok:false, reason:'http', status:r.status, error:new Error(body) };
+      }
+      return { ok:true, reason:'ok', status:r.status, error:null };
+    } catch(e) {
+      console.error('[DB.delete]', table, '— unreachable', e);
+      return { ok:false, reason:'unreachable', status:0, error:e };
+    }
   },
 
   async delete(table, params) {
-    if (!this._ready) return null;
-    try {
-      const r = await fetch(this.url(table, params), { method: 'DELETE', headers: this.headers });
-      if (!r.ok) throw new Error(await r.text());
-      return true;
-    } catch(e) { console.error('[DB.delete]', table, e); return null; }
+    const r = await this.deleteResult(table, params);
+    return r.ok ? true : null;
   },
 
   // ── Schema (run once in Supabase SQL editor) ──────
@@ -16922,20 +17028,37 @@ function clientSlug(client) {
 }
 
 // Save a single client's full data to Supabase
+// r98 FIX 4 — THE WORST OF THE THREE, ON TWO COUNTS.
+//   (a) `r.ok` was never checked, and `showPersistToast('✓ Saved')` ran unconditionally.
+//       fetch only REJECTS on a network failure; an HTTP error (RLS, 401, 5xx) RESOLVES.
+//       So every rejected write reported "✓ Saved" — a FALSE SUCCESS on the main
+//       persistence path for the entire client object.
+//   (b) There was no try/catch, so a network failure rejected the returned promise. With 25
+//       fire-and-forget call sites that is 25 unhandled rejections and no user-visible sign.
+// It now resolves in every case and reports honestly. `.catch()` on the one call site that
+// uses it (the seq backfill) stays valid — catch on a resolved promise is a no-op.
 async function dbSaveClient(client) {
-  if (!DB._ready) return;
+  if (!DB._ready) return false;
   const slug = clientSlug(client);
-  await fetch(`${SUPABASE_CONFIG.url}/rest/v1/ap_clients?slug=eq.${encodeURIComponent(slug)}`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SUPABASE_CONFIG.key,
-      'Authorization': 'Bearer ' + SUPABASE_CONFIG.key,
-      'Prefer': 'return=minimal'
-    },
-    body: JSON.stringify({ data: client }),
-  });
-  showPersistToast('✓ Saved');
+  try {
+    const r = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/ap_clients?slug=eq.${encodeURIComponent(slug)}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_CONFIG.key,
+        'Authorization': 'Bearer ' + SUPABASE_CONFIG.key,
+        'Prefer': 'return=minimal'
+      },
+      body: JSON.stringify({ data: client }),
+    });
+    if (r.ok || r.status === 204) { noteWriteOk(); showPersistToast('✓ Saved'); return true; }
+    const err = await r.text().catch(() => '');
+    reportWriteFailure('Venue data for ' + ((client && client.name) || slug), 'http', r.status, err);
+    return false;
+  } catch(e) {
+    reportWriteFailure('Venue data for ' + ((client && client.name) || slug), 'unreachable', 0, String(e));
+    return false;
+  }
 }
 
 // Save all products for a client — PATCH existing ap_clients row
@@ -16954,15 +17077,21 @@ async function dbSaveProducts(client) {
       body: JSON.stringify({ data: client }),
     });
     if(r.ok || r.status === 204) {
+      noteWriteOk();
       showPersistToast('✓ ' + (client.products||[]).length + ' products saved');
-    } else {
-      const err = await r.text();
-      console.error('[dbSaveProducts] PATCH failed:', r.status, err, 'slug:', slug);
-      showPersistToast('⚠ Save failed ' + r.status + ' — slug: ' + slug);
+      return true;
     }
+    const err = await r.text().catch(() => '');
+    // r98 — this function already DETECTED its failures; what it lacked was a surface that
+    // outlives 1.8 seconds. A transient toast is the wrong place to tell someone their
+    // catalogue did not save.
+    reportWriteFailure('Product catalogue (' + (client.products||[]).length + ' products)',
+                       'http', r.status, err + ' | slug: ' + slug);
+    return false;
   } catch(e) {
-    console.error('[dbSaveProducts]', e);
-    showPersistToast('⚠ Save error');
+    reportWriteFailure('Product catalogue (' + ((client.products||[]).length) + ' products)',
+                       'unreachable', 0, String(e));
+    return false;
   }
 }
 
@@ -17179,19 +17308,32 @@ function deliveriesForSession(c, sess) {
 }
 
 // Save an audit session
+// r98 FIX 4 — was ENTIRELY silent: DB.upsert swallowed every failure into null and the
+// return value was discarded. This is the finalise / rollover / amend persistence path, so a
+// silent failure here loses a whole counted period while the UI shows it as saved.
 async function dbSaveSession(client, session) {
-  if (!DB._ready) return;
-  await DB.upsert('ap_audit_sessions', {
+  if (!DB._ready) return false;
+  const res = await DB.upsertResult('ap_audit_sessions', {
     client_slug: clientSlug(client),
     session_id:  session.id,
     data:        session,
   });
+  if (!res.ok) {
+    reportWriteFailure('Audit period "' + ((session && (session.label || session.id)) || '?') + '"',
+                       res.reason, res.status, '');
+    return false;
+  }
+  noteWriteOk();
+  return true;
 }
 
 // Save batches
 async function dbSaveBatches() {
-  if (!DB._ready) return;
-  await DB.upsert('ap_batches', { id: 1, data: batches });
+  if (!DB._ready) return false;
+  const res = await DB.upsertResult('ap_batches', { id: 1, data: batches });
+  if (!res.ok) { reportWriteFailure('Cocktail batches', res.reason, res.status, ''); return false; }
+  noteWriteOk();
+  return true;
 }
 
 // Load everything from Supabase on startup
@@ -17228,13 +17370,34 @@ async function dbLoadAll() {
   showLoadingBanner(true);
   try {
     // Load master product catalogue first
-    const dbMaster = await DB.get('ap_master_products', '?order=id.asc');
+    const masterRes = await DB.getResult('ap_master_products', '?order=id.asc');
+    const dbMaster  = masterRes.ok ? masterRes.rows : null;
     if(dbMaster && dbMaster.length) {
       masterProducts = dbMaster.map(r=>r.data).filter(Boolean);
     }
 
-    // Load clients — DB data wins completely
-    const dbClients = await DB.get('ap_clients', '?order=id.asc');
+    // ── r98 FIX 1 — ap_clients IS THE READ THAT DECIDES ─────────────────────────
+    // If this one did not ANSWER, we know nothing about what venues exist, and the function
+    // must not report success. Previously a null here simply skipped the block and the load
+    // ran on to `return true`.
+    const clientsRes = await DB.getResult('ap_clients', '?order=id.asc');
+    if (!clientsRes.ok) {
+      _dbDown = { reason: clientsRes.reason, status: clientsRes.status, at: Date.now() };
+      console.error('[AuditPro] LOAD FAILED — ap_clients did not answer (' + clientsRes.reason
+        + (clientsRes.status ? ' ' + clientsRes.status : '') + '). NO DATA IS LOADED. '
+        + 'This is NOT an empty account.');
+      showLoadingBanner(false);
+      renderDbDownBanner();
+      renderDbStatus();
+      renderOverview();   // paints the offline notice instead of an empty grid
+      renderDropdown();
+      return false;
+    }
+    // The server answered — reachability is proven, whatever the row count.
+    _dbDown = false;
+    console.log('[AuditPro] Supabase REACHABLE — ap_clients answered with '
+      + (clientsRes.rows ? clientsRes.rows.length : 0) + ' row(s).');
+    const dbClients = clientsRes.rows;
     if (dbClients && dbClients.length) {
       dbClients.forEach(row => {
         if(!row.data || (!row.data.id && !row.data.name)) return; // skip invalid rows
@@ -17271,8 +17434,21 @@ async function dbLoadAll() {
     });
     console.log('[AuditPro] Density merge — ' + densityMerged + ' products updated from master.');
 
-    // Load audit sessions per client
-    const dbSessions = await DB.get('ap_audit_sessions', '?order=updated_at.desc');
+    // Load audit sessions per client.
+    // r98 — ap_clients answered, so the server is alive; a failure HERE is an HTTP/RLS
+    // problem on one table. It is still reported, because a period that silently fails to
+    // load looks like a period that was never counted — and the user would recount it.
+    const sessionsRes = await DB.getResult('ap_audit_sessions', '?order=updated_at.desc');
+    let sessionsFailed = false;
+    if (!sessionsRes.ok) {
+      sessionsFailed = true;
+      console.error('[AuditPro] PARTIAL LOAD — ap_audit_sessions did not answer ('
+        + sessionsRes.reason + (sessionsRes.status ? ' ' + sessionsRes.status : '')
+        + '). Audit periods may be MISSING from this view — do not recount on this basis.');
+      _dbSaveFail = { what: 'audit periods could not be loaded', reason: sessionsRes.reason,
+                      status: sessionsRes.status, at: Date.now() };
+    }
+    const dbSessions = sessionsRes.ok ? sessionsRes.rows : null;
     if (dbSessions && dbSessions.length) {
       dbSessions.forEach(row => {
         const c = clients.find(c => clientSlug(c) === row.client_slug);
@@ -17304,13 +17480,19 @@ async function dbLoadAll() {
     });
 
     // Load batches
-    const dbBatches = await DB.get('ap_batches', '?id=eq.1');
+    const batchesRes = await DB.getResult('ap_batches', '?id=eq.1');
+    const dbBatches  = batchesRes.ok ? batchesRes.rows : null;
     if (dbBatches && dbBatches.length && dbBatches[0].data) {
       batches = dbBatches[0].data;
     }
 
-    console.log('[AuditPro] Loaded from Supabase — clients:', clients.length, clients.map(c=>c.name));
+    // r98 — the log now states what was VERIFIED, not merely what the array ended up at.
+    // "clients: 0" on its own was true during the outage and told the user nothing.
+    console.log('[AuditPro] Loaded from Supabase (server answered) — clients:',
+      clients.length, clients.map(c=>c.name));
     showLoadingBanner(false);
+    renderDbDownBanner();
+    renderDbStatus();
     renderOverview();
     renderDropdown();
     // Update activeClient reference to fresh data from Supabase
@@ -17326,10 +17508,17 @@ async function dbLoadAll() {
     // Re-render current page with fresh data
     const curPage = document.querySelector('.page.active')?.id?.replace('page-','');
     if(curPage && curPage !== 'overview' && activeClient) renderPage(curPage);
-    return true;
+    // r98 — a partial load is NOT a success. Audit periods missing from the view is exactly
+    // the kind of gap a user would "fix" by recounting.
+    return !sessionsFailed;
   } catch(e) {
+    // r98 — DB.getResult no longer throws, so reaching here means something else in the load
+    // broke. Still a failed load, and still must not present as an empty account.
     console.error('[AuditPro] Load failed:', e);
+    _dbDown = { reason: 'error', status: 0, at: Date.now() };
     showLoadingBanner(false);
+    renderDbDownBanner();
+    renderDbStatus();
     return false;
   }
 }
@@ -17363,6 +17552,133 @@ function showLoadingBanner(show) {
   }
 }
 
+// ══ r98 — BACKEND REACHABILITY: "LOADED NOTHING" IS NOT "FAILED TO LOAD" ═════════════
+// The live incident: the Supabase project auto-paused (free tier, ~a week idle), its
+// hostname stopped resolving, DB.get caught the rejection and returned null, dbLoadAll's
+// `if (dbClients && dbClients.length)` skipped, nothing threw, and dbLoadAll RETURNED TRUE.
+// The app logged "clients: 0" and drew an empty dropdown — byte-for-byte what a brand-new
+// account with no venues looks like. On site mid-audit that silence reads as "my data is
+// gone".
+//
+// ONE piece of state, ONE wording — the r80 noOpenPeriodText / r86 / r96 pattern — so the
+// banner, the dropdown, the overview, the refusals and the sidebar badge can never disagree
+// about whether the database is reachable.
+//
+// _dbDown is set ONLY by an operation that actually TRIED and FAILED to reach the server.
+// It is never inferred from `clients.length === 0`: an account with genuinely no venues is
+// a legitimate state that must keep rendering normally, with no banner at all. That negative
+// control is what stops this becoming a false alarm — and a false alarm is how r97's
+// `needsInfoAlert` became wallpaper.
+let _dbDown      = null;   // null = nothing attempted yet · false = verified reachable · object = failed
+let _dbSaveFail  = null;   // last WRITE that did not land: { what, reason, status, at }
+
+// TRUE only when a real attempt failed to reach the server.
+function dbIsDown() { return !!_dbDown; }
+
+// The ONE wording. `what` names the thing being written, when there is one.
+function dbDownText(what) {
+  const why = (_dbDown && _dbDown.reason === 'http')
+    ? 'The database answered with an error (' + (_dbDown.status || '?') + '), so it would not accept the write.'
+    : 'The app could not reach the database at all — no connection was made.';
+  return 'CANNOT REACH THE DATABASE\n\n'
+    + why + '\n\n'
+    + (what ? what + ' cannot be saved right now, and would be lost.\n\n' : '')
+    + 'THIS IS NOT AN EMPTY ACCOUNT. Your venues, products and counts are on the server — '
+    + 'the app simply could not reach it, so nothing has been loaded and nothing can be saved.\n\n'
+    + 'The most common cause is the Supabase project being PAUSED: the free tier pauses a '
+    + 'project after about a week idle. Open the Supabase dashboard, resume the project, then '
+    + 'press Retry in the red banner at the top of the screen.';
+}
+
+// A short form for the banner and inline notices — same facts, one line.
+function dbDownShort() {
+  return dbIsDown()
+    ? 'Database unreachable — no data is loaded and nothing can be saved.'
+    : '';
+}
+
+// ── FIX 2 — the banner. PERSISTENT: no timeout, no auto-dismiss. showPersistToast fades
+// after 1.8s, which is exactly the wrong surface for a condition that does not go away and
+// that the user may meet mid-count. Built on showLoadingBanner's own fixed-top pattern
+// rather than inventing a new one.
+function renderDbDownBanner() {
+  let b = document.getElementById('db-down-banner');
+  const show = dbIsDown() || !!_dbSaveFail;
+  if (!show) { if (b) b.remove(); return; }
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'db-down-banner';
+    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:10000;background:rgba(240,80,80,0.16);'
+      + 'border-bottom:1px solid rgba(240,80,80,0.45);padding:10px 20px;font-size:13px;color:#ffb4b4;'
+      + 'font-weight:600;display:flex;align-items:center;gap:14px;justify-content:center;flex-wrap:wrap;';
+    document.body.appendChild(b);
+  }
+  const msg = dbIsDown()
+    ? '⚠ ' + dbDownShort() + ' This is NOT an empty account — the database could not be reached.'
+    : '⚠ A save did NOT reach the database'
+      + (_dbSaveFail && _dbSaveFail.what ? ' (' + rptEsc(String(_dbSaveFail.what)) + ')' : '')
+      + ' — your most recent change is not stored.';
+  b.innerHTML = '<span style="max-width:900px;line-height:1.45;">' + msg + '</span>'
+    + '<button onclick="dbRetryConnect()" style="padding:5px 14px;border-radius:6px;background:rgba(240,80,80,0.22);'
+    + 'border:1px solid rgba(240,80,80,0.5);color:#ffd4d4;font-size:12px;font-weight:700;cursor:pointer;">↺ Retry</button>'
+    + '<button onclick="alert(dbDownText(\'\'))" style="padding:5px 14px;border-radius:6px;background:transparent;'
+    + 'border:1px solid rgba(240,80,80,0.4);color:#ffd4d4;font-size:12px;font-weight:600;cursor:pointer;">What does this mean?</button>';
+}
+
+// Retry is READ-ONLY — it re-runs the load and nothing else, so it is always safe to press.
+function dbRetryConnect() {
+  _dbSaveFail = null;
+  renderDbDownBanner();
+  dbLoadAll();
+}
+
+// A write reached the server. Reachability is therefore proven — clear both states.
+function noteWriteOk() {
+  _dbDown = false;
+  _dbSaveFail = null;
+  renderDbDownBanner();
+  renderDbStatus();
+}
+
+// ── FIX 4 — a write that did not land is LOUD. A failed save during a count is worse than
+// a failed read: the user believes the work is stored and moves on.
+function reportWriteFailure(what, reason, status, detail) {
+  _dbSaveFail = { what: what, reason: reason, status: status || 0, at: Date.now() };
+  // 'unreachable' is a reachability fact and must gate further writes. An 'http' failure
+  // means the server IS alive and rejected this request — loud, but not a reachability
+  // claim, so it must NOT flip _dbDown or it would refuse writes that could still succeed.
+  if (reason === 'unreachable') _dbDown = { reason: 'unreachable', status: 0, at: Date.now() };
+  console.error('[AuditPro] r98 — WRITE DID NOT LAND:', what, '—', reason, status || '', detail || '');
+  renderDbDownBanner();
+  renderDbStatus();
+  showPersistToast('⚠ NOT saved — see the red banner');
+}
+
+// ── FIX 3 — the ONE refusal for a write attempted while the database is unreachable.
+// Same convention as r80 refuseWriteNoOpenPeriod and r89's uniqueness refusals:
+// returns TRUE when it refused and the caller must stop.
+function refuseWriteBackendDown(what) {
+  if (!dbIsDown()) return false;
+  alert(dbDownText(what));
+  console.warn('[AuditPro] r98 — write refused, database unreachable:', what);
+  return true;
+}
+
+// The inline notice shown INSIDE the client dropdown and the overview grid, so neither can
+// render as a normal empty state while the backend is down.
+function dbDownNoticeHTML(full) {
+  if (!dbIsDown()) return '';
+  return '<div style="' + (full ? 'grid-column:1/-1;' : '') + 'background:rgba(240,80,80,0.08);'
+    + 'border:1px solid rgba(240,80,80,0.35);border-radius:10px;padding:14px 16px;margin-bottom:10px;">'
+    + '<div style="font-size:13px;font-weight:700;color:#ffb4b4;margin-bottom:6px;">⚠ Database unreachable</div>'
+    + '<div style="font-size:12px;color:var(--text2);line-height:1.5;">'
+    + 'No venues could be loaded — <strong>this is not an empty account</strong>. The app could not '
+    + 'reach the database, so nothing has loaded and nothing can be saved. '
+    + 'If the Supabase project is paused, resume it and press Retry in the banner above.'
+    + '</div></div>';
+}
+
+
 
 // Wrap addClient to also persist
 const _origAddClient = addClient;
@@ -17394,8 +17710,15 @@ finaliseStocktake = function() {
 function renderDbStatus() {
   const el = document.getElementById('db-status');
   if (!el) return;
-  if (DB._ready) {
+  // r98 FIX 6 — THREE states, not two. The old badge printed "Supabase connected" whenever
+  // the config literals existed, so it stayed green throughout an outage in which not one
+  // request had ever succeeded. Green now means a read actually came back.
+  if (DB._ready && dbIsDown()) {
+    el.innerHTML = `<span style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--red);cursor:pointer;" onclick="dbRetryConnect()"><span style="width:6px;height:6px;border-radius:50%;background:var(--red);display:inline-block;"></span>Database unreachable — retry</span>`;
+  } else if (DB._ready && _dbDown === false) {
     el.innerHTML = `<span style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--green);"><span style="width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;"></span>Supabase connected</span>`;
+  } else if (DB._ready) {
+    el.innerHTML = `<span style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3);"><span style="width:6px;height:6px;border-radius:50%;background:var(--text3);display:inline-block;"></span>Supabase configured — connecting…</span>`;
   } else {
     el.innerHTML = `<span style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3);cursor:pointer;" onclick="showSupabaseSetup()"><span style="width:6px;height:6px;border-radius:50%;background:var(--text3);display:inline-block;"></span>Local mode — click to connect DB</span>`;
   }
@@ -17417,7 +17740,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r97';
+const APP_VERSION = '2026-06-10-r98';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
