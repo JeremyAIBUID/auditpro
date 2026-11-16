@@ -1,0 +1,2004 @@
+# Jeremyaibuild — build history (r79 → r99)
+
+> **Not auto-loaded.** These are the full per-build write-ups, moved verbatim out of `CLAUDE.md`
+> on 2026-11-17 when that file passed the 150k-character limit. `CLAUDE.md` keeps the standing
+> rules, the data model, the traps and a condensed statement of each build's invariants; this file
+> keeps the rest — the rationale, the live-data measurements, the harness results and the
+> "deliberately NOT in this build" lists.
+>
+> The text is unchanged from `CLAUDE.md` as of commit `1e93799`, so every `index.html:NNNN` /
+> `:NNNN` reference is as verified **at the build that wrote it** and has drifted since. Re-grep
+> by name; never trust a line number from this file. Sections keep the old `CLAUDE.md` order,
+> which is not strict build order.
+
+## Contents
+- Where a WRITE may land (r80)
+- Pack size and case handling — r84, r85, r86, r87
+- The matcher matched CONFIDENTLY TO THE WRONG PRODUCT (r88)
+- A READ MUST NOT REPRICE THE CATALOGUE (r92)
+- AN AGGREGATE PERCENTAGE NEEDS A DENOMINATOR TOO (r93)
+- THE REPORT NOW DESCRIBES THE PERIOD IT IS TITLED WITH (r94)
+- THE REPORT SELECTOR IS KEYED BY SESSION ID (r95)
+- A GATE THAT NAMES AN UNFIXABLE PROBLEM IS NOISE — SO THE GRID CAME FIRST (r96)
+- A PASSIVE ALERT NOBODY READS IS NOT A GATE (r97)
+- A SILENT FAILURE IS INDISTINGUISHABLE FROM AN EMPTY ACCOUNT (r98)
+- A BACKUP IS THE ONLY COPY THAT SURVIVES THE SERVER (r99)
+- Mobile add-product schema (r79)
+- Invoice Matching Logic (the pre-split text)
+- Signed purchases, % floors, stock adjustments, type-ahead (r81 → r83)
+- Key Functions — Desktop (the full annotated list as at r99)
+
+---
+
+## Audit period lifecycle — where a WRITE may land (r80)
+
+### Where a WRITE may land (r80)
+`currentSession(c)` deliberately falls back to a **finalised** period so the DISPLAY always has
+something to show. For a **write** that fallback is silent data loss: `computeVariances` takes
+the FROZEN branch for any closed period and never scans `client.deliveries`, so an invoice
+booked there never reaches variance — and the r61 guards then refuse to let the user edit or
+delete it back out. The live September 2026 period hit exactly this.
+
+**Every import/adjustment path resolves its target through `importTargetSession(c)`, never
+`currentSession()`.** It returns `{session, reason}`:
+`'ok'` (an open session) · `'none'` (no sessions at all — callers may bootstrap one) ·
+`'closed'` (sessions exist but none open — **REFUSE the write**).
+
+- `refuseWriteNoOpenPeriod(c, what)` alerts and returns `true` when the caller must stop.
+  `noOpenPeriodText()` is the ONE wording, shared with the pre-commit banner, so the warning
+  and the refusal say the same thing. Wired into `applyInvoiceToProducts`,
+  `applyDumpEnrichment`, `addDumpInvoiceToClient` and `saveManualInvoice`.
+- `validateInvoiceImport` gained a **`block`**-level "no open period" message (check C), and
+  gates its period-containment messages off when there is no target — otherwise it would nag
+  about a period the invoice can never reach.
+- **`applyInvoiceToProducts` return contract:** `false` means REFUSED and is the ONLY `false`;
+  success *and* the other early aborts all return `undefined`. Callers **must** test
+  `=== false` — `!applied` would treat a successful import as a failure.
+- **`rolloverPeriod()` sets `openDate` from the prior period's `closeDate`,** not from the
+  `#fin-next-date` input. That input is the planned NEXT COUNT date (typically a month ahead);
+  using it produced a period whose `openDate` was in the future and after its own `closeDate`,
+  which made r78's out-of-period check cry wolf on every real invoice and stopped
+  `resolveDeliveryPeriod`'s date branch ever picking the period. It is now stored separately as
+  `sess.nextDate` — **planning only, nothing computes from it.**
+- `invoiceLockedPeriod(c, d)` lifts the r61 resolution into a helper so `editInvoice()` can
+  refuse at **open** time (it previously let the user re-type the whole invoice, then rejected
+  it on save) and so the three pencil affordances render `🔒 Locked`.
+- **Live data fix:** September 2026's `openDate` was corrected `'2026-09-21'` → `'25 Jul 2026'`
+  in **both** `ap_clients.data.auditSessions` **and** `ap_audit_sessions` — the latter
+  **overwrites** the client copy at `dbLoadAll`, so patching only one lets the stale value win.
+
+---
+
+---
+
+## Pack size and case handling (r84 → r87)
+
+_The closing "Case handling" note still describes the `|| 12` fallback; r87 replaced it with ×1 and a flag (see the r87 section)._
+
+### Case handling — a pack size is CONFIRMED, never decided (r84)
+**There were SIX independent `|| 12` fallbacks.** `countToUnits` is only one of them, and for
+the count path it never even fires: **`finaliseStocktake` expands `Cases` to base units and
+RELABELS the entry to a base unit** before `countToUnits` ever sees it. That is what made the
+live corruption invisible — LINDAUER BRUT 200ml (no `caseSize`) counted as "4 cases" was stored
+as `{"qty":56,"unit":"Bottles"}`, already 8 + 4×12, with no trace a case was involved, and the
+error then propagated into the next period's `opening` through rollover's deep copy.
+
+- **`validPackSize(raw)`** (`index.html:14886`) is the ONE rule: a **whole number, > 0,
+  ≤ 500**. Returns the number or **null** — never `''`, never `NaN`, so nothing downstream can
+  `|| 12` its way past a blank. **r85 gave mobile a byte-identical twin** (`mobile.html:2270`)
+  and routed r75 (barcode link) and r79 (add-product) through it, so the rule now exists in
+  exactly two places instead of five hand-written copies.
+- The desktop count row has a **Pack cell** (6th column, inserted BEFORE the actions cell so
+  `cells[0..3]` keep their indices for `readCountRow` and `buildCombinedTable`). Revealed by
+  `stkSyncUnitRow` (`:14926`) exactly when the unit is `Cases` — r82's `saSyncUnitRow` pattern,
+  walking the row instead of an id because count rows carry no ids. `visibility`, not
+  `display`, so the column never reflows mid-count. Pre-filled from the catalogue; **empty and
+  red-bordered when unknown**. `addRow` calls `stkMarkPack` after appending so the initial
+  paint and every later edit go through the same rule.
+- **`readCountRow` reports `caseSize` ONLY for a `Cases` row.** The cell stays pre-filled behind
+  a Bottles row, and reporting that would claim a confirmation the user never made.
+- **`resolveRowCaseSize(r, prodByName)`** (`:14959`) — `r.caseSize` first; a **mobile** row falls
+  back to the catalogue (the phone only offers `Cases` when `caseSize` is set — r38
+  `applyCaseOption` — and labels it `Cases (×24)`, so the stored number IS what the counter
+  saw); otherwise **null**. There is no 12.
+- **`finaliseStocktake` REFUSES** when any `Cases` row resolves to null, names the offending
+  products, and writes nothing. It does not guess and it does not partially save.
+- **Provenance (`_caseSize`, `_caseQty`, `_caseMixed`)** is written onto the closing entry.
+  **Nothing computes from them.** They exist because the relabel destroys the evidence: "56
+  Bottles" with no `_caseQty` is a genuine 56-bottle count; with `_caseQty` 4 / `_caseSize` 4 it
+  is four cases of four plus eight singles. `_caseMixed` marks a product counted at two
+  different pack sizes across areas, where a single `_caseSize` would be the same quiet lie.
+- **`#manual-unit` (`index.html:668`) lost its `Cases` option.** `addStockItem` passes
+  `hit.soldAs || manualUnit` and a catalogue product ALWAYS has a `soldAs`, so that dropdown is
+  never consulted — offering `Cases` there implied a control that does not exist.
+
+### Closing the last three pack-size holes (r85)
+r84 fixed the desktop **count row**. Three ways to create the same corruption remained, all
+confirmed by diagnostic, and one of them was the desktop's own scanner.
+
+**FIX 1 — a `Cases` product cannot be saved without a pack size.** `saveProduct` accepted
+`soldAs:'Cases'` with `caseSize` null; that is the state LINDAUER BRUT 200ml was in, and it is
+what forced every count of it to be a guess. The refusal validates the **resolved** value, so a
+legacy row with an unusable stored size must be corrected rather than silently re-saved.
+- **r73's snapshot semantics are untouched.** The three branches (untouched → keep stored;
+  deliberately emptied → clear; never rendered → preserve) are unchanged; r85 only **refuses**,
+  it never writes. `caseSize` stays **optional for every other vessel type** — a bottle-sold
+  product can still arrive in a carton.
+- `parseInt(csRaw) || null` became `validPackSize(csRaw)`. **`parseInt('12.5')` is 12**, so a
+  typed 12.5 was stored as a *confirmed* pack size of 12 — and the truncation happened BEFORE
+  the new guard, so the guard would have passed it. Found by the harness, not by reading.
+- `pfMarkCaseSize()` marks the label `Units per case *` and red-borders an unusable value while
+  the modal is open. Purely presentational — it reads no field into the product.
+
+**FIX 2 — mobile RELAXES the Cases refusal and prompts instead.** This is the counter-intuitive
+one. r38 **disabled** the Cases option whenever `caseSize` was unknown; that never stopped
+anyone counting cases, it just moved the count to the unguarded desktop, where the missing size
+defaulted to 12. `applyCaseOption` now leaves Cases **selectable for every product** and labels
+it `Cases (set size)`; `countUnitChanged(which)` (wired to `#scan-unit`/`#search-unit`) opens
+`promptPackSize` on selection, and **cancel or an invalid entry reverts to the base unit**.
+- A valid entry goes through `savePackSize(product, cs)` — a **minimal patch**, `{n, name,
+  caseSize}` and nothing else. `caseSize` is already in `pushProductToSupabase`'s blank-guard
+  list (r79), so this can only ever SET a size, never erase one.
+- `applyCaseOption` still **never auto-selects** Cases, and still snaps back a selection carried
+  over from the previous product.
+- Cost: **zero taps when the size is known, one when it isn't.**
+
+**FIX 3 — the 📦 CASE badge is a tap target.** It displayed the pack size read-only and
+committed it unshown, which is exactly wrong for a product that arrives in several pack sizes:
+scan the 24 carton, tap, type 6. It is now a `<button>` (44px) calling `editScanPackSize()`,
+pre-filled with the current size, and it **selects Cases** on a valid entry so the number typed
+is the number the line is expanded by. `setScanCaseBadge(caseSize, isCase)` has three states —
+confirmed size / no size yet (amber) / hidden. **`isCase` gates it**: without that second
+argument a unit scan of any product that merely *has* a `caseSize` would have painted a CASE
+badge over a Bottles line. No `casePacks[]` array — that is a schema migration for later.
+
+**FIX 4 — `barcodeMatchKind` desktop parity.** Mobile grew the case/unit discriminator in r74;
+`index.html` had **zero** occurrences of it, while `productBarcodes()` folded `caseBarcode` into
+the flat match set — so a scanned CARTON matched the product and booked **one base unit**. A
+live undercount, failing in the **opposite** direction to the old mobile bug.
+- Ported verbatim; it must test `caseBarcode` **explicitly and FIRST** (every merge path unions
+  the case code INTO `barcodes[]`, so an "is it in `barcodes[]`?" test reads true for both).
+- `processDesktopBarcode` now adds a **Cases row with the pack size pre-filled** into r84's Pack
+  cell. Unknown ⇒ the cell stays **empty and red-bordered** and `finaliseStocktake` refuses;
+  it is never guessed at 12.
+- **`addRow(product, location, qty, unit, caseSize)` gained an optional 5th argument.** A case
+  scan can match a **master** product this venue has no `products[]` row for, and `addRow`'s
+  catalogue lookup would find nothing and leave the cell blank. Both routes go through
+  `validPackSize`.
+
+**The last gate on each side.** `finaliseStocktake` refuses a `Cases` row that resolves to null
+(r84, unchanged); mobile's `addItem` refuses a `Cases` line whose product has no confirmed size.
+Neither guesses.
+
+**Fast mode was NOT given a prompt** — it is explicitly no-interaction, and warn-and-book-base-
+units is correct there. Its validity *rule* was switched to `validPackSize` so a malformed size
+books base units instead of being refused downstream by `addItem` and losing the line.
+
+**Verified by a 66-check harness** (34 desktop / 32 mobile) running the **real** scripts in a
+node `vm` against a DOM stub built from the real markup — including end-to-end
+`addRow → readCountRow → resolveRowCaseSize → finaliseStocktake` arithmetic (4 cases of 4 + 8
+singles = **24**, where the live bug stored 56) and every r73 preservation branch.
+
+**The five terminal `|| 12` fallbacks were REMOVED in r87** — `countToUnits`, the live
+delivery merge, `fallbackSessionPurchases`, the frozen closed branch and
+`sessionOverallVariancePct`. **All five read FROZEN history**, which is exactly why the removal
+was gated on a before/after harness over every stored period: changing them can silently
+RE-VALUE closed periods. That gate has now been run — see the r87 section below.
+
+### Pack size: one precedence order, and a mandatory field (r86)
+Two related invoice defects, both confirmed by diagnostic before the fix and re-measured after.
+
+**FIX 1 — the review modal's pack size is MANDATORY when the split checkbox is ticked.**
+"Split into individual units — cost ÷ case size" IS the multiplier and the divisor, but "Units
+per case" beside it was optional. Left blank, r57's `caseQty > 1` gate quietly no-oped: the line
+stored as raw `Cases` with `caseSize` 0, and the two readers then disagreed about what it meant
+— the live merge guessed **12**, the frozen snapshot expanded **×1**. Same invoice, two numbers,
+decided by whether the period happened to still be open.
+- `validPackSize` is the rule, unchanged (whole, > 0, ≤ 500, returns **null**). The refusal
+  **names the offending lines** and writes nothing — the r84 `finaliseStocktake` posture.
+- **`invRefuseUnconfirmedPack(id)` is the ONE decision point and the ONE wording** (the r80
+  `noOpenPeriodText` pattern), called from two places: the modal's confirm button, **before**
+  `closeModal` so the red-bordered fields are still on screen; and `applyInvoiceToProducts`,
+  the choke point every import route funnels through. It returns **`false`** on refusal, so
+  r80's "`false` is the ONE refusal signal" contract still holds and `applyDumpEnrichment`
+  bails on `=== false` exactly as before.
+- **"Ticked" means the control was actually OFFERED.** The checkbox is hardcoded-`checked` on
+  every rendered row, including hidden plain-bottle lines, so `invSplitLineIsSplitting` tests
+  the **wrap's visibility** as well. Unticked ⇒ the field stays optional, as before.
+- `invMarkCaseSize` is presentational only (red border + `Units per case *`), and runs on
+  first paint, on every keystroke, on the checkbox, and from `updateInvCaseSize` — one helper,
+  so the paint can never disagree with the refusal.
+- **Not covered, deliberately:** quick import and an un-reviewed dump card have no checkbox to
+  honour, so nothing is refused there. A visible-but-UNTICKED `Cases` row can still reach the
+  live merge's terminal 12 — narrowing that is a scope change, not this build.
+
+**FIX 2 — the precedence inversion is gone.** All three purchase-expansion sites now read:
+
+> **stamped size on the line/entry → catalogue `caseSize` → parsed from the name → 12**
+
+`:6535` (live merge) used to put **prodMap FIRST**, so r57's carefully-resolved reviewed size
+was discarded in favour of the catalogue's; `:6601`/`:6634` have always read the stamped size
+first. The reviewed value is a per-invoice fact the user confirmed for THIS line — the same
+reasoning that makes a r82 adjustment store its confirmed size. **Total line value is invariant
+under the pack size** (`qty × cs` up, `cost ÷ cs` down), so the flip moves UNITS, never money.
+
+**FIX 3 — the terminal `|| 12` was NOT removed** at any of the five history-reading sites. Only
+the operand ORDER at `:6535` changed.
+
+**Measured impact on live data: ZERO.** The real `computeVariances` was run from the pre-r86 and
+post-r86 builds against the live `ap_clients` + `ap_audit_sessions` rows, for all 3 stored
+periods **twice each** — as stored, and with the status forced to `reopened` so the live-merge
+branch is exercised — diffing 11 numeric fields across 158 variance rows: **0 fields moved.**
+Every stored case line either carries a `line.caseSize` equal to the catalogue's (12=12, 10=10)
+or has no catalogue value at all. `CHURCH ROAD CHARDONNAY` on the `TRANSFER` delivery has no
+size anywhere and still lands on the terminal 12 — a pre-existing guess, untouched here.
+
+**Verified by a 108-check harness** (`verify-r86.js`) running the **real** desktop script in a
+node `vm` against a DOM stub, plus a second context booting the **pre-r86 snapshot** so
+"previously 12" is measured rather than asserted: reviewed 6 vs catalogue 12 gives **48 units
+pre / 24 post**, and identical numbers in both builds wherever no reviewed size exists. It also
+runs import → compute → **finalise** → recompute and asserts the purchase units, expected stock
+and cost impact are unchanged by closing, plus r56/r57 expansion, r77 idempotency, r78/r80
+guards, r81/r82 signed adjustments and the cost write-back gate, r83's hard catalogue binding,
+r84/r85 pack-size rules and the period lifecycle.
+
+### The terminal `|| 12` is gone — ×1 and a flag, never a guess (r87)
+
+The five history-reading sites r84–r86 deliberately left alone now resolve through **one**
+helper. `resolvePackSize(stamped, catalogue, nameForParse)` (`index.html:14916`) applies r86's
+precedence — **stamped size → catalogue `caseSize` → parsed from the name → ×1** — running every
+candidate through `validPackSize`, and returns **`{ cs, unknown }`**.
+
+- **Why ×1 and not 12.** 12 has never once been right in the two real corruptions found:
+  LINDAUER BRUT 200ml was a 4-pack (r84), the review-modal case a 6-pack (r86). A guessed 12 on
+  a 4-pack overstates purchases by 200% and reads as a *plausible* number, so nobody looks at
+  it. ×1 UNDER-states — and an under-count carrying a visible badge is recoverable: the user
+  sets the pack size and the number corrects itself. A silent ×12 is not, because nothing ever
+  says it happened.
+- **`unknown` must never be inferred from `cs === 1`** — a confirmed pack size of 1 is legal.
+- **A malformed STORED value falls THROUGH to the next candidate** rather than being coerced.
+  Plain `||` would have multiplied by the string `'12.5'`; `parseInt` would have truncated it to
+  12 (the r85 `saveProduct` trap). Live-measured: a stored `12.5` produced **12.5 units** pre-r87.
+- **`countToUnits(entry, prod, packOut)` gained an OPTIONAL third argument.** Pass `{}` and it
+  comes back with `.unknown`. All six existing two-arg call sites are unaffected.
+- **An unexpanded case supplies QUANTITY but never a per-unit COST** — the same abstention r81
+  applies to an adjustment (`costUnusable = lineIsAdj || packUnknown`). With `cs = 1`,
+  `cost / caseSize` is the whole CASE price; asserting that as the per-unit cost would value
+  every opening and closing BOTTLE at a case price, and the catalogue write-back would make it
+  permanent.
+- **The flag is visible without a click.** `packUnknown` / `packUnknownWhere`
+  (`purchases` / `opening count` / `closing count`) ride on the variance row →
+  an amber `📦 ?` badge on the purchases **cell**, a per-line chip plus an explainer inside the
+  popover, and a `Pack ?` badge with a legend on the **PDF report**. `PACK_UNKNOWN_TITLE`
+  (`:7424`) is the ONE wording, so the table and the popover can never disagree. The entry flag
+  is **sticky** — a later well-formed line does not clear it — and survives the freeze, so a
+  period closed while a line was unexpanded keeps saying so.
+
+**Measured impact on live data: ONE product.** The real `computeVariances` was run from the
+pre-r87 and post-r87 builds against the live `ap_clients` + `ap_audit_sessions` rows, all 3
+stored periods **twice each** (as stored, and forced `reopened` so the live-merge branch is
+exercised): **12,324 field comparisons across 316 rows, and every value move is on
+`CHURCH ROAD CHARDONNAY`** — the `TRANSFER` delivery line `{qty:1, unit:'Cases'}` with no pack
+size on the line, none in the catalogue (`caseSize: null`) and none in the name.
+`purUnits 12 → 1`, `expectedNum 14.49 → 3.49`, `varMl −7120 → 1130`, `varPctNum −65.5% → +43.1%`.
+
+- **Only in the REOPENED run.** September's frozen `purchases` already stores
+  `{qty: 12, unit: 'Bottles'}` — the old guess was baked in at freeze time as base units, so the
+  frozen branch never case-expands and reads identically in both builds. **r87 does not
+  retroactively correct stored history**; it changes what that period recomputes to if it is
+  ever reopened. The 12 is still sitting in the September snapshot.
+- **DOLLAR fields moved: 0.** The money invariant holds on live data.
+
+**The money invariant is NOT universal — know the second regime.** r86's cancel-out
+(`qty × cs` up, `cost ÷ cs` down) applies only where the pack size **resolves**. Because r87
+abstains from a per-unit cost when it does not, an **unresolvable *priced*** case line moves
+`costPrice`, `costImpact` and `varVal`. Measured synthetically: a $120 case → pre-r87
+`costPrice 10 / costImpact −120`, post-r87 `0 / 0`, with the row flagged. **No such line exists
+in live data today** (the one unresolvable line is priced 0), which is why the live diff shows
+zero dollar movement. The abstention is deliberate and protective — section S of the harness
+confirms stock is then valued at the **product** cost, not the case price, and that the
+catalogue is **not** repriced.
+
+**Verified by `verify-r87.js`** — a four-part suite (scratchpad, not committed; the repo tracks
+no harnesses): **161** core regression checks (the resolver rule, r56/r57, r77, r78, r80–r86,
+the lifecycle, and `sessionOverallVariancePct`'s newly-added name-parse candidate), the
+**live-data dual-build gate** above, the money-invariant measurement across both regimes, and
+**32** render-surface checks driving the real `renderVarTable` / `calculateReportData` /
+`renderReportDocument` — including a clean-venue **negative control**, because a badge that
+always renders means nothing. `node --check` passes on all script blocks; brace balance 0.
+
+**Harness lesson:** the r86 impact script hardcoded 13 field names and the variance row has
+**19** numeric fields — it would have missed a move in `varMl`, which is precisely a field a
+pack-size change moves. **Auto-derive the field list from the union of keys in both builds.**
+
+### Case handling
+`unionBarcodes()` flattens `barcode`, `barcodes[]` **and** `caseBarcode` into one flat match
+set — so a case barcode matches but carries no signal on its own. **The discriminator must test
+`caseBarcode` explicitly**, or a case scan books 1 bottle (the r74 bug on mobile, the r85 bug on
+desktop). `barcodeMatchKind()` now exists in **both** files. `applyCaseOption()` still never
+selects the Cases option — but since r85 it no longer **disables** it either: it prompts for the
+pack size instead. `countToUnits`' `caseSize || 12` fallback turns an unguarded `Cases`
+selection into a silent 12× inflation, which is why every path that can select `Cases` confirms
+the size first.
+
+---
+
+---
+
+## The matcher matched CONFIDENTLY TO THE WRONG PRODUCT (r88)
+
+The invoice matcher never failed by refusing to match. It matched the wrong product and
+rendered a green **"✓ Matched"** tick, collapsed — which is why four defects rode through a
+whole live audit unnoticed. Confirmed by diagnostic against live Supabase rows before the fix
+and re-measured after.
+
+- **$1,164.72 of Speight's kegs** (4 × $291.18) matched a **master** product this venue does
+  not stock, imported under the master's name, and `computeVariances`' catalogue filter then
+  dropped them **in silence**. `SPEIGHTS SUMMIT ULTRA LOW CARB LAGER` read `purUnits −1`.
+- Two catalogue typos (`KIRIN HYOKESU` / `HYOJETSU`) dropped two products into a five-way
+  0.500 tie that array order handed to Lemon. **Fixed in the catalogue, not in code.**
+- `applyInvoiceToProducts` had **four** name-resolution sites and they disagreed.
+- **Quick import bypassed the not-matched gate entirely.**
+
+### FIX 1 — SUPPLIER CODE IS THE FIRST MATCH STEP
+Every Lion line carries a `productCode` that is stable across invoices even when the
+description is not. Live proof: **1022075** appears on five Speight's Summit Ultra lines under
+two different wordings ("…Ultra **Lager** 50L Keg" ×4, "…Ultra 50L Keg" ×1); **1000391** covers
+"Speight's Mid Gold Medal Ale 12x745ml Bottles Carton" and "Speight's Mid Strength Gold Medal
+Ale 12x745ml Bottles **Crate Wrap 17**". `supplierCode` was already on the product schema and
+`matchPOSNameToProduct` already matched **sales** on it — it was simply never wired to invoices.
+
+- `invMatchLine(client, item, supplier)` is now the **one** matcher, shared by the card and the
+  review modal. Step order: **supplier code → barcode → exact name → normalised → partial →
+  word overlap**. It returns `{ prod, kind, score, code }`.
+- **`invCodeKey` is NOT `normalizeBarcode`.** A supplier code is an opaque key, so leading
+  zeros are significant and must not be stripped; it trims, collapses whitespace, upper-cases.
+- **A code is learned from a DECISION, never from a guess.** `applyInvoiceToProducts` stamps
+  the code onto a matched product only when the match was **confident** (code/barcode/exact) or
+  when a **human bound the row in the review modal**. The live data shows exactly why: Lion's
+  `1264145` ("Kirin Hyoketsu Green Apple") word-overlaps onto `KIRIN HYOKETSU LEMON`, and
+  stamping it there would promote a wrong answer to a permanent, *confident* mapping — the very
+  failure this build exists to end. An unlearned code is logged, not silently skipped.
+- **Preservation follows r73/r79:** a blank never overwrites a stored code, and a *different*
+  stored code is **kept and reported**, never clobbered. `supplierCodeFrom` records which
+  supplier taught us the code, so `invFindByCode` keeps it inside that supplier; an **unstamped**
+  code (legacy, or typed into the product form) matches supplier-agnostically.
+- `saveProduct` rebuilds the whole product object, so `supplierCodeFrom` is explicitly carried
+  over **while the code itself is unchanged**. Editing or clearing the code drops the stamp —
+  correct, because we no longer know who taught us the new value.
+- **Mobile cannot erase either field.** `saveMobileProduct`'s object has no `supplierCode` key,
+  and `pushProductToSupabase` spreads `{...cur, ...prod}` — an absent key preserves.
+
+### FIX 2 — THE MASTER-PRODUCT LEAK
+`findMatch` consulted `getMasterProduct(name)` at its **exact-name** step, which ran **before**
+the venue's own normalised/partial/fuzzy steps. A line reading "Speight's Summit Ultra Lager
+50L Keg" hit the master row of that exact name and never reached the venue's own
+`SPEIGHTS SUMMIT ULTRA LOW CARB LAGER`.
+
+- **(a) The master catalogue is no longer consulted for the match at all.** A venue product is
+  always the better answer for that venue's invoice. The master row is still read separately as
+  **enrichment** (density / vessel data — the r18 behaviour), which is all it was ever good for.
+- **(b) A master-only resolution is surfaced as UNMATCHED** — a red "✗ N not stocked here" chip
+  on the card, a red explainer in the modal naming the master row it found, and a refusal on
+  quick import. The user must map it to a venue product or tick "Create as a new product".
+- **READ SIDE — an orphaned `_cleanName` is not a usable purchase key.** The live delivery merge
+  read `line._cleanName` FIRST and skipped fuzzy matching entirely. When that stored string names
+  nothing the venue stocks, the line is now discarded and falls through to the ordinary fuzzy
+  match (whose algorithm is untouched). This is what actually **recovers** the stored data.
+- **The discard is no longer silent.** `computeVariances` collects every merged purchase key
+  that is not in the catalogue and exposes it as `rows._orphanPurchases` / `rows._orphanLost`;
+  `renderVarOrphanBanner` puts it on the Variance page above the table (`#var-orphan-banner`),
+  and it runs **before** the empty-state early return, or a period whose only purchases are
+  orphaned would show "no variance data yet" and nothing else.
+- **Not every orphan is missing money, and a report that cries wolf gets ignored.** Live
+  September has three orphan keys and only ONE is real. Two **supersession** tests, neither of
+  which guesses at names:
+  1. **same ref + same quantity** under a catalogue name — a stale twin left by the FIX 3 name
+     split (`Corona Extra 330mL Bottle 24-Pack` 48 beside `CORONA - 330 ml` 48; `Lion Red 50L
+     Keg` 1 beside `LION RED` 1);
+  2. a catalogue-named entry whose `lines[]` cite **every** invoice the orphan's own `lines[]`
+     cite — that entry already accounts for all of this orphan's contributions. This is what
+     makes the report **self-healing**: once a reopened period re-derives the kegs from the
+     delivery lines, the recovered entry cites those four invoices plus more and the dead key
+     stops claiming a loss.
+  **An invoice REF alone can never decide this** — one invoice carries several products, so
+  "some entry mentions 94774304" is true of the Dashwood wine on the very invoice whose
+  Speight's keg is genuinely lost.
+
+### FIX 3 — ONE resolved name (there were FOUR, and they disagreed)
+`invResolvedLineName(id, i, item)` is the single reader: the review modal's input when open,
+otherwise **`_cleanName || item.name`**. `_cleanName` wins because it is the RESOLVED catalogue
+name — the only string every reader agrees on; the raw invoice name is the last resort for a
+line with no match at all.
+
+- The divergent one was the **`session.purchases` loop**, which fell back to the raw `item.name`.
+  On quick import the product was created/updated under its CATALOGUE name while its purchase
+  was filed under the INVOICE name — an orphan key `computeVariances` drops on sight.
+- The **master-write loop** was also a raw-name reader. That is how master grew
+  `Speight's Summit Ultra Lager 50L Keg` next to the venue's own name — the very row the leaked
+  match then resolved to. Writing the resolved name keeps the two converging instead of forking.
+- The **delivery-line builder** additionally now stamps `_cleanName: lineName`. `...row` carried
+  the name the matcher wrote when the CARD was built, which is not what the user may have just
+  corrected in the modal (the modal maps a fresh row array and never writes back to
+  `res._invoiceData`). The live merge reads `line._cleanName` first, so a corrected match used
+  to reach `session.purchases` but not the merge — **and the merge wins**.
+
+### FIX 4 — the quick-import gate
+`invRefuseUnmatchedLines(id, rows)` is the ONE decision point and the ONE wording (the r80
+`noOpenPeriodText` / r86 `invRefuseUnconfirmedPack` pattern). It returns **`true` when it
+refused**, so `applyInvoiceToProducts` returns `false` and **r80's "`false` is the ONE refusal
+signal" contract still holds** — `applyDumpEnrichment` bails on `=== false` exactly as before.
+
+- It works in **both** modes: with the modal open it reads the live binding; on quick import
+  (no inputs at all) it reads the row the matcher produced.
+- The gate sits with the r80 and r86 refusals, above every write, so a refused import leaves
+  nothing behind — no product, no delivery, no session purchase. It also covers the **dump**
+  path, which never opens the modal.
+- **Quick import now means "everything is already matched — just book it."** A genuinely new
+  product goes to the review modal. That is a deliberate narrowing: blind-creating products from
+  AI-parsed names is how this catalogue ended up with `CORONA - 330 ml` beside `CORONA - 355ml`.
+
+### FIX 5 — a wrong match is VISIBLE
+- **Three states, not two.** `INV_CONFIDENT_KINDS = ['code','barcode','exact']` — an identity,
+  so **green and collapsed**. Everything else (`normalised`, `partial`, `fuzzy`) reached its
+  answer by discarding volume, pack size or word order, so it is **amber, EXPANDED**, with a
+  banner naming what it matched and how (`word overlap 0.50`). **Normalised is amber on
+  purpose**: it strips volumes, so `CORONA - 330 ml` and `CORONA - 355ml` collapse to one string.
+- **The name field is BOUND, not merely non-empty.** `checkInvoiceReady` tested
+  `nameEl.value.trim()` and nothing else, so any text passed — a typo, or the master name a
+  leaked match had already filled in. `invNameBinding(id, i)` returns `'catalogue'` (the typed
+  name IS a venue product), `'new'` (it is not, and the user ticked "Create as a new product"),
+  or `''` (blocks Confirm and refuses quick import); **`null` means there is no input at all**,
+  which tells the caller to fall back to the row data.
+- **r82/r83's hard binding does not transfer wholesale** — the invoice modal must still be able
+  to CREATE products (all 60 of this venue's arrived that way). So the rule is a binding OR an
+  explicit consent, and nothing else. `invMarkName` is presentational only and reveals the
+  "create new" tick exactly when the typed name is off-catalogue.
+
+### FIX 6 — the fuzzy scorer is NOT touched
+The word-overlap scorer and its tie-break (first-past-the-post on a strict `>`, so array order
+wins a tie) are copied **verbatim**, including the original spacing, so the harness can compare
+them character-for-character. The live delivery merge re-runs fuzzy matching on **every render**,
+so changing the scorer silently re-values any reopened period and `freezeSessionSnapshot` bakes
+it in. FIX 1 and FIX 2 remove most of the pressure on that path.
+
+**Recommendation for a separate gated build:** the five-way 0.500 tie is decided by
+`client.products` array order, which is meaningless. A deterministic tie-break (prefer the
+longest shared-token run, then alphabetical) plus a **refusal** when the top two scores are
+equal would turn a silent wrong answer into an unmatched line the user decides. That change
+moves numbers on every reopened period and needs its own dual-build gate.
+
+### Measured impact on live data (FIX 7)
+The real `computeVariances` was run from the pre-r88 and post-r88 builds against the live
+`ap_clients` + `ap_audit_sessions` rows, all 3 stored periods **twice each** — as stored, and
+forced `reopened` so the live-merge branch is exercised. The field list is **auto-derived** from
+the union of keys in both builds' rows (r86's harness hardcoded 13 names against a 19-field row
+and would have missed `varMl`). **12,956 field comparisons across 316 rows; 12 fields moved, all
+on ONE product:**
+
+`SPEIGHTS SUMMIT ULTRA LOW CARB LAGER`, September 2026, **forced-reopened only**:
+`purUnits −1 → 3` · `expectedNum −2.90 → 1.10` · `varMl 245046 → 45046` ·
+`costImpact / varVal $1427.05 → $262.33` (a **$1,164.72** recovery, exactly the four kegs) ·
+`varPctValid false → true` (the figure was suppressed by r81's one-unit floor at −2.90).
+
+- **Nothing moves in the as-stored runs.** Frozen history is untouched; r88 changes what a
+  period recomputes to **if it is reopened**. The orphan key is still sitting in September's
+  snapshot, and the Variance page now says so.
+- **Rows present in one build only: 0.** No row appeared or vanished.
+
+### Verified by three harnesses (scratchpad, not committed — the repo tracks no harnesses)
+- **`verify-r88.js` — 70 checks.** The shared matcher, supplier-code precedence and supplier
+  scoping, the master leak, confidence, the name binding, the quick-import gate, and FIX 6:
+  the scorer body is compared **character-for-character** against r87 (modulo indentation and
+  two renames), and r87's own `findMatch` is **lifted verbatim out of the pre-change file** and
+  run against the same catalogue so the tie-break is proven observably identical.
+- **`verify-r88-e2e.js` — 68 checks.** Drives the REAL `applyInvoiceToProducts`: quick import
+  refuses and writes nothing; the code match makes the master-named line importable and the
+  purchase key IS the catalogue name; the code is remembered, never clobbered, never learned
+  from an unreviewed weak match; plus r56/r57, r77 idempotency, r78, r80, r81 signed purchases,
+  r83–r87 and the lifecycle. Includes a **negative control** — a clean venue must report no
+  orphans, or a banner that always renders means nothing.
+- **`gate-r88.js`** — the r86/r87 dual-build live-data gate above.
+
+**Harness lesson:** quick import has **no split checkbox**, so r57's `casesplitEl?.checked` gate
+is false and a case line is stored RAW (`qty 2, unit 'Cases'`) for the merge to expand at compute
+time. Four harness assertions "failed" against that; running the same staging on the **pre-change
+build** proved the behaviour byte-identical and the *assertions* wrong. Diff against the old
+build before believing a red test.
+
+---
+
+## A READ MUST NOT REPRICE THE CATALOGUE (r92)
+
+`computeVariances` performs a **WRITE inside a READ**: for every product it pushes the period's
+resolved purchase cost onto `prodMap[name].costPrice` **and** `client.products[idx].costPrice`
+(`index.html:7101`/`:7104`) — permanently, and on into every future period's valuation. r81/r82
+gated that write on **PROVENANCE** (a supplier line may write, a stock adjustment may not) but
+**never on PERIOD**.
+
+That was harmless only because every caller computed the current period. **Build C will start
+computing PAST periods on demand** — at which point simply GENERATING AN OLD REPORT would reprice
+the live catalogue from frozen invoices. This had to close before anything computes a past period.
+
+### The gate — identity against `currentSession()`, never `session == null`
+```javascript
+const activeSess = currentSession(client);
+const isActivePeriod = !session
+  ? !activeSess
+  : (session === activeSess || (!!activeSess && !!session.id && session.id === activeSess.id));
+```
+Derived once beside the `isLive` classification (`:6617`) and added as **one more condition** on
+the existing write — r81/r82's `costIsSupplier` test is untouched and still applies on top:
+```javascript
+if (purEntry && purEntry.costPrice && costIsSupplier && isActivePeriod && prodMap[name]) {
+```
+
+- **It must NOT key off the argument being null.** Build C will pass the current period
+  *explicitly*, and that must still write. The decision is IDENTITY against the deterministic
+  active-period selector, so `computeVariances(c, currentSession(c))` and `computeVariances(c)`
+  reach the same answer.
+- **Every other period fails the test for free.** `currentSession()` picks open → highest-seq
+  non-`rolledover` → highest-seq, so a `rolledover` period is never chosen while a sibling
+  exists, and a `reopened` period always has a higher-seq successor. Note this covers the
+  **`reopened`** case, which is `isLive` — it takes the live merge branch, so a period-gate keyed
+  off `isClosedSession` would have missed it entirely.
+- **No sessions at all** ⇒ `session` and `currentSession()` are both null ⇒ the virtual
+  delivery-only period is the only period there is, and keeps writing exactly as before.
+- The flag is **per-call**, recomputed on entry, so an interleaved past/active/past sequence
+  behaves correctly and never leaks.
+
+### The read path is otherwise PURE (audited, r92 FIX 2)
+Those two lines are the **only** mutation of client/catalogue state in `computeVariances` or
+anything it calls. Everything else writes to locals: `deliveryPurchases`, `fallbackSessionPurchases`,
+`frozen`, `refSets`, `orphanPurchases`, `orphanCounts`, `rows`. Both merge branches build entries
+by spread (`{...entry}`), so `session.purchases` is never aliased or mutated.
+`buildSalesDepletion`, `deliveriesForSession`, `resolveDeliveryPeriod`, `latestCostPrice`,
+`resolvePackSize`, `compareSessions`, `prodDensity`, `matchPOSNameToProduct` and `parseCaseSize`
+are all pure. `countToUnits` writes only `packOut.unknown` on the caller's own out-param.
+**`backfillAndSortSessions` DOES mutate (`s.seq`) — but `computeVariances` never calls it**;
+only `compareSessions` is reached, and that is pure.
+
+### Measured impact on live data: ZERO — and the write is a no-op TODAY
+Dual-build gate (`gate-r92.js`, the r86-r91 pattern): the real `computeVariances` from the pre-
+and post-r92 builds against live `ap_clients` + `ap_audit_sessions`, all 3 stored periods **twice
+each** (as stored, and forced `reopened`), field list **auto-derived** from the union of row keys
+— **12,768 field comparisons across 304 rows, 0 moved, 0 rows in one build only.**
+
+The gate also **measures the write itself** rather than trusting the claim: it snapshots every
+catalogue `costPrice` around each run. **Neither build mutated the catalogue on any live run** —
+confirming the write is reached but currently a **no-op**. This build is therefore purely
+preventative on today's data, which is exactly why it must land *before* Build C, not after.
+
+- **Every run starts from a FRESH deep clone.** Not cosmetic: the PRE build mutates the catalogue
+  as a side effect of computing, so a shared client would let run N−1 contaminate run N and
+  manufacture a diff that is really the old build's own leakage.
+
+### The behavioural proof the field diff cannot give (`verify-r92.js`, 26 checks)
+Because today's data makes the write a no-op, "it stopped writing" is **invisible** in a field
+diff. Fixtures give a period a `costPrice` that DIFFERS from the catalogue, and assert **both**
+directions against **both** builds — so "post blocks it" is measured against "pre allowed it":
+
+| | PRE | POST |
+|---|---|---|
+| PAST `rolledover`, frozen cost 99 vs catalogue 40 | **40 → 99 REPRICED** | 40 → 40 ✓ |
+| `reopened` (live-merge branch), supplier cost 55 | **40 → 55 REPRICED** | 40 → 40 ✓ |
+| ACTIVE, session passed EXPLICITLY | 40 → 55 | **40 → 55** ✓ |
+| ACTIVE, session auto-picked (null) | 40 → 55 | **40 → 55** ✓ |
+| ACTIVE = a FINALISED period (no open session — the live shape) | 66 | **66** ✓ |
+| adjustment-only entry (r81/r82) | 20 | **20** ✓ |
+| adjustment + `_costFromSupplier` (r82 mixed entry) | 88 | **88** ✓ |
+| no sessions at all (virtual period) | 55 | **55** ✓ |
+
+**Deliberately NOT in this build** (Builds B/C/D): passing the session through to
+`computeVariances` from `calculateReportData` (`:3799` still calls it without the session), the
+trend chart's `_working`, `prevSess` resolution, the report selector, and any aggregate sanity
+rule.
+
+---
+
+## AN AGGREGATE PERCENTAGE NEEDS A DENOMINATOR TOO (r93)
+
+r81 suppressed a **per-product** variance % below one whole unit of expected stock; r91 carried
+that into the PDF. The **AGGREGATES had no rule at all** — both the category total and the grand
+total read `expectedVal > 0 ? (varianceVal / expectedVal) * 100 : 0`, so a **negative** expected
+value printed a flat **0.00%** (which reads as "perfect" and RAGs **green** against every
+negative threshold) and a positive-but-incommensurate one manufactured a headline. Both land on
+the **cover page** and in the **AI commentary**.
+
+Measured on live data, as Build C will compute it: **July's total expected is −$2,914.99 and
+prints 0.00%** while carrying a **+$6,298.19** variance, with FOUR categories printing 0.00% and
+flagged GREEN; **September's total prints +219.22%**.
+
+### The rule — `aggVarPct(expectedVal, varianceVal)` → `{ valid, pct, reason }`
+Two conditions that fail for **different reasons**, and the reason is carried so each surface can
+say the right thing:
+
+1. **`expectedVal >= AGG_PCT_MIN_EXPECTED_VAL` ($1)** — a MATERIALITY floor, the dollar analogue
+   of r81's one whole unit. Non-positive is the important half: you cannot hold a negative value
+   of stock, so there is no quantity to take a percentage OF. The floor is deliberately **low**,
+   because it exists only to kill rounding dust. **An aggressive absolute floor was REJECTED** on
+   two grounds: it is venue-scale dependent (a small venue's Misc category legitimately expects
+   $30, and −5% there is a real finding), and **it cannot catch the live case anyway** —
+   September's $1,345.48 is not a small number.
+2. **`|pct| <= AGG_PCT_MAX_ABS` (100%)** — the COMMENSURABILITY test, and the one that actually
+   catches September. It is the **scale-free** way of saying "expected is too small relative to
+   the movement": a variance LARGER than the holding it is measured against has stopped
+   describing shrinkage and is reporting that the two figures are not comparable quantities.
+   Being a ratio it behaves identically at any venue size, which an absolute dollar floor cannot.
+
+**The bound is INCLUSIVE, and that boundary is load-bearing.** A period that expected $4,295.02
+and counted nothing is exactly **−100%** — real, meaningful and catastrophic, and it must still
+print. August is that period on live data today.
+
+`variancePct` stays a NUMBER (0 when suppressed) so existing numeric consumers are unaffected;
+**`varPctValid`** is the flag, and **`varPctReason`** is `nonpositive` / `immaterial` /
+`incommensurate` / `nonfinite`. A suppressed aggregate reuses r91's **`rptPctText` /
+`rptPctColor`** verbatim — the objects carry the same `{ variancePct, varPctValid }` shape as a
+product row, so an aggregate and a row cannot present suppression differently.
+
+### THREE states, not two — and a $0 is not a pass
+r91's per-product rule has only two states (colour by cost impact). Applied unchanged to a
+CATEGORY it produced a **false all-clear on live data**: **Spirits holds ~19 products and NOT ONE
+carries a `costPrice`**, so every dollar figure is $0.00 while the underlying UNIT variances are
+real (15.5 units in August). A $0 cost impact there does not mean "nothing wrong", it means
+**"cannot be assessed"** — on the venue's highest-shrinkage category. (Before r93 it read
+`Action`, but only because a *fabricated* 0.00% fell below the Spirits +4% threshold: right
+colour, invented reason, and the page printed "variance +0.0%".)
+
+| State | Detected by | Presented as |
+|---|---|---|
+| **(a) genuine zero** | products priced, expected agrees with actual | **green / OK** |
+| **(b) % suppressed, dollars real** | `varPctValid false` and abs(varianceVal) >= 1 | **amber / Watch**, coloured by dollars |
+| **(c) NO COST DATA** | `pricedCount === 0` on a category that holds products | **grey / "Not assessed"** — never green |
+
+- **(c) is detected on the COST DATA ITSELF** (`pricedCount` / `unpricedCount`, counted from the
+  category's products), **not on "are all the dollars zero"**. An all-zero dollar figure is the
+  *symptom*, and reading the symptom cannot tell a priced category that genuinely balanced from
+  an unpriced one that was never measured.
+- **`aggCatRAG` puts (b) before (c)**: real dollars are evidence, and evidence outranks the
+  absence of it.
+- **`ragClass`/`ragLabel` gained a `grey` state — and the old `ragClass` mapped every
+  unrecognised value to `rag-red`**, so a new state had to be handled explicitly or it painted
+  red. `ragLabel('grey')` is **"Not assessed"**, deliberately distinct from the pre-existing
+  hardcoded **"No data"** badge used for a category that is *absent* from the report entirely.
+- **`aggNoCostText(cat)`** is the ONE wording (`no cost price on N of M products`), shared by
+  both category tables, the priority action and the AI context.
+- **r91's `rptRAGSuppressed` is deliberately NOT modified** — it is the per-product rule, and
+  changing it would move product statuses this build has no business touching. The gate proves
+  per-product movement is **zero**.
+
+### Every consumer, and what a suppressed value means there
+| Surface | Decision |
+|---|---|
+| Cover / exec-summary **Overall variance** card | value stays the **dollar** figure; the sub-line becomes `% not meaningful — <reason> (expected $X)`, plus a line naming venue-wide unpriced coverage |
+| Exec-summary **Variance by category** table | has **no dollar column of its own**, so a suppressed cell shows the **dollar figure**; state (c) shows **"Not assessed"**, never `$0.00`. Footnote names the affected categories and their missing cost data |
+| **Variance summary by category** (p6) | already carries a `Variance $` column **immediately to the left**, so the cell shows **"—"** rather than duplicating dollars; footnote explains both suppression and "Not assessed" |
+| **Category RAG** | `reportRAG` when valid; otherwise the three-state `aggCatRAG` |
+| **Priority issues** | a suppressed category is flagged on **dollars** (`Wine variance $1,630.39 (% n/a)`) — the old test compared a 0 against a negative threshold and silently CLEARED it. State (c) raises **one** combined action naming every affected category (`No cost price on 23 products (Spirits, Sparkling, Misc) — variance cannot be valued`), ranked high because an unpriced category invalidates that slice of the audit rather than merely scoring badly within it |
+| **AI commentary context** | state (c) is emitted as `NOT ASSESSABLE - no cost price on N of M products` with an explicit instruction never to call it balanced/clean/within tolerance; a suppressed (a)/(b) figure is emitted as dollars + `variance % N/A - <reason>`; a standing instruction forbids computing, estimating or implying a percentage for any N/A figure |
+
+### FIX 3 — the trend plots a GAP, never a 0
+A chart draws a **line** through its points, so a fabricated 0 is the same lie in graphical form
+and is strictly **worse** than a gap: a line asserts continuity between the points it joins. So a
+period with no meaningful % is **omitted from the line but kept in the table**, marked `% n/a`.
+Three sources, one rule:
+- the **working** period → `data.totals.varPctValid`;
+- a **stored** `overallVariancePct` → re-validated through the commensurability bound (this is
+  what catches September's frozen **+219.22%**). **A stored exact 0 is AMBIGUOUS** — the old
+  `: 0` fallback wrote 0 for both a real zero variance and a suppressed one (**July is a stored 0
+  whose recompute is null**) — so a 0 falls through to the recompute rather than being trusted;
+- the **recompute** — `sessionOverallVariancePct` already returned null for a non-positive
+  denominator, which is the behaviour this build generalises.
+
+`freezeSessionSnapshot` now stores **null** instead of a fabricated 0, so the ambiguity stops
+being created. It does **not** rewrite history. Two empty states: "finalise another stocktake" is
+the wrong advice when the periods exist and it is their *percentages* that are unusable.
+
+### Measured impact on live data (FIX 5)
+Dual-build gate (`gate-r93.js`): real `computeVariances` **and** real `calculateReportData` from
+the pre- and post-r93 builds, all 3 stored periods **twice each** (as stored, forced `reopened`),
+field lists **auto-derived** from the union of keys, run in two scenarios — as shipped, and with
+the session forced through to simulate Build C.
+
+**44,724 field comparisons · 52 values moved · 0 rows asymmetric · PER-PRODUCT MOVEMENT: 0.**
+
+| Movement | Runs | Cause |
+|---|---|---|
+| `Spirits.rag` **red → grey** | 6 shipped + 6 BuildC | state (c): 0 of ~19 products priced |
+| `Sparkling.rag`, `Misc.rag` **green → grey** | 6 + 6 | state (c) |
+| `Wine`, `Beer & Cider`, `RTD` **green → amber** | 2 each, BuildC | July: negative expected, real dollars (state b) |
+| `Draught.rag` **green → amber** | 4, BuildC | July + September: negative expected |
+| `TOTALS.variancePct` **219.22 → 0** (suppressed) | 1, BuildC | September as-stored, `incommensurate` |
+| `Draught.variancePct` **284.47 → 0** (suppressed) | 1, BuildC | September forced-reopened, `incommensurate` |
+| `priorityIssues` reordered | 2, BuildC | the fabricated `Spirits variance +0.0%` issue replaced by the dollar-stated and unpriced-cost actions |
+
+New fields: `varPctValid`, `varPctReason`, `pricedCount`, `unpricedCount` on categories; those
+plus `count` on totals. **Nothing moves in the as-shipped TOTALS** — August's −100% is valid in
+both builds, which is the boundary case working.
+
+**Verified by `verify-r93.js` — 52 checks**, driving the REAL `calculateReportData` and
+`renderReportDocument` and comparing against the pre-r93 build so "it used to print 0.00%" is
+measured: a negative expected (pre **0.00%** → post suppressed), a tiny positive expected (pre
+**+19,900%** → post suppressed), a **healthy aggregate unchanged to the 4th decimal**, the exact
+**−100% boundary preserved**, all three RAG states, the "Not assessed" render and its named
+cause, the priority action, the AI context in both builds (pre handed the model
+`Spirits: variance $0.00 (+0.0%)`; post hands it `NOT ASSESSABLE - no cost price on 2 of 2
+products`), the trend gap, and `freezeSessionSnapshot` storing null. r92's 26 checks and its live
+gate both still pass.
+
+**Deliberately NOT in this build** (Builds C/D): passing the session through to
+`computeVariances` from `calculateReportData` (`:3871` still calls it without one — which is why
+all three periods report identically today), the trend chart's `_working` anchoring, `prevSess`
+resolution, and the report selector.
+
+---
+
+## THE REPORT NOW DESCRIBES THE PERIOD IT IS TITLED WITH (r94)
+
+`calculateReportData(client, session)` called **`computeVariances(client)` with no session**, and
+said so in a comment: *"It targets the open / most-recent-with-purchases session; `session` here
+drives period labelling."* So selecting ANY period produced byte-identical variance figures —
+always the auto-picked current one — while the Purchase History page below had been
+period-scoped since r81. A report headed **"September 2026" listed $2,653.20 of invoices beside
+an executive summary reading "Purchases this period: $0.00."**
+
+It stayed hidden because **the selector defaults to the last session, which is exactly what
+`currentSession()` picks** — the default is self-consistent, and the contradiction only appears
+once the dropdown is changed.
+
+r92 stopped past-period computation from repricing the live catalogue; r93 added aggregate
+sanity so the corrected figures can be presented honestly. This build makes the report actually
+period-correct.
+
+### FIX 1 — the pass-through, resolved ONCE
+```javascript
+const _reportSession = session || currentSession(client);
+const varRows = computeVariances(client, _reportSession) || [];
+```
+`_reportSession` drives the variance rows, `periodDays`, `prevSess`, the purchase history AND
+the trend anchor, so no two halves of the report can disagree about which period they describe.
+`historyDeliveries` moved onto it too — it was already scoped, but off the raw `session`, so a
+null session left it reading the global list while variance read the auto-picked period.
+
+**A null `session` resolves to `currentSession()`, which is exactly what `computeVariances`
+would have auto-picked** — so behaviour there is unchanged, *including r92's active-period write
+gate*, which decides by identity against `currentSession()` and cannot tell the two forms apart
+(r92's own check C proved this).
+
+### FIX 2 — the trend anchor, and why it had to be the SAME commit
+The trend substitutes `data.totals.variancePct` into whichever period `_working` matches.
+`_working` was `currentSession(client)` **deliberately**: before FIX 1, `data.totals` always
+described the auto-picked period, so the two agreed. **FIX 1 alone breaks that agreement** —
+`data.totals` becomes the SELECTED period's while the anchor still points at the current one,
+writing the selected period's total onto a period the report is not even about.
+
+Measured, not asserted, by booting a third build with FIX 2 reverted:
+
+| build | select P1 (−10%), P2 is current (−50%) | trend table |
+|---|---|---|
+| pre-r94 | totals −50% (P2's), anchor P2 | `P1 −10.0%`, `P2 −50.0%` — internally consistent |
+| **FIX 1 only** | totals −10% (P1's), anchor P2 | `P1 −10.0%`, **`P2 −10.0%`** — corrupted |
+| r94 | totals −10%, anchor P1 | `P1 −10.0%`, `P2 −50.0%` — correct |
+
+`const _workingId = data.sessionId || null;` — **matched by ID, not object identity**, because
+`data` may have been built before a reload rebuilt `client.auditSessions`, and an identity miss
+would silently fall through to the stored/recomputed branch. `calculateReportData` returns
+`sessionId` for this; it is passed on `data` rather than as a new `renderReportDocument`
+argument so the report selector stays untouched (that is Build D).
+
+### FIX 3 — `prevSessionOf(c, sess)`: chain, then seq, never position
+`sessions.indexOf(session)` is **identity-based**. Pitfall #2: after a Supabase reload
+`client.auditSessions` is rebuilt wholesale, so a session held from before it is a DIFFERENT
+OBJECT with the same id — `indexOf` returns −1, `sessIdx > 0` is false, and `prevSess` silently
+becomes null. Nothing throws. Every product then reads `noSalesPrev = true`, and
+`deadStock = hasStock && noSalesNow && (prevSess ? noSalesPrev : true)` flags on this period
+alone. **Measured: September's `noSalesPrev` count jumps 26 → 48 across a simulated reload in
+the pre-r94 build; in r94 it is 27 either side.**
+
+1. **`prevId`** — the explicit chain link `rolloverPeriod` writes on both ends. Exact when it
+   names a real session, so it wins.
+2. **the SEQ-ordered predecessor** — the latest session that sorts strictly before `sess` under
+   `compareSessions` (seq → openDate → id), found by **scanning**, never by reading `arr[i-1]`.
+   Legacy chains predate `prevId` (r64's own note), so seq is the fallback rather than the
+   primary.
+
+Verified order-independent: reversing `auditSessions` and stripping every `prevId` both give
+identical answers (`July → null`, `September → July`, `August → September` — note **seq order,
+not label order**).
+
+### Measured impact on live data (FIX 4)
+Dual-build gate (`gate-r94.js`), all 3 periods twice each (as stored, forced `reopened`), field
+lists auto-derived: **22,250 comparisons · 2,093 values moved · 20 rows in one build only.**
+
+| | PRE (always August) | POST (the selected period) |
+|---|---|---|
+| **July** opening / stock on hand | $4,295.02 / $0.00 | **$0.00 / $3,383.20** |
+| **July** variance | −$4,295.02 | **+$6,298.19** |
+| **July** report products | 48 | **53** |
+| **September** opening / stock | $4,295.02 / $0.00 | **$3,383.20 / $4,295.02** |
+| **September** purchases (exec summary) | $0.00 | **$1,576.36** |
+| **September** variance | −$4,295.02 | **+$2,949.55** |
+| **September** loss leaders | Dashwood SB −746.13 … (August's) | **Kirin Hyoketsu Lemon −158.40 …** |
+| **August** — the auto-picked session | | **EXACT NO-OP** |
+
+- **CRITICAL ASSERTION — August: 0 values moved, 0 asymmetric rows, and the whole
+  `calculateReportData` payload is byte-identical.** Passing the auto-picked session explicitly
+  changes nothing, which is what proves the pass-through only selects a period.
+- **r92's invariant re-measured here: no run in either build mutated any product `costPrice`.**
+- **Dead stock 0 → 17 on July and September is FIX 1, not FIX 3.** Pre-r94 every period read
+  August's rows, where `actual` is 0 for everything, so `hasStock` was false and nothing could
+  be flagged. July's `prevSess` is legitimately null (it is the first period), and September's
+  resolves to July.
+- **The exec summary and Purchase History still differ in DOLLARS, and always will.**
+  `totals.purchaseVal` is units × catalogue cost **ex-GST, catalogue products only**;
+  `purchaseTotal` sums `d.t`, the invoice total **incl. GST plus freight/levies**. The bug was a
+  period with 9 invoices reporting **$0.00**; the invariant that actually holds is that **every
+  invoice ref the variance side consumed appears on that period's Purchase History page**, which
+  is asserted. (Separately, September's stored `d.t` sum of $2,653.20 is *below* its own line
+  sums of $3,671.98 incl-GST — a pre-existing stored-total question, untouched here.)
+- **August's $90 is an ADJUSTMENT** (`supplierTotal $0.00 / adjustmentTotal $90.00`), so its
+  `purchaseVal` of $0.00 is correct r81/r82 behaviour, not a residual bug.
+
+**Verified by `verify-r94.js` — 33 checks**: a closed period reads its own frozen purchases and
+its own deliveries; July's opening is $0 and September's opening equals July's closing (the
+chain carries); pre-r94 gave July and September identical figures; the reload test above; the
+three-way trend comparison; r93's suppression still holds (no live period plots a fabricated
+point, `% n/a` rows intact, infobox intact); and August's payload is byte-identical.
+
+**Regression note:** `gate-r93.js` now reports per-product movement and "fails". That is
+expected and correct — its pass condition was `perProduct === 0`, scoped to r93's claim that
+*that* build touched aggregates only. r94 deliberately changes which period the rows describe.
+r93's rules are regression-tested by `verify-r93.js` (52/52), which passes, as do r92's 26
+checks and r92's live gate.
+
+**Deliberately NOT in this build (Build D):** the report selector still seeds from the last
+array element and keys options by array INDEX (`meta.sessionIdx`) rather than by id, and does
+not follow `viewedSession`. r93's thresholds and r92's gate are untouched.
+
+---
+
+## THE REPORT SELECTOR IS KEYED BY SESSION ID (r95 — Build D)
+
+r94 made the report compute for whichever session the selector names. **The selector itself was
+still the last array-position dependency in the report path**: options were emitted by INDEX,
+read back with `parseInt`, defaulted to `sessions.length - 1`, and the choice travelled as
+`meta.sessionIdx`. Array order is not stable across a Supabase reload (pitfall #2) — and
+`backfillAndSortSessions` **re-sorts the array on every load** — so an index captured before a
+reload can name a different period after it. Same class of failure as the `indexOf`-based
+`prevSess` r94 fixed.
+
+`meta.sessionIdx` also reached `saveReportRecord`, which **WRITES** the report record onto
+`sessions[meta.sessionIdx]` — so a shifted index filed the record against the wrong period
+permanently.
+
+### FIX 1 — id in, id out
+`resolveReportSession(c, id)` is the ONE resolver, in the r80 `{ value, reason }` style:
+
+| reason | meaning |
+|---|---|
+| `'ok'` | the id named a real session |
+| `'fallback'` | it did not (deleted, or stale from before a reload) — the user is **told**, and the picker is re-pointed so the screen agrees with the report |
+| `'none'` | this client has no saved sessions at all |
+
+- Options carry `value="<session.id>"`; the read site resolves through the helper;
+  `meta.sessionId` replaces `meta.sessionIdx`, **reusing r94's `data.sessionId` convention**
+  rather than inventing a second one.
+- The fallback is **deterministic** — `currentSession(c)`, else the highest-seq session — and
+  never `arr[arr.length - 1]`. It is **announced**, not absorbed: an alert names the period the
+  report is actually for.
+- `saveReportRecord` resolves through the same helper, so the record lands on the right session.
+- The empty-list sentinel changed from `value="-1"` to `value=""`, so a blank is `'none'` rather
+  than a number that could be indexed with.
+
+### FIX 2 — seeded from `viewedSession()`, scoped to tab-open
+A report is a generated artifact for a **NOMINATED** period: wanting August's report while
+browsing September is legitimate, so the report keeps its **own** selector and is **not driven
+by `viewedSession` thereafter**. Seeding only removes the "why is it offering August?" surprise.
+
+- The seed lives in `renderFullReportTab`, which is reached **only** from
+  `switchRptTab('full')`. That is what scopes it to tab-open: changing the viewed period while
+  the Reports tab is already open cannot re-target a report, because **nothing re-renders the
+  picker** — `switchAuditPeriod` refreshes Variance / Purchases / Finalise and never Reports.
+- Order: an **explicit choice by this user for THIS client** → else `viewedSession(c)` → else
+  `currentSession(c)` → else the highest-seq session.
+- `_fullRptPickedId` / `_fullRptPickedFor` record the choice, set by the select's `onchange`
+  (`fullRptSessionChanged`). That handler records the choice and **nothing else — it must never
+  touch `viewedPeriodId`**. Scoped by client id so switching venue starts clean.
+- Until the user chooses, re-entry keeps following the viewed period; once they choose, re-entry
+  preserves it. A remembered choice that no longer resolves falls through to the same seed.
+
+### FIX 3 — newest first, by `compareSessions`
+`reportSessionsNewestFirst(c)` sorts a **copy** descending by `compareSessions`
+(seq → openDate → id), so a reload cannot reshuffle the list being chosen from. The `(status)`
+annotation is kept. The old `'Period ' + (i + 1)` label fallback was index-derived and
+meaningless once sorted; it is now `s.label || formatSessionLabel(s)`.
+
+### Verified (FIX 5)
+**`gate-r95.js`** drives the REAL `renderFullReportTab` in **both** builds against the DOM stub,
+parses the `<option>` list each actually emits, resolves every option the way that build's own
+read site does (pre-r95's expression transcribed verbatim from the snapshot), and diffs the
+resulting report payload with **auto-derived** field lists:
+
+**5,002 field comparisons across all 3 periods · 0 values moved · 0 asymmetries.** Every period
+reached BY ID is byte-identical to the same period reached BY INDEX. This build re-keys the
+selection; it changes no number.
+
+The reorder test is the point of the build:
+
+| chose | after a reload that reverses the array — PRE | POST |
+|---|---|---|
+| July 2026 | **August 2026** (wrong period) | July 2026 |
+| September 2026 | September 2026 | September 2026 |
+| August 2026 | **July 2026** (wrong period) | August 2026 |
+
+**`verify-r95.js` — 26 checks**: newest-first ordering, unchanged when the array is reshuffled,
+`(status)` kept, values are ids not indices; seeding from `viewedSession` for each period (PRE
+always offered August); picking a report leaves `viewedPeriodId` untouched, and
+`switchAuditPeriod` leaves the report picker untouched; an explicit choice survives tab re-entry
+while an unmade one keeps following the viewed period; a bogus id lands on `currentSession` with
+`reason:'fallback'`; `saveReportRecord` files against July after a reorder where PRE filed
+against August; and an end-to-end `generateFullReport` drive confirming `meta.sessionId` ===
+`data.sessionId`, no alert on a clean pick, and exactly one naming alert on a bogus id.
+
+r94's 33 checks and gate, r93's 52 checks and r92's 26 checks + gate all still pass.
+(`gate-r93.js` still reports the per-product movement r94 introduced — expected since r94, and
+documented there.)
+
+**Untouched by this build:** every number, r92's write-back gate, r93's suppression, and r94's
+pass-through / `prevSessionOf` / trend anchoring. This build changed only WHICH session the
+report is pointed at and how that choice is represented.
+
+---
+
+---
+
+## A GATE THAT NAMES AN UNFIXABLE PROBLEM IS NOISE — SO THE GRID CAME FIRST (r96)
+
+**42 of this venue's 60 products carry `costPrice` 0**, and **32 of the 50 products holding
+stock in the current period cannot be valued — 64%**. There was **no bulk pricing surface and
+no catalogue import anywhere in the app**, so closing that gap meant 42 separate modal
+round-trips. A cost-price completeness **gate** is the next build; a gate naming a problem
+nobody can efficiently fix just becomes noise, so the grid lands first.
+
+**Products page → `$ Bulk cost pricing`** (`index.html:1215`) opens `#bulkPriceModal`
+(`:2274`): every product listed with the context needed to price it — name, sub-category,
+vessel/`soldAs` (+ pack size), unit volume, sell price, current cost — one inline box each,
+one save. Default filter is **Needs a price** (`costPrice` falsy); **All products** is one
+click away so an existing price can be corrected. Grouped by `CAT_ORDER_PROD`, then
+`SUBCAT_ORDER`, then name A→Z — the Products page's own ordering.
+
+### FIX 1 — the write footprint is FOUR FIELDS, and it is structural
+The grid mutates, **in place**, exactly the four cost fields `applyInvoiceToProducts` already
+writes on its existing-product branch:
+
+> `costPrice` · `costPriceExGST` · `cost` (the display mirror) · `costHistory`
+
+**It never rebuilds a product object.** Every other field — `n`/`name`, `cat`, `subcat`,
+`soldAs`, `caseSize`, `caseBarcode`, `barcode`, `barcodes`, `unitVol`, `serveVol`, `serves`,
+`tareG`, `fullG`, `density`, `sellPrice`, `idealGP`, `par`, `parunit`, `supplier`,
+`supplierCode`, `supplierCodeFrom`, `sell`, `pc`, `pcv`, `_userAdded`, `serveVolGuessed` — is
+never read into a form and never written back.
+
+- **It deliberately does NOT route through `saveProduct`.** `saveProduct` REBUILDS the whole
+  product from the modal DOM; it is safe only because r73's snapshot machinery, r85's Cases
+  refusal and r89's uniqueness refusal all guard that rebuild. Driving it from a grid would
+  mean populating every one of those inputs for every row, and any field left unpopulated
+  would be **erased**. An in-place cost-only mutation is **strictly stronger** than
+  reproducing r73's three branches: there is nothing to preserve because there is nothing
+  else being written.
+- **`pc`/`pcv` are deliberately not rewritten** — pour cost is a function of `sellPrice` and
+  `serveVol`, which this grid does not touch, and the cost-only write in
+  `applyInvoiceToProducts` leaves them alone for the same reason.
+- **`cost` IS written**: it is the display string `renderProducts` prints in the Cost price
+  column (`:6303`), a mirror of `costPrice`, not an independent field. Leaving it stale would
+  print `—` beside a product that now has a price.
+- **r89 and r85 are unaffected structurally, not by assertion**: names and vessel types are
+  not editable here, so no edit made on this screen can create a duplicate name or an unsized
+  `Cases` product. Every `<input>` the grid emits is a cost box — the harness counts them.
+- **No master write, no cross-venue write.** `saveProduct`'s `syncFields` excludes `costPrice`
+  on purpose (a price is per-venue) and `addToMasterCatalogue` never assigns a cost onto an
+  existing master row. One `dbSaveProducts(c)` PATCH, and nothing else.
+
+### FIX 2 — `costHistory` is appended on a CHANGE, never on a no-op
+`applyBulkCostPrice(prod, price)` (`:6481`) is the ONE write, shaped exactly like
+`applyInvoiceToProducts`' existing-product branch and **gated on a real change**. Returns true
+when it wrote.
+
+- A **no-op edit appends nothing** — typing `$3.5` into a product already stored at `3.50`
+  leaves the product **byte-identical**.
+- **A price of 0 never reaches it**, so it can never record the `{price: 0, source: 'manual'}`
+  non-decision that **56 of the 60 live products already carry** from `saveProduct`'s
+  new-product branch (a blank form logged as a pricing decision). That existing bug is
+  **measured** by the harness, not assumed — and deliberately **not fixed here**, because
+  rewriting `saveProduct`'s history rules is a data change this build has no business making.
+- `bpCostFields(price)` (`:6469`) is the projection, derived exactly as `saveProduct` does:
+  ex-GST is `price / 1.15` and `cost` is `price > 0 ? '$' + toFixed(2) : '—'`. The harness
+  drives the **real `saveProduct`** for the same six prices and compares, so "the same way" is
+  measured rather than claimed.
+- Source stamp is **`BULK_PRICE_SOURCE = 'bulk price edit'`** (`:6455`) — distinct from
+  `manual`, `manual edit`, `invoice` and `barcode scan`, so provenance stays legible.
+
+### FIX 3 — A BLANK BOX IS NOT $0.00, and the UI cannot let you think otherwise
+`BP_BLANK_MEANS_TEXT` (`:6460`) is the ONE wording (the r80 `noOpenPeriodText` pattern), used
+by the standing note above the grid, the summary, the empty-save message and the refusal — so
+the instruction and the refusal can never drift apart.
+
+`bpReadDraft(name)` (`:6529`) returns a state, and **each one fails for a different reason**:
+
+| typed | state | presented as |
+|---|---|---|
+| empty / whitespace | `blank` | grey `unchanged`; the product is not touched |
+| the stored figure (`3.5`, `$3.50`) | `same` | grey `no change`; **no costHistory entry** |
+| a new figure | `change` | green `$3.50 → $12.50` on the row |
+| `abc`, `12abc` | `bad` | red `not a number` — **refuses the batch** |
+| `-5` | `bad` | red `negative` |
+| **`0` / `0.00`** | `bad` | red **`blank ≠ $0.00`** |
+
+- **A typed 0 is REFUSED, not accepted as "clear the price."** Blank already means unchanged,
+  so 0 would be the one input whose meaning had to be guessed — and writing it would put a
+  $0.00 pricing *decision* into `costHistory`, the exact bug above. Refusing is what keeps
+  blank-vs-zero unmistakable, which is the whole point.
+- **The box is `type="text"`, not `type="number"`.** A number input silently yields `''` for
+  unparseable input, which the grid would then read as **"unchanged"** — the silent no-op the
+  rule exists to prevent. Text lets `bpReadDraft` see what was actually typed and refuse it
+  **by name**. `$`, thousands commas and stray spaces are tolerated because that is what a
+  person types off an invoice; everything else fails loudly. `Number('')` is 0, so the
+  emptiness test runs **before** the finite test or junk would quietly price at zero.
+- **`bpRefuseInvalidPrices`** (`:6744`) is the ONE refusal and the ONE wording, returns `true`
+  when it refused. One unreadable row **refuses the whole batch** and writes nothing (the r84
+  `finaliseStocktake` / r86 pack-size posture) — never a partial save. It then forces the
+  filter to **All products** and clears the search, so the named rows are **on screen** when
+  the refusal is read (the r86 posture).
+- `bpMarkRow` (`:6696`) is **purely presentational** (the r85 `pfMarkCaseSize` posture): it
+  reads no field into a product and writes none.
+
+### FIX 4 — the draft map is the authority, not the DOM
+`_bpDraft` is keyed by canonical product **NAME**; `_bpNames` maps row seq → name and is
+rebuilt on every render. A value typed and then filtered or searched **off screen still
+saves** — otherwise changing the filter would silently discard work the user believes they
+entered. The seq is the handler token: a product name is **never** interpolated into an
+`oninput` attribute (r71/r83 — a name carrying a quote breaks the dispatch).
+
+**Pitfall #2 throughout:** every read and every write re-resolves by name with `findIndex`,
+including a second resolve at write time. A reload that rebuilds and reorders
+`client.products` still prices the right product; a product that vanishes between typing and
+saving is **refused by name**, not silently skipped.
+
+### Verified — 86 checks + a dual-build live-data gate
+**`verify-r96.js` — 86 checks** (scratchpad, not committed; the repo tracks no harnesses),
+driving the REAL `openBulkPricing` / `bpRenderList` / `bpInput` / `saveBulkCostPrices` in a
+node `vm` against the DOM stub.
+
+**The load-bearing claim of this build is a NEGATIVE one** — "cost price and nothing else" —
+so the footprint checks **diff whole product objects and derive the changed-key set**, never
+list the keys expected. A hand-listed expectation cannot catch a field nobody thought about.
+On the live catalogue, pricing all **23 unpriced spirits in one save** yields a changed-key
+set of exactly `[cost, costHistory, costPrice, costPriceExGST]` and leaves the other **37
+products byte-identical**. Plus: the r73/r79/r88 field spot-check, ex-GST parity against the
+real `saveProduct`, every validation state, one-bad-row-refuses-all, draft survival across
+filter/search, list order and per-row context, reload/reorder resolution, the r89 duplicate
+refusal, the persistence footprint (**exactly one PATCH**, zero `ap_master_products`, the
+other venue byte-identical), and negative controls — including that **pre-r96 has no such
+surface at all**.
+
+**`gate-r96.js` — the r86–r95 dual-build live-data gate.** Real `computeVariances` **and**
+real `calculateReportData` from the pre- and post-r96 builds, all 3 stored periods **twice
+each** (as stored, forced `reopened`), field lists **auto-derived** from the union of row keys:
+
+> **23,666 field comparisons · 0 values moved · 0 new fields · 0 rows in one build only.**
+
+**r92's invariant re-measured here, and it matters more than usual in this build:** no run in
+either build mutated any product `costPrice`. r96 is a build *about* writing `costPrice`, so
+proving that merely COMPUTING still writes nothing is what separates "the grid writes prices"
+from "the app started writing prices."
+
+r95's 26 checks + gate, r94's 33 + gate, r93's 52 and r92's 26 + gate all still pass.
+`gate-r93.js` still reports the per-product movement **r94** introduced — and its output is
+**byte-identical whether the "post" build is pre-r96 or post-r96**, which is the control
+proving r96 contributes nothing to it.
+
+**Deliberately NOT in this build (the next one):** the `noCostPrice` flag, any gate at
+finalise or rollover, `needsInfoAlert`'s wording, and r93's `pricedCount`/`unpricedCount`.
+`saveProduct`'s own `{price: 0, source: 'manual'}` history bug is measured here and left
+alone.
+
+## A PASSIVE ALERT NOBODY READS IS NOT A GATE (r97)
+
+**32 of the 50 products holding stock in the counted period cannot be valued — 64%, of which
+18 are Spirits**, the highest-shrinkage category in the building. r93 reports it as a "Not
+assessed" RAG state; r96 built the grid that makes it fixable. r97 is the push, placed at the
+two moments that are actually decisions.
+
+Three findings shaped the build, and each one changed the design.
+
+**(a) A PASSIVE ALERT ALREADY EXISTED AND WAS ALREADY IGNORED.** `needsInfoAlert` has flagged
+`'cost price'` on its **first line** for many revisions — the red `!` nav badge, the
+products-page banner and the per-row pill were all already lit, on **43 of 60 products**. A
+72% hit rate is wallpaper, not a signal: it names no problem and offers no action. So r97 adds
+**no new passive surface**. It makes the existing one specific and countable, and puts its one
+new message where a decision is being made.
+
+**(b) THE SCHEMA COULD NOT EXPRESS "GENUINELY FREE".** All 60 products carry `costPrice`
+(0 or positive) — **0 are absent, so there was no null to promote** — and 38 carry a single
+`{price: 0, source: 'manual'}` `costHistory` entry written by `saveProduct`'s new-product
+branch from a blank form. PENGUINS GIN at 0 is **byte-identical** to a comped line. The
+distinction therefore has to be **STATED, not inferred**.
+
+**(c) A `qty` TEST WOULD HAVE MISSED EVERY UNPRICED SPIRIT.** 19 of September's closing
+entries are weighed spirits stored as `{qty: 0, netWeightG: 798}` — the grams live in
+`netWeightG` and `qty` is a literal **0** on every one of them.
+
+> **Measured on live September: `countToUnits` finds 32 unpriced counted products; a
+> `entry.qty > 0` test finds 14, missing 18 — and 17 of those 18 are Spirits.**
+
+That number is the whole reason the rule exists. **Stock is resolved through `countToUnits`,
+never `entry.qty`,** at every r97 read site.
+
+### FIX 1 — `noCostPrice` is a SILENCER, not a value
+One boolean, `noCostPrice: true`, set **only** by a deliberate human tick — `#pf-nocost` on the
+product form (`index.html:2480`) and a per-row tick in r96's grid.
+
+- **It is read by this gate and by `needsInfoAlert`, AND BY NOTHING ELSE.** Deliberately NOT
+  wired into `latestCostPrice`, into r93's `pricedCount`/`unpricedCount`, into any valuation,
+  or into anything that computes a number. Proven structurally: `noCostPrice` occurs at 9
+  sites and is **absent from the brace-matched body** of `latestCostPrice`, `computeVariances`,
+  `calculateReportData`, `countToUnits`, `aggVarPct`, `aggCatRAG`, `aggNotAssessable`,
+  `freezeSessionSnapshot` and `reportRAG`. **The flag cannot reach a number to move it** —
+  which is what makes this build safe to land on live periods.
+- **Written only when ticked** (`:6155`), so an ordinary product gains no key and the catalogue
+  does not widen by 60 rows. Unticking DROPS it, for free, by way of `saveProduct` rebuilding
+  the whole object — the same self-clearing r79's `_userAdded` relies on.
+- **`applyNoCostFlag(prod, on)` (`:7161`) is SEPARATE from r96's `applyBulkCostPrice`,** which
+  stays byte-identical. That function's contract is "cost price and nothing else", and the way
+  to keep it true is not to extend it. The flag write touches `costPrice`, `costPriceExGST`,
+  `cost` and `costHistory` on **no path**: a free product is not a product priced at zero, and
+  must never acquire the `{price: 0}` `costHistory` entry r96 refused to record.
+- **Clearing deletes the key rather than storing `false`.** Harness-derived footprint (whole-
+  object diff, never a listed expectation): set writes exactly `[noCostPrice]`, clear removes
+  exactly `[noCostPrice]`, and clearing restores the product **byte-identically**.
+- **Mobile cannot erase it.** `saveMobileProduct`'s object has no `noCostPrice` key and
+  `pushProductToSupabase` spreads `{...cur, ...prod}` — an absent key preserves. No mobile
+  change was needed or made.
+
+### FIX 2 — WARN at finalise, NEVER block
+`renderFinaliseUnpricedWarning(c, rows)` (`:7123`) fills `#fin-unpriced-warn` (`:1816`).
+
+- **The banner is in the FIRST of the two identical `#finaliseModal` divs** (`:1807` and
+  `:1834`). `getElementById` returns the first; **the second is dead and can never open**, so
+  a banner placed there would never be seen.
+- **It warns and never refuses.** It sits beside r84's pack-size refusal in `finaliseStocktake`
+  (`:15298`) and is deliberately not one: r84 refuses because an unresolvable pack size makes
+  the count itself **wrong**; an unpriced product makes the **valuation of a correct count
+  incomplete**, and unit variance remains genuinely useful. A hard block here would corner the
+  user on site at the end of a stocktake with no invoices to hand. Harness-proven:
+  `finaliseStocktake` commits, the count is written in full, and no alert is raised.
+- It is rendered on the **review screen** (`showStocktakeReview`), not at the moment of commit,
+  because that is where it is still actionable — `finaliseStocktake`'s first act is
+  `closeModal('finaliseModal')`. The commit path computes the same set and **logs** it.
+- `unpricedForFinalise` unions the target period's stored closing (via `countToUnits`) with the
+  rows staged on screen (whose `qty` IS the gram figure at that stage, pre-merge).
+- **`finaliseTargetSession(c)` (`:7097`) was extracted** so the warning and the write can never
+  describe two different periods.
+
+### FIX 3 — SOFT-BLOCK at rollover
+`rolloverPeriod` (`:15787`) asks a **second** confirm when unpriced counted stock remains.
+
+- This is the **last moment the valuation can still be repaired**: afterwards the period is
+  `rolledover`, and correcting it means the reopen → amend → re-close-oldest-first walk, which
+  re-runs the live merge and can move unrelated figures.
+- **It never refuses.** An unflagged free product would otherwise **strand the entire period
+  chain** with no way forward — a far worse failure than an unvalued row.
+- The original single confirm is **untouched**, so a fully priced venue sees exactly what it
+  always saw. Verified: pre-r97 asks 1, post asks 2, yes rolls over, no stops it.
+- **On live data today it is correctly SILENT** — `currentSession()` is August, whose `closing`
+  is empty (0 entries), so nothing is counted and nothing is warned about.
+
+### FIX 4 — `needsInfoAlert` reworded, not extended
+- `productHasNoCostPrice(p)` (`:7007`) replaces the inline `!p.costPrice || p.costPrice <= 0`,
+  so a ticked product stops appearing. The test is otherwise identical.
+- The banner gains a **separate, countable** cost-price clause (`:6342`) with an inline
+  `$ Price them` button into the r96 grid. "42 products have no cost price — their stock cannot
+  be valued" beats "43 products have incomplete info", which is true of 72% of the catalogue.
+- Measured: 43 of 60 lit, **42 of them for cost price** — which is why it earns its own line.
+  Unflagged behaviour is unchanged from pre-r97 (43 → 43).
+
+### FIX 5 — ONE venue-wide report action, for the residual r93 CANNOT see
+`aggNotAssessable` requires `pricedCount === 0` for a **whole category**, so r93's action names
+only categories where not one product is priced. Every unpriced product in a **partially priced**
+category is invisible to it — **14 / 13 / 12** across the three live periods, silently excluded
+from that category's dollar figures while the category itself reads as assessed.
+
+- The line reports **that remainder and nothing else**, so the two can never say the same thing
+  twice. It reads `totals.unpricedCount`, which r93 already computes; no new counting rule.
+- **Severity uses r93's own shape — `residual * 2 + 8`, not an ad-hoc figure.** This is the same
+  KIND of finding (stock counted but not valuable), and ranking two instances of one finding by
+  two different formulas is how the weaker one silently loses its place. The `+8` sits just
+  under r93's `+10`, so a category with NO priced product always outranks the scattered
+  residual — the correct order, since r93's names whole categories.
+
+| period | residual | severity | position |
+|---|---|---|---|
+| July | 14 | 36 | 3rd (dead stock 57, r93 56) |
+| September | 13 | 34 | **3rd** — the tune; at `+6` it was cut 4th by a single `RTD −29.5%` (29) |
+| August | 12 | 32 | **cut**, behind three genuine −100% variances (101/100/99) — correct, and must stay so |
+
+### Verified — 81 checks + a dual-build live-data gate
+**`gate-r97.js`** (the r86–r96 pattern): real `computeVariances` **and** real
+`calculateReportData` from the pre- and post-r97 builds against live `ap_clients` +
+`ap_audit_sessions`, all 3 stored periods **twice each** (as stored, forced `reopened`), field
+lists **auto-derived** from the union of row keys:
+
+> **23,666 field comparisons · NUMERIC/structural movement 0 · 0 new fields · 0 rows in one
+> build only.** r92's invariant re-measured: **neither build repriced the catalogue.**
+
+Movement is **classified**, because this build makes one deliberate presentational change: the
+FIX 5 action text is reported separately (4 of 12 runs) so a pass can never quietly absorb a
+numeric move that happened to land in the same bucket.
+
+**`verify-r97.js` — 81 checks, all passing**, driving the REAL `finaliseStocktake`,
+`rolloverPeriod`, `renderFinaliseUnpricedWarning`, `needsInfoAlert` and `calculateReportData`:
+the weighed-Spirit catch **measured against a `qty` test in the same run**; finalise commits
+with unpriced stock; rollover asks twice and takes yes; ticking the flag leaves
+`computeVariances` and `calculateReportData` **byte-identical** and r93's counts and RAG states
+unmoved; the `applyNoCostFlag` footprint **derived** from a whole-object diff; negative controls
+on a fully priced venue and on pre-r97 (15 functions absent).
+
+**Two harness lessons, both caught only because the results were checked against reality:**
+- **A test can pass VACUOUSLY.** The first rollover trial ran against live data, where
+  `currentSession()` is August with an **empty closing** — so the soft-block never fired and
+  "ticking the flag removes the second confirm" passed while proving nothing. It now runs
+  against a fixture where the current period **has** a closing.
+- Three other "failures" were **over-tight thresholds in the harness**, not defects. Diff
+  against measured reality before believing a red test — the r88 lesson again.
+
+**Deliberately NOT in this build:** `saveProduct`'s `{price: 0, source: 'manual'}` history bug
+(38 products — a data change, still out of scope), r93's counts/RAG/thresholds, r96's write
+path, `latestCostPrice`, and any change that moves a valuation.
+
+### `verify-r96.js` after r97 — and a prediction that was wrong
+r97 breaks three of r96's 86 checks. **It was predicted that the FOOTPRINT assertion would be
+the casualty — it was not.** A2/H3/K4 assert the grid's changed-key set is exactly
+`[cost, costHistory, costPrice, costPriceExGST]`, and all three still **pass**: they type
+prices without ticking anything, and `openBulkPricing` resets `_bpFree`, so no flag is written
+on those paths. The prediction was made by reasoning about the code; the truth came from
+running it. **Run the old harness before describing how the new build breaks it.**
+
+What actually broke, and how each was repaired so the CLAIM survives rather than the assertion:
+
+| check | why it broke | repair |
+|---|---|---|
+| **F15** | the save button reads `✓ Save 1 change`, not `✓ Save 1 price` — r97 widened the noun because the count now covers price changes **and** free ticks | assert the new label; the claim ("the button names the count") is unchanged |
+| **H5** | "every input in the grid is a cost box" — there is now also `id="bp-free-N"` | admit the tick **BY NAME**, never by relaxing to "any input is fine" |
+| **H6** | 5 rendered rows now emit 9 inputs | count **cost boxes** per row, not inputs |
+
+H5's intent is the load-bearing part: **no name, vessel, volume or barcode input is reachable
+from that screen**, which is what makes r89 and r85 structurally safe there. Relaxing it to
+"any input" would have kept the harness green while silently retiring the thing it exists to
+catch. Two checks were **added** instead — `H7` (a free tick appears ONLY on unpriced rows) and
+`H8` (no identity/vessel input is reachable, asserted directly). **88 passing.**
+
+**A harness that fails for the wrong reason trains you to ignore it** — but one loosened until
+it passes is worse, because it still looks like cover.
+
+---
+
+## A SILENT FAILURE IS INDISTINGUISHABLE FROM AN EMPTY ACCOUNT (r98)
+
+**This one happened live.** The Supabase project **auto-paused** (free tier pauses a project
+after about a week idle) during a two-week absence. Its hostname stopped resolving — NXDOMAIN,
+so **no HTTP conversation happened at all**. What the app then did:
+
+1. `DB.get` caught the fetch rejection, retried once, and **returned `null`**.
+2. `dbLoadAll`'s `if (dbClients && dbClients.length)` **skipped the block**.
+3. Nothing threw, so **`dbLoadAll`'s own `catch` never fired**.
+4. It ran to completion and **RETURNED TRUE**, logging `Loaded from Supabase — clients: 0`.
+5. `renderDropdown` mapped an empty array to an empty string.
+
+The result was **byte-for-byte what a brand-new account with no venues looks like** — no error,
+no banner, no failure state. The owner only realised because he knew 1 Up should be there. **On
+site mid-audit, that same silence reads as "my data has vanished."**
+
+### FIX 1 — THREE outcomes, not one `null`
+`DB.get` collapsed three genuinely different things into `null`. The distinction is drawn on
+**whether an HTTP response was received**, which is exactly the line `fetch` itself draws
+between rejecting and resolving:
+
+| outcome | what happened | `reason` |
+|---|---|---|
+| **never reached** | fetch **REJECTS** — NXDOMAIN (a paused project), offline, TLS, CORS | `unreachable` |
+| **answered an error** | fetch **RESOLVES**, `r.ok` false — RLS, 401, 5xx | `http` (+ `status`) |
+| **genuinely empty** | `r.ok` true, rows `[]` — **a real answer** | `ok` |
+
+`DB.getResult(table, params)` returns `{ ok, rows, reason, status, error }` in the r80/r95
+`{ value, reason }` house style. **`DB.get` is kept as a back-compat wrapper** (`rows | null`)
+so no other caller changes — and there were none: all four call sites are inside `dbLoadAll`.
+`DB.upsertResult` / `DB.deleteResult` mirror it for the write side.
+
+- **`ap_clients` is the read that DECIDES.** If it did not answer we know nothing about what
+  venues exist, so `dbLoadAll` **returns false** instead of running on to `return true`.
+- **A PARTIAL load is not a success either.** If `ap_clients` answered but `ap_audit_sessions`
+  did not, periods are missing from the view — and a period that looks uncounted is one a user
+  would **recount**. `dbLoadAll` returns false and the console says *do not recount on this basis*.
+- Master-catalogue and batches failures are logged and tolerated — they degrade, they do not lie.
+
+### FIX 2 — the banner is PERSISTENT, and denies the empty-account reading by name
+`showPersistToast` fades after 1.8 s, which is exactly the wrong surface for a condition that
+does not go away and that the user may meet mid-count. `renderDbDownBanner` builds on
+`showLoadingBanner`'s existing fixed-top pattern rather than inventing a new one: red, `z-index`
+10000, **no timeout**, with a **Retry** button (read-only — it re-runs the load and nothing
+else, so it is always safe to press) and a *What does this mean?* button carrying the full text.
+
+**`dbDownText(what)` is the ONE wording** (the r80 `noOpenPeriodText` / r86 / r96 pattern),
+shared by the banner, every refusal and the sidebar badge, so they can never disagree. It says
+in capitals that **THIS IS NOT AN EMPTY ACCOUNT**, and names the actual cause — a paused
+Supabase project — and the fix.
+
+### FIX 3 — the app must not LOOK usable
+- **`renderDropdown` and `renderOverview` prefix an offline notice** while the backend is down,
+  so neither can render as a normal empty state. Anything already in memory is still listed —
+  the notice is a prefix, not a replacement.
+- **`refuseWriteBackendDown(what)`** is the ONE refusal, returning **TRUE when it refused**
+  (the r80 `refuseWriteNoOpenPeriod` / r84 / r89 convention). Wired into **eight** write
+  entry points: `addClient`, `saveProduct`, `saveBulkCostPrices`, `applyInvoiceToProducts`,
+  `saveStockAdjustment`, `importByCode`, `finaliseStocktake`, `rolloverPeriod`.
+- **`applyInvoiceToProducts` returns `false`** — r80's ONE refusal signal — so
+  `applyDumpEnrichment`'s `=== false` bail still holds.
+- **`finaliseStocktake` refuses BEFORE `closeModal`**, so the review screen stays on the page
+  while the refusal is read (the r86/r96 posture).
+- **Deliberately left usable:** every READ — navigation, variance, reports, PDF export,
+  viewing invoices, search. If the backend dropped *after* a good load, the in-memory data is
+  real and the user should still be able to read it.
+
+### FIX 4 — the WRITE side was worse than the read side
+| function | before | after |
+|---|---|---|
+| **`dbSaveClient`** | **no `r.ok` check** and `showPersistToast('✓ Saved')` ran **unconditionally** — fetch only REJECTS on a network failure, so every **HTTP** rejection (RLS/401/5xx) reported **✓ Saved**. **A FALSE SUCCESS on the main persistence path.** No try/catch either, so a network failure **rejected the promise at 25 fire-and-forget call sites**. | resolves in every case, returns `true`/`false`, never claims a save that did not land |
+| **`dbSaveSession`** | **ENTIRELY silent** — `DB.upsert` swallowed every failure into `null` and the return value was discarded. This is the **finalise / rollover / amend** path. | checks the result, names the period in the banner |
+| **`dbSaveProducts`** | already detected its failures, but reported them in a **1.8 s toast** | same detection, routed to the persistent banner |
+
+`reportWriteFailure(what, reason, status)` is the ONE write-failure surface. **An `http`
+failure does NOT flip `_dbDown`** — the server is alive and rejected *this* request, so
+refusing later writes would be wrong; only `unreachable` is a reachability claim.
+
+### FIX 6 — the console and the badge stopped lying
+`DB.init` printed `[AuditPro] Supabase connected → <url>` **having never contacted the
+server** — it only checks that the config literals are non-empty. During the outage the
+console and the sidebar both asserted a healthy connection. Now:
+- `DB.init` logs `Supabase configured → <url> (not contacted yet)`;
+- `dbLoadAll` logs `Supabase REACHABLE — ap_clients answered with N row(s)` **only after a
+  read actually comes back**;
+- `renderDbStatus` has **three** states — configured/connecting (grey), connected (green,
+  earned), unreachable (red, click to retry).
+
+### FIX 5 — MOBILE: same defect on the load path, REPORTED NOT FIXED
+- **`loadProductsFromSupabase` (`mobile.html:1255`) is silent in four ways**: two bare
+  `return`s (`!res.ok`, no client row), a `catch` that only `console.warn`s, and a success
+  toast gated on `added > 0` — so "loaded nothing" and "failed to load" produce **identical**
+  UI. It is called **fire-and-forget** at `:1251` (connect) and `:1563` (switch venue),
+  **after** `toast('Connected to …')` and `showScreen('screen-areas')`. The phone therefore
+  says *Connected* and starts a count against a stale or empty catalogue with no warning.
+- **Mobile is less severe than desktop, for two measured reasons:** counts persist to
+  `localStorage['auditpro_mobile_v1']`, and **the SYNC path is already loud** —
+  `pushCountToSupabase` checks `res.ok`, paints a red persistent `#sync-status-row`, and points
+  at the CSV download fallback. Work is not silently lost; it fails loudly at sync.
+- **Not fixed here.** It needs a banner surface on the areas/count screen, the three silent
+  returns separated, wiring at two call sites, the **byte-identical twin** discipline and its
+  own version bump. That is its own build.
+
+### Verified — 109 checks + a dual-build gate
+**`verify-r98.js` — 109 checks, all passing** (scratchpad, not committed; the repo tracks no
+harnesses), driving the REAL script in a node `vm` against a DOM stub, in **both** builds so
+every "it used to be silent" claim is **measured**:
+
+| scenario | PRE-r98 (measured) | POST |
+|---|---|---|
+| **unreachable** (NXDOMAIN) | `dbLoadAll` **returned TRUE**, no banner, **empty dropdown**, sidebar said **"Supabase connected"** | returns false, persistent banner, offline notice, 8 writes refused |
+| **HTTP 503** | **returned TRUE** | returns false, `reason:'http'`, status carried |
+| **partial** (sessions fail) | **returned TRUE** | returns false, "do not recount" |
+| **genuinely empty account** | renders normally | **renders normally, NO banner** (the negative control) |
+| **healthy load** | loads | **byte-identical dropdown markup** |
+| **write, HTTP 500** | **"✓ Saved"** — false success | returns false, banner, "NOT saved" |
+| **write, network** | **promise REJECTED** (×25 call sites) | never rejects, returns false |
+| **`dbSaveSession` failure** | **no banner, no toast** | banner naming the period |
+| **recovery** | — | banner clears, writes re-allowed |
+
+**`gate-r98.js` — the r86–r97 dual-build gate, in two parts.**
+
+**PART 1 (structural, corpus-independent):** a **mode-stack scanner** extracts 32 functions
+from both builds and compares them byte-for-byte. **27 are IDENTICAL**, including
+`computeVariances`, `calculateReportData`, `renderReportDocument`, `countToUnits`,
+`resolvePackSize`, `freezeSessionSnapshot`, `sessionOverallVariancePct`, `aggVarPct`,
+`aggCatRAG`, `reportRAG`, `buildSalesDepletion` and `latestCostPrice`. **CRITICAL compute
+functions changed: NONE.** The 5 that changed are exactly the five this build edits —
+`applyInvoiceToProducts`, `finaliseStocktake`, `rolloverPeriod` (one refusal line each) and
+`renderDropdown` / `renderOverview` (the offline notice). *If the body is identical, no input
+can make it produce a different number* — a stronger guarantee than a field diff.
+
+**PART 2 (behavioural):** real `computeVariances` **and** real `calculateReportData` from both
+builds, 3 periods × {as-stored, forced-`reopened`}, field lists **AUTO-DERIVED** from the union
+of keys (the r86 lesson), a **fresh deep clone per run** (the r92 lesson — the PRE build
+mutates the catalogue as a side effect of computing):
+
+> **23,730 field comparisons · 0 values moved · 0 rows asymmetric · 0 fields in one build only.**
+> **r92 invariant re-measured: neither build repriced the catalogue.**
+
+**CORPUS NOTE — stated, not papered over.** The live gate could **not** be run against live
+Supabase rows, because the project is paused and its hostname does not resolve — that is the
+incident itself. The corpus is the **real production 1 Up Sports Bar client row** from
+`backup-pre-r18.json` (54 products, as at 2026-06-13), extended into a three-period chain so
+both the live-merge and frozen branches are exercised. Part 1 is corpus-independent and carries
+the load here.
+
+**Harness lesson:** the first run failed one check — `importByCode` validates the session code
+**before** reaching the reachability gate, so the stub's empty input never got there and the
+test passed on the *wrong* alert. Fixed by giving the test a valid code, **not** by loosening
+the assertion (the r97 lesson: a harness loosened until it passes still looks like cover).
+
+**Deliberately NOT in this build:** mobile (above), an offline write queue, and any change to
+`latestCostPrice`, r93's thresholds, r96's write path or r97's flag.
+
+## A BACKUP IS THE ONLY COPY THAT SURVIVES THE SERVER (r99)
+
+r98 made a silent backend failure **honest**. It did not make the data **recoverable**. The
+incident behind both: the Supabase project auto-paused after two weeks idle, its hostname
+stopped resolving, and the app loaded nothing at all.
+
+**THE DATA SURVIVED BECAUSE THE PROJECT WAS PAUSED, NOT DELETED — luck, not design.** The three
+live audit periods, their invoices and their closing counts existed ONLY on that server. The
+only local copy of anything was `backup-pre-r18.json`, taken by hand on 13 June, which predates
+all three periods and contains none of them.
+
+### FIX 1 — ONE file that can rebuild a venue from nothing
+**Finalise audit → `⬇ Download backup`** (`index.html:1697`) exports **all four tables
+`dbLoadAll` reads** — confirmed against `dbLoadAll`, which reads `ap_master_products`,
+`ap_clients`, `ap_audit_sessions` and `ap_batches`, in that order, and nothing else.
+`BACKUP_TABLES` (`:17739`) is that list, and the harness asserts it IS those four.
+
+- **`ap_audit_sessions` is NOT redundant with `ap_clients.data.auditSessions`.** `dbLoadAll`
+  loads the client row FIRST and then **overwrites** each matching session from the table, so
+  the **table copy wins**. That is the r80 live-data lesson exactly: September's `openDate` had
+  to be corrected in BOTH stores, because patching only the client copy let the stale table
+  value win at the next load. A backup holding one copy could not reproduce the venue, so both
+  are captured and the header counts them **separately** (`auditSessionsInClient` /
+  `auditSessionsInTable`) so a reader can see they may disagree.
+- **Whole tables, every venue** — not only the active one. The venue in the *filename* is the
+  one the backup was taken from; `_backup.scope` says so in the file.
+- **The header block answers "what have I got and is it complete?" without parsing the body:**
+  `schemaVersion`, `build`, `takenAt` (ISO) + `takenAtLocal`, `trigger`, `closedPeriod`,
+  `source.{supabaseUrl, projectRef}`, `rowCounts`, a per-table `contains` note, a per-venue
+  summary, `sensitive`, `restore`, and **`notIncluded`** — invoice PDFs (Supabase **Storage**,
+  not a table; `d.pdfUrl` points into the private `Invoices` bucket), `ap_mobile_counts`
+  (transient handoff staging), `ap_products` (legacy/unused), and **no API key of any kind**.
+  "Whether it is complete" is only answerable against a **stated** definition of complete, so
+  the exclusions are a named constant (`BACKUP_NOT_INCLUDED`, `:17749`), not prose.
+- **`backup_taken` and `note` are ALSO emitted at the top level**, matching this repo's existing
+  `backup-pre-r18.json` byte-for-byte in shape, so anything written against that file reads this
+  one.
+- **The harness found a real bug in this build's own header code.** `_salesBlacklist` is an
+  **OBJECT** on live data — `{cats: [], products: []}` — **not the array CLAUDE.md described**
+  (corrected below). A plain `.length` on it returned `undefined` and `JSON.stringify` then
+  **dropped the field entirely**. Counted for both shapes now. The first assertion failed for
+  the wrong reason, and in failing exposed the right one.
+
+### FIX 2 — read FRESH, and REFUSE rather than write a partial file
+`fetchBackupTables()` (`:17836`) deliberately does **not** serialise `clients` /
+`masterProducts` / `batches` out of memory. In-memory state can be mid-edit, **half-loaded**
+(r98's `dbLoadAll` returns false on exactly that — `ap_clients` answered but
+`ap_audit_sessions` did not, so the periods in memory are incomplete), or stale behind another
+device's write. A backup is only worth taking from the authority.
+
+- Every read goes through **r98's `DB.getResult`**, so the three outcomes stay distinguishable:
+  `unreachable` (fetch REJECTED — no HTTP conversation at all, a paused project), `http` (the
+  server answered and refused) and a **genuinely EMPTY** table. **Only reason `'ok'` is
+  accepted.**
+- **An empty table is a clean READ.** `ap_batches` legitimately holds **0 rows** at this venue
+  today and must never refuse. That negative control is what stops the refusal becoming
+  wallpaper — the r97 `needsInfoAlert` lesson.
+- **Any failing table refuses the WHOLE export and writes nothing**, naming the table (the r84
+  `finaliseStocktake` / r86 pack-size posture). `backupRefuseText()` (`:17856`) is the ONE
+  wording — the r80 `noOpenPeriodText` / r86 / r96 / r98 `dbDownText` pattern — shared by the
+  button and the rollover snapshot, and it says *why*: a file missing `ap_audit_sessions` looks
+  complete and would be **trusted**.
+- Ordered `?order=id.asc` on every table (all four carry `id SERIAL PRIMARY KEY`), so two
+  backups of the same data are byte-comparable.
+- **Not gated on `dbIsDown()`.** A backup is a READ, and r98 leaves every read usable —
+  attempting it IS the retry, since the project may have been resumed. And a successful backup
+  read does **not** clear `_dbDown`: that state belongs to `dbLoadAll`, and the banner would
+  otherwise lie about what is *loaded*.
+
+### FIX 3 — AUTOMATIC snapshot at rollover
+Rollover is the deliberate, infrequent moment a period stops being editable and becomes locked
+history, which makes it the one checkpoint worth taking unprompted.
+`backupSnapshotAfterRollover()` (`:18026`) is called from `rolloverPeriod` (`:15975`).
+
+- **It waits on the rollover's three writes, and that is the point.** Those writes were
+  fire-and-forget; reading the server first would capture the state **BEFORE** the rollover and
+  produce a snapshot missing the very thing it was taken for. The promises are now **captured**
+  into `_rollSaves` (`:15961`) purely so `Promise.allSettled` can gate the read. `allSettled`,
+  not `all`: a write that failed has already been reported loudly by r98 and must not stop the
+  backup from capturing whatever is genuinely on the server. **Measured: the snapshot holds 4
+  periods, not 3.**
+- **It can never block or undo the rollover.** It is a fully detached chain after
+  `navigate('stocktake')`; nothing awaits it and no failure path returns into the rollover.
+  Harness-proven with an injected read failure: the closed period is still `rolledover`, the new
+  open period is still there, and no file was written.
+- **A failed snapshot is loud** — it names the table and states `THE ROLLOVER ITSELF SUCCEEDED
+  and stands`, then points at the manual export, so nobody tries to undo a good rollover.
+- r97's soft-block and the original single confirm are **untouched**.
+
+### FIX 4 — filenames, and the download mechanism REUSED
+`backupFilename()` (`:17785`) is the ONE builder, so the manual export and the automatic
+snapshot can never be named by two rules:
+
+```
+auditpro-backup_<venue>_<YYYY-MM-DD>[_rollover-<period closed>]_build-<APP_VERSION>.json
+
+auditpro-backup_1-Up-Sports-Bar_2026-09-29_build-2026-06-10-r99.json
+auditpro-backup_1-Up-Sports-Bar_2026-09-29_rollover-August-2026_build-2026-06-10-r99.json
+```
+
+**Venue** first so one venue's backups group together; the **ISO date** next so they sort
+chronologically within that venue; the **closed period** only on a rollover snapshot, where it
+is what makes the file self-describing; the **build stamp last**, because it is constant across
+a day and must not disturb the sort. The stamp carries its own (build) date, which is why it
+sits behind an explicit `build-` label — two bare dates in one filename would be ambiguous.
+`backupNamePart()` collapses every run of non-alphanumerics to one dash and degrades an empty
+part to `unknown`, never to an empty segment.
+
+**The download mechanism is reused, not invented.** The PDF export path ends at jsPDF's
+`pdf.save()`, which can only emit a **PDF**; the generic mechanism underneath it is the one
+already in this file, in `viewInvoicePDF`'s popup-blocked fallback — an object URL on a
+synthetic `<a download>`, clicked, then revoked. That is precisely what jsPDF's `save()` does
+internally, so `downloadTextFile()` (`:17803`) is the same mechanism and not a second one. It
+**attaches the anchor to the document** before the click and removes it after: a detached
+anchor works in Chromium but has historically not in Firefox, and an export that silently does
+nothing is the exact failure mode this build exists to remove.
+
+### FIX 5 — deliberately NOT in this build
+- **No restore/import path.** A bad restore is worse than no backup; it is its own, riskier
+  build. The header's `restore` field documents the manual route (service-role upsert,
+  `on_conflict=slug` / `session_id`, **both** session stores, verify with a GET because a
+  PATCH/POST returns 204 even when RLS blocks the write) — documentation, not a code path.
+- **No second Supabase table.** It would not survive project deletion, which is the scenario
+  this exists for.
+- **No compute change, no mobile change.** Mobile is byte-identical and its twin still matches.
+
+### Verified — 117 checks + a two-part dual-build gate
+**`verify-r99.js` — 117 checks, all passing** (scratchpad, not committed; the repo tracks no
+harnesses), driving the REAL `runBackupExport` / `fetchBackupTables` / `buildBackupBundle` /
+`rolloverPeriod` in a node `vm` against a DOM stub and a **mutable** mock of the Supabase REST
+endpoint seeded from the actual live rows — writes are APPLIED, which is what makes the FIX 3
+ordering claim measurable rather than asserted.
+
+| | measured |
+|---|---|
+| a live export | **60 products · 3 sessions from BOTH stores · 10 deliveries · 66 master rows**, header counts agreeing with the body |
+| fetch-fresh | the in-memory catalogue is poisoned and emptied; the export still carries 60 products and no trace of the poison |
+| refusal | each of the four tables refuses individually, on `unreachable` **and** on `http` (503, 401), naming itself, status carried, **zero** files written |
+| negative control | `ap_batches` empty (0 rows) ⇒ **no refusal, no alert** |
+| rollover | snapshot taken with no user action; stamped `trigger:'rollover'`; names the closed period in the header AND the filename; **holds 4 periods, not 3** |
+| failed rollover snapshot | no file; period still `rolledover`; new period still present; alert names the table and says the rollover stands |
+| round-trip | parses cleanly (944,229 bytes); all four tables **byte-identical** to the live rows; `KAHLUA` `weights:[491,614]` / `netWeightG:1105` / `qty:0` verbatim; all 27 weighed July entries; the unsized `CHURCH ROAD CHARDONNAY` Cases line and all 9 stamped `caseSize` lines verbatim |
+| security | no Supabase JWT (anon or service role) anywhere in the file |
+| negative control | **pre-r99 has all 10 of these functions ABSENT and writes NO backup on rollover** |
+
+**A real live run, no mock in the path** (`live-export.js` against the resumed project):
+`ap_clients 1, ap_audit_sessions 3, ap_master_products 66, ap_batches 0`, 944,229 bytes, 0
+alerts, filename exactly as specified.
+
+**`gate-r99.js` — the r86→r98 dual-build gate, in two parts.**
+
+**PART 1 (structural, corpus-independent):** a **mode-stack scanner** extracts **80** functions
+from both builds and compares them **byte-for-byte**. **79 are IDENTICAL**, including
+`computeVariances`, `calculateReportData`, `renderReportDocument`, `countToUnits`,
+`resolvePackSize`, `freezeSessionSnapshot`, `sessionOverallVariancePct`, `aggVarPct`,
+`aggCatRAG`, `aggNotAssessable`, `reportRAG`, `varPctDisplay`, `buildSalesDepletion`,
+`latestCostPrice`, `prevSessionOf`, `finaliseStocktake`, `applyInvoiceToProducts`, `dbLoadAll`
+and `saveProduct`. **CRITICAL compute functions changed: NONE.** The one change is
+`rolloverPeriod` — the one pre-existing function this build edits. *If the body is identical, no
+input can make it produce a different number* — a stronger guarantee than a field diff, which is
+why it carries the load here.
+
+**PART 2 (behavioural):** real `computeVariances` **and** real `calculateReportData` from both
+builds over the live rows, 3 periods × {as stored, forced `reopened`} plus the auto-picked
+(null-session) path, field lists **AUTO-DERIVED** by flattening every payload to dotted leaf
+paths (the r86 lesson — nothing can be missed because nobody listed it), a **fresh deep clone
+per run** (the r92 lesson — the PRE build mutates the catalogue as a side effect of computing):
+
+> **34,790 field comparisons · 0 values moved · 0 rows asymmetric · 0 compute errors.**
+> **r92 invariant re-measured: neither build repriced the catalogue on any run.**
+
+**Two stale-doc corrections this gate surfaced**, both fixed in this file:
+- **`finalisePeriodAndRollover()` does not exist** — it appears **0 times** in `index.html` in
+  both builds. The real function is `rolloverPeriod()`. The gate's "a listed function must be
+  found" rule is correct and was kept; the phantom was removed from the LIST rather than the
+  rule relaxed (the r97 lesson: a harness loosened until it passes still looks like cover).
+- **`_salesBlacklist` is an OBJECT**, `{cats: [], products: []}` — 1 cat + 12 products on live
+  data — not the array it was documented as.
+
+**Harness lesson:** the delivery line array is **`d.lines`**, not `d.items`. A diagnostic script
+written as `d.items or d.lines` masked that and three round-trip assertions then failed against
+the wrong key. **Never let a fallback in a diagnostic decide a field name** — it makes the
+harness agree with itself instead of with the data.
+
+---
+
+## Mobile add-product schema (r79)
+
+### Mobile add-product schema (r79)
+`saveMobileProduct()` is the phone's product-creation path (3 entry points: the FAB, a
+search no-match "＋ Create", a scan no-match). It writes a **full object**, so every field it
+emits must be either user-entered or guarded in `pushProductToSupabase`.
+
+- **Case size is the only field worth capturing on the phone.** It is the one gap that yields
+  a *wrong* number instead of a missing one — `countToUnits` does `qty × (caseSize || 12)` and
+  the delivery expansion falls back to 12 as well. `#mp-casesize` is revealed by the existing
+  `updateVesselVisibility()` pattern when `soldAs === 'Cases'`; validation is the r75 link-mode
+  rule verbatim (whole, > 0, ≤ 500, else refuse). **Do not add a "more details" accordion** —
+  it invites field-creep into the mid-count path.
+- **`pushProductToSupabase`'s exists-branch guards are load-bearing.** Blank-guard list is
+  `costPrice, density, soldAs, caseSize, costPriceExGST, par` (blank now includes `[]`).
+  `parunit` and `costHistory` are **derived defaults that never overwrite a stored value** — a
+  blank-guard is not enough for them, because `parunit` is always non-blank and would demote a
+  desktop `'Cases'` to `'Bottles'`. A guessed `serveVol` never overwrites a measured one, and a
+  name collision never stamps an existing product `_userAdded`.
+- **`serveVol` is guessed, never asked for** — the pour spec lives at the desktop, not in a cool
+  store. The guess equals desktop's own fallback exactly (`Spirits 30 / Wine 150 / else unitVol`,
+  shared via `guessServeVol()`), so there is no numeric delta; it is stamped `serveVolGuessed`
+  so a guess stays distinguishable from a measured pour.
+- **`needsInfoAlert()` is the review surface.** `_userAdded` / `serveVolGuessed` light up the red
+  `!` nav badge, the products-page banner and the per-row click-to-edit pill. It **self-clears**:
+  `saveProduct()` rebuilds the whole product object and never rewrites those keys.
+- `serves[]` is **not consumed by depletion** (recipe-editor UI only — see the comment at
+  `index.html:5349`), which is why mobile does not capture it.
+- `vesselDensity(prefix)` is the single density read for both vessel forms. The old inline
+  `parseFloat(el.value || '1.00')` put the `||` *inside* `parseFloat`, on the string, so a
+  `Custom…` selection became `NaN`. Keep it prefix-safe — the `mb` batch form has no density
+  select at all.
+
+---
+
+## Invoice Matching Logic — the CLAUDE.md text as it stood before the split
+
+_The match list below predates r88; the supplier-code step and the venue-only rule are in the r88 section above and in `CLAUDE.md`._
+
+## Invoice Matching Logic
+Runs fresh inside `openInvoiceReviewModal()` every time the modal opens (never cached —
+`_cleanName` in `_invoiceDataStore` is stale by design).
+
+Match priority:
+1. Barcode (exact, strips leading zeros)
+2. Exact name (case-insensitive)
+3. Normalised name (strips volumes, pack sizes, BTL/KEG/CAN, apostrophes)
+4. Partial string includes
+5. Word-overlap score (picks the **best** score, not the first above threshold)
+
+Normalisation strips: `'`, pack sizes (24S), BTL/BTLS, CAN/CANS, KEG/KEGS, CASE/CASES, CAR,
+RTD, volumes (330ml, 50L).
+
+Unmatched items → blank red-bordered field; Confirm stays disabled until all are matched.
+
+**Invoice totals & extras:** the invoice total is `d.t` — the total **printed on the invoice,
+incl. GST** — which can exceed the sum of line items. The gap (fuel surcharge, freight, levies)
+is stored as `d.extras = d.t − lineSum`, and `saveEditedInvoice()` preserves it through line
+edits. A "wrong invoice total" is almost always a wrong **stored `d.t`** (a write-path/data
+problem) — query live Supabase before editing any read logic.
+
+**Review-modal render:** "the fields don't update" means the row template **threw mid-render**
+(unguarded `.toFixed` / `.match` on an undefined row field), so the inputs never rendered.
+
+---
+
+---
+
+## Signed purchases, % floors, stock adjustments (r81 → r83)
+
+### Signed purchases — stock going OUT (r81)
+A **negative purchase quantity** is stock leaving the venue (transfer out, wastage, breakage).
+The arithmetic always handled it: the delivery line keeps the sign, the delivery→purchase merge
+accumulates negatively, **case expansion preserves the sign**, `purUnits` keeps it,
+`expected = opening + purchases − sales` subtracts correctly, and `costImpact` is signed.
+Nothing crashed and nothing flipped sign. What blocked it was **display** — every gate was a
+`> 0` that should have been `!== 0`:
+
+| Surface | Was | Now |
+|---|---|---|
+| Variance "+ Purchases" cell | `purUnits > 0 ? … : '—'` | `purUnits !== 0` |
+| Purchase popover (`purDetail`) | `purEntry && purUnits > 0` | `purEntry && purUnits !== 0` |
+| Report Purchase History total | `storedTotal > 0 ? storedTotal : lineTotal` | `Number.isFinite(storedRaw)` |
+
+`fmtVol` and `unitLabel` already coped with negatives (both `Math.abs` their thresholds and keep
+the sign on the value) — the gates were the only blocker. A −$1,070.60 transfer printed as
+**$0.00** because the old `> 0` rejected the negative and fell back to summing `_incGST`, which
+manual/adjustment lines do not carry.
+
+**`countToUnits`' `qty > 0` clamp STAYS.** A physical count can never be negative. Verified call
+sites are opening/closing only (`computeVariances` ~6515/~6566, `sessionOverallVariancePct`
+~4117/~4118, the stock-value sum ~12490, `openAmendClosing` ~12920/~12928) — nothing routes a
+purchase through it. **An adjustment must NEVER be modelled as a count entry** — it is a signed
+purchase, or it is silently clamped to 0 and vanishes.
+
+### Meaningless variance percentages (r81)
+`expected` is in UNITS. Below one whole unit the ratio explodes or inverts — live data showed
+Speights Summit at expected `0.10` reading **+1918.6%**, and Steinlager Classic at expected
+`−0.65` reading a flat **+0.0%** ("perfect") while carrying a **+$906** cost impact.
+
+`VAR_PCT_MIN_EXPECTED = 1` (one full unit) is the floor, and **`varPctDisplay(expected, actual,
+costImpact)` is the ONE decision point**, used by the product row, the subcat subtotal, the
+category total and the grand total so all four agree. Below the floor it returns `'—'` — and
+colours the pill by **cost impact**, so a row with a real dollar loss is never painted green.
+
+- `varPctNum` stays a NUMBER (0 when suppressed) so existing numeric consumers are unaffected;
+  **`varPctValid`** is the flag that says whether the figure is real.
+- **Known remaining surface:** the PDF report's per-product `variancePct` (`:3822`,
+  `r.varPctNum || 0`) still prints a figure for suppressed rows. Wiring `varPctValid` through
+  `reportRAG`/`fmtPct`/the sort at `:4441` is a follow-up.
+
+### Stock adjustments — one-sided stock movements (r82)
+The **"⇄ Stock adjustment"** button on Purchases (`index.html:791`) replaces the dead
+"⇄ Transfer stock" button, whose four handlers (`openStockTransfer`,
+`populateTransferProducts`, `addTransferLine`, `confirmStockTransfer`) **were never defined in
+any commit** — it threw on click. Its `#stockTransferModal` markup assumed a **From/To venue
+pair**, which is the wrong model: a movement is usually recorded at ONE venue, with no matching
+entry at the other end and often no second venue in the system. That markup is **deleted**.
+
+**Why this reaches variance and the manual-invoice workaround did not — two fields:**
+- **`_cleanName`** — the delivery→purchase merge reads it FIRST and skips the fuzzy
+  word-overlap match entirely. Manual lines had none, so every name ran a matching lottery.
+- **`_incGST`** — the field the merge actually reads for cost. Manual lines wrote `price`,
+  which nothing reads, so every manual cost silently arrived as **0**.
+
+**Delivery shape** (same `c.deliveries` array, same readers, no migration):
+`kind:'adjustment'` · `reason` · `note` · `direction:-1|1` · `mirrorOf:null` ·
+`st:'Adjustment'` · `sc:'chip-amber'` · `r:'ADJ-'+Date.now()+'-'+random` (globally unique —
+`'AUTO-'+Date.now()` collides within a millisecond) · `periodId` = the **OPEN** session.
+
+- **Direction is a toggle, never a typed minus sign.** The user enters positive quantities and
+  the save multiplies by `direction`. Typing negatives into a `min="0"` box is how the live data
+  ended up with mixed-sign lines.
+- **The product picker is HARD-BOUND to the catalogue.** Not the free-text `<datalist>` the
+  manual form uses — a datalist only *suggests*, and accepts a typo that then has to survive the
+  fuzzy matcher. `saveStockAdjustment` refuses any unmatched line. (r82 enforced this with a
+  `<select>`; **r83 replaced that with a type-ahead** — see below — without weakening it.)
+- **Cases require a CONFIRMED pack size** (whole, 1–500), pre-filled from `caseSize` but always
+  editable. Quantities are stored **already expanded into base units**, so the live merge, the
+  frozen branch and `session.purchases` all agree and **`caseSize || 12` can never fire**.
+  (The merge prefers `prodMap[name].caseSize` over `line.caseSize`, so storing un-expanded
+  Cases would let the catalogue's pack size override the one the user confirmed.)
+- **It ALSO writes `session.purchases`** with the r77 `byRef` ledger. A delivery-only write is
+  invisible the moment the period is finalised — that is exactly how the original transfer died.
+- **No open period ⇒ refused**, at open time *and* at save time, reusing r80's
+  `refuseWriteNoOpenPeriod` / `noOpenPeriodText` so there is ONE wording. It also runs through
+  `validateInvoiceImport` (`surface:'manual'`) to inherit the r78 warning surface.
+- **Date is always year-stamped** — never `saveManualInvoice`'s `'Today'` sentinel, which
+  `parseFlexDate` rejects by design.
+- **Display:** an amber `⇄ <reason>` chip in purchase history, an amber reason badge on the
+  variance popover row, and a split report footer (`Supplier purchases` / `Stock adjustments` /
+  `NET`) so an adjustment is never summed as a purchase. **`purDetail` RE-PROJECTS each merge
+  line**, so any field the merge attaches must be copied there explicitly or it never reaches
+  the popover.
+- **`mirrorOf` is written as null from day one** so optional mirroring to a second venue can
+  find and unlink its twin later without a data migration.
+
+### Adjustment product type-ahead (r83)
+r82's `<select>` did not scale, and was worst at the case an adjustment most often records: a
+product that exists in the catalogue but has **never been on site**. It is now the same
+autocomplete the desktop already runs at `#manual-product` (r50) and in the invoice review modal
+(`filterInvNameList`) — r42 token match (every whitespace token must appear in the name), <= 8
+rows, name + muted category, `getBoundingClientRect` + `position:fixed` so the list escapes the
+two scroll containers it sits inside, auto-flip-up under 220px of room, and the **deferred
+`setTimeout` document click-away** (`onblur` fires before the click and eats the selection).
+
+- **The hard-match guarantee is structural, not a string comparison.** A row is bound ONLY by
+  clicking a result -> `saPickProduct(rowSeq, indexIntoCatalogue)`. The dispatch carries an
+  **INDEX**, never the name interpolated into the `onclick` attribute — a name containing a
+  quote breaks that (the bug r71 fixed on mobile).
+- `_saBound[rowSeq]` holds the product **OBJECT**; hidden `#sa-prodkey-N` holds its canonical
+  name purely so `saBoundProduct()` can re-resolve after a Supabase reload swaps
+  `client.products` wholesale (pitfall #2). Typing anything other than the bound canonical name
+  unbinds the row on the spot (red border), and **`saReadLine` refuses an unbound row** — so
+  free text, *including a typed string that exactly equals a catalogue name*, is never savable.
+- Searches the **whole** `activeClient.products` — never narrowed by stock on hand or by having
+  been counted.
+- Per-row ids (`sa-prod-N` / `sa-prodkey-N` / `sa-prodlist-N`) keep multi-line rows independent;
+  `saCloseProdLists(exceptN)` keeps one list open at a time. `saRemoveLine(N)` drops the binding
+  with the row.
+- **Unit cost is re-derived on every pick**, like the pack size. r82's `!cost.value` guard only
+  fired on a fresh row, so re-picking left the PREVIOUS product's cost behind — pick a $210 keg,
+  correct it to a $2.10 can, and 48 cans were valued at $210 each. A search box makes re-picking
+  the normal way to use the form, so that trap had to go.
+
+**Edit/delete (r82 FIX 7):** `d.kind/reason/note/direction/mirrorOf` live on the delivery, which
+`saveEditedInvoice` never rewrites, so they survive an edit for free. Two things did not:
+`saveEditedInvoice` **hardcoded `unit:'Bottles'`** on every edited line (flattening a 50L keg to
+a 750ml bottle and dropping `caseSize`, re-arming the `||12` fallback) — it now carries the
+original line's `unit`/`caseSize` through, matched by row index against `d._editLines`. And it
+stamped `entry.qty` **directly**, bypassing the byRef ledger — it now rewrites this invoice's
+slice, so qty and ledger stay in agreement. A line ADDED during an edit still defaults to
+`Bottles`; the edit form has no product-aware unit picker.
+
+### Adjustments must not reprice the catalogue (r81, corrected in r82)
+`computeVariances` writes an invoice's unit cost back onto `client.products[idx].costPrice`
+(~6521) — permanently, and on into every future period's valuation. A transfer/wastage figure
+landing there would silently redefine the product's cost. `isAdjustmentDelivery(d)` returns true
+for `d.kind === 'adjustment'` (or `d.adjustment === true`); an adjustment line contributes its
+**quantity** but never a cost. **r82 activated this** by stamping `d.kind` — and immediately
+exposed that the r81 gate was too broad.
+
+A purchases entry is keyed by **product**, so one entry can be fed by a supplier invoice *and*
+an adjustment in the same period. Gating on `!_adjustment` meant a single wastage line silently
+suppressed a genuine supplier price. The gate now tests **provenance**:
+- `_adjustment` — an adjustment fed this entry (used only to LABEL the popover).
+- `_costFromSupplier` — a real invoice supplied the cost. **This** is what licenses the
+  write-back: `!_adjustment || _costFromSupplier`.
+
+Entries carrying neither flag are ordinary supplier purchases (every pre-r82 entry and every
+frozen snapshot), so they write back exactly as before.
+
+### Report Purchase History is period-scoped (r81)
+It read `client.deliveries` **globally**, so every report printed every invoice the venue had
+ever received. Now `deliveriesForSession(client, session)`, falling back to the full list when
+there is no session. **Note:** `calculateReportData(client, session)` still calls
+`computeVariances(client)` **without** the session (`:3799`), so the report's variance numbers
+track `currentSession()` rather than the selected period — pre-existing, not fixed here.
+
+---
+
+---
+
+## Key Functions — Desktop (the full list as it stood at r99)
+
+## Key Functions — Desktop
+
+```javascript
+// Backend reachability — "loaded nothing" vs "failed to load" (r98)
+// DB.getResult / DB.upsertResult / DB.deleteResult — { ok, rows, reason, status, error }.
+// reason: 'ok' (answered, rows may be []) | 'unreachable' (fetch REJECTED — no HTTP at all)
+//       | 'http' (answered non-2xx; status carried) | 'notready'. DB.get/upsert/delete remain
+// as back-compat wrappers returning rows|null.
+dbIsDown()                           // TRUE only after a real attempt failed to REACH the server
+dbDownText(what) / dbDownShort()     // the ONE wording; denies the empty-account reading by name
+renderDbDownBanner()                 // PERSISTENT red banner (#db-down-banner) — never a toast
+dbRetryConnect()                     // read-only retry; always safe to press
+refuseWriteBackendDown(what)         // TRUE = refused (r80 convention). 8 write entry points.
+reportWriteFailure(what, reason, status, detail)   // a write that did not land is LOUD
+noteWriteOk()                        // a write reached the server → reachability proven
+dbDownNoticeHTML(full)               // the inline notice in the dropdown / overview grid
+// NB: _dbDown is NEVER inferred from clients.length === 0 — a genuinely empty account must
+// render normally with no banner. That negative control is what stops it becoming wallpaper.
+
+// Backup — the only copy that survives the server (r99). Desktop only.
+// Reads FRESH through r98's DB.getResult; only reason 'ok' is accepted, so an EMPTY table is a
+// clean read while unreachable/http REFUSE the whole export. Never serialises memory.
+BACKUP_TABLES / BACKUP_NOT_INCLUDED / BACKUP_SCHEMA_VERSION  // the four tables dbLoadAll reads
+fetchBackupTables()                  // :17836 — { ok, tables, counts, failed }; failed names the table
+backupRefuseText(failed, trigger)    // :17856 — the ONE wording (r80/r86/r96/r98 pattern)
+buildBackupBundle(fetched, trigger, closedPeriodLabel)   // :17888 — header block + the four tables
+runBackupExport(opts)                // :17959 — the ONE export action; NEVER throws
+downloadBackupNow(btn)               // :17994 — the Finalise-page button
+backupSnapshotAfterRollover(c, sess) // :18026 — FIX 3; detached, waits on _rollSaves, cannot undo
+backupFilename(venue, closedPeriod) / backupNamePart(s, max) / backupProjectRef()
+downloadTextFile(name, text, mime)   // :17803 — the object-URL + <a download> mechanism, reused
+// NB NOT gated on dbIsDown() — a backup is a READ and attempting it IS the retry; and a
+// successful backup read does NOT clear _dbDown (that state belongs to dbLoadAll).
+// There is deliberately NO restore path (FIX 5) and nothing writes a backup to Supabase.
+
+// Navigation
+navigate(page) / renderPage(page)
+selectClientOnly(id)        // Set activeClient without navigating
+selectClient(id)            // Set activeClient + navigate to dashboard
+
+// Persistence
+dbLoadAll()                 // Load clients + master products (+ density merge, seq backfill)
+dbSaveProducts(client) / dbSaveClient(client)   // PATCH ap_clients with the full client
+dbSaveSession(c, session)   // Upsert one ap_audit_sessions row
+uploadInvoicePDF(file, ref, slug)               // Storage upload → signed URL
+
+// Period lifecycle
+currentSession(c) / viewedSession(c) / isClosedSession(s)
+compareSessions(a,b) / newSessionId() / nextSessionSeq(c) / formatSessionLabel(s)
+backfillAndSortSessions(c)  // assign missing seq, sort
+resolveReportSession(c, id)  // r95 — report picker: {session, reason} ok|fallback|none
+reportSessionsNewestFirst(c) // r95 — picker order, by compareSessions desc (never array order)
+fullRptSessionChanged()      // r95 — records the report pick; must NEVER touch viewedPeriodId
+prevSessionOf(c, sess)      // r94 — the PREVIOUS period: prevId chain, else seq-ordered
+                            // predecessor. NEVER indexOf/array position (identity breaks on reload)
+switchAuditPeriod(id)       // Pin viewedPeriodId (null = follow active)
+updateAuditPeriodCtx(c)     // Top-bar period selector
+rolloverPeriod()            // Close current + open the next (deep-copied opening).
+                            // NB there is NO finalisePeriodAndRollover() — 0 occurrences in
+                            // index.html (measured r99); the section above uses the old name.
+freezeSessionSnapshot(c, s) // Freeze varRows + resolved purchases + overall %
+eligibleReopenSession(c) / oldestReopenedSession(c)
+reopenPeriod(sessionId) / recloseReopenedPeriod()   // + one-hop forward cascade
+openAmendClosing(productName)                        // Amend a closing count (reopened only)
+finaliseStocktake()         // Merge staged rows into closing, snapshot, → 'finalised'
+clearStagedCount()
+
+// Deliveries / periods
+resolveDeliveryPeriod(c, d) / deliveriesForSession(c, sess)
+
+// Count rows / pack size (r84 / r85)
+addRow(product, location, qty, unit, caseSize) / readCountRow(tr) / removeRow(btn)
+validPackSize(raw) / stkSyncUnitRow(sel) / stkMarkPack(pack) / resolveRowCaseSize(r, prodByName)
+barcodeMatchKind(p, scannedCode)   // r85 — desktop parity with r74; test caseBarcode FIRST
+pfMarkCaseSize()                   // r85 — 'Units per case *' + red border while the modal is open
+
+// Invoice matching — ONE matcher, with a confidence (r88)
+invMatchLine(client, item, supplier)   // → { prod, kind, score, code }; venue catalogue ONLY
+invNormName(s) / invCodeKey(raw) / invLineSupplierCode(item) / invProductSupplierCode(prod)
+invFindByCode(pool, code, supplier)    // supplierCodeFrom scopes a learned code to its supplier
+invMatchIsConfident(kind) / invMatchLabel(kind, score)   // code|barcode|exact = green
+invFindCatalogueProduct(name)          // exact case-insensitive venue lookup — the binding test
+invResolvedLineName(id, i, item)       // r88 FIX 3 — the ONE name; 4 call sites
+invNameBinding(id, i)                  // 'catalogue' | 'new' | '' | null(no input)
+invMarkName(id, i) / invNameChanged(id, i, totalRows)
+invUnmatchedLines(id, rows) / invRefuseUnmatchedLines(id, rows)  // TRUE = refused
+renderVarOrphanBanner(computed)        // purchases with no catalogue row — #var-orphan-banner
+
+// Invoice review — mandatory pack size on a ticked split (r86)
+invSplitLineIsSplitting(id, i)     // checked AND the split wrap is actually visible
+invReviewRows(id) / invSplitPackErrors(id, rows)     // → [{ i, name }] to NAME the refusal
+invRefuseUnconfirmedPack(id)       // the ONE wording; TRUE = refused (callers return false)
+invMarkCaseSize(id, i)             // presentational: red border + 'Units per case *'
+
+// Products
+renderProducts(c, query) / editProduct(idx) / deleteProduct(idx) / saveProduct()
+addToMasterCatalogue(p) / getMasterProduct(name) / masterSlug(name) / syncMasterToClient(c)
+
+// Bulk cost pricing (r96) — edits costPrice / costPriceExGST / cost / costHistory and
+// NOTHING else. In place, never a product rebuild, so it never routes through saveProduct.
+openBulkPricing() / bpRenderList() / bpRowHtml(p) / bpInput(i, raw) / bpSetFilter(mode)
+bpCostFields(price)                  // { costPrice, costPriceExGST, cost } — saveProduct's derivation
+applyBulkCostPrice(prod, price)      // the ONE write; change-gated, appends costHistory only on a change
+bpReadDraft(name)                    // 'blank' | 'same' | 'change' | 'bad' (+ problem / short)
+bpFindProduct(name)                  // findIndex by NAME at read AND write time (pitfall #2)
+bpRefuseInvalidPrices(bad)           // TRUE = refused; reveals hidden rows, writes nothing
+bpMarkRow(i) / bpUpdateSummary()     // presentational only
+saveBulkCostPrices()                 // refuse-then-write, never a partial save
+bpFreeState(p) / bpToggleFree(i, on) // r97 — the per-row free tick; ticking CLEARS a typed price
+
+// Cost-price completeness gate (r97) — noCostPrice is read HERE and by needsInfoAlert, and by
+// NOTHING that computes a number. Stock is resolved via countToUnits, NEVER entry.qty.
+productHasNoCostPrice(p)             // :7007 — the ONE 'cannot be valued' test (honours the flag)
+unpricedCountedProducts(c, sess)     // :7029 — stored closing, via countToUnits
+unpricedStagedProducts(c, rows)      // :7049 — rows on screen, pre-merge (qty IS the grams there)
+unpricedForFinalise(c, rows)         // :7105 — the union of both
+finaliseTargetSession(c)             // :7097 — the session finaliseStocktake will EXTEND
+unpricedText(list, when) / unpricedNames(list, limit) / unpricedCatSummary(list)  // ONE wording
+renderFinaliseUnpricedWarning(c, rows)  // :7123 — the WARNING; #fin-unpriced-warn, FIRST modal
+finaliseGoPriceThem()                // :7147 — leave the review modal for the r96 grid
+applyNoCostFlag(prod, on)            // :7161 — the ONE flag write; SEPARATE from applyBulkCostPrice
+pfMarkNoCost()                       // :7171 — presentational only
+countToUnits(entry, prod, packOut)  // Count entry → units. packOut is an OPTIONAL out-param:
+                            // pass {} and it returns with .unknown set when a Cases entry had
+                            // no resolvable pack size (r87). Two-arg calls still work.
+resolvePackSize(stamped, catalogue, nameForParse)  // r87 — the ONE precedence order, → {cs, unknown}
+
+// Variance
+computeVariances(client, session=null) / renderVarTable() / downloadVariancePDF()
+// r92 — computeVariances WRITES client.products[].costPrice. That write fires ONLY for the
+// ACTIVE period (identity vs currentSession), on top of r81/r82's provenance gate.
+
+// Invoices
+renderInvoiceResults(id, invoice, filename) / openInvoiceReviewModal(id)
+applyInvoiceToProducts(id) / addDumpInvoiceToClient(c, invoice, id)
+deleteInvoice(idx) / reimportArchivedInvoice(archiveIdx)
+viewInvoice(idx) / editInvoice(idx) / saveEditedInvoice(idx)
+
+// Mobile handoff
+importByCode() / markCountImported(code, lines) / renderImportedCountsHint()
+rejectMobileCount() / renderMobileCounts()
+
+// Suppliers / Sales
+renderSupplierList(q) / openSupplierDetail(name)
+confirmZeroSales() / confirmSalesImport(id) / buildSalesDepletion(c, sess, prodMap)
+
+// Stock adjustments (r82 / r83)
+openStockAdjustment() / saAddLine() / saRemoveLine(i) / saveStockAdjustment()
+saProductSearch(i, q) / saPickProduct(i, catalogueIdx) / saBoundProduct(i)   // r83 type-ahead
+saCloseProdLists(exceptI) / saMarkProdBinding(i) / saLineProductChanged(i) / saReadLine(row)
+```
+
+**Dead code — do not "wire up":** `finalisePage_lock()` (index.html:3218) and
+`currentDeliveries()` (index.html:15346) both have zero call sites.
