@@ -13349,56 +13349,223 @@ function checkInvoiceReady(id, totalRows) {
 }
 
 // ─── PDF STORAGE ─────────────────────────────────
-// Upload invoice PDF to Supabase Storage and return public URL
-async function uploadInvoicePDF(file, invoiceRef, clientSlug) {
-  if(!file || !SUPABASE_CONFIG.url || !SUPABASE_CONFIG.key) return null;
-  // FIX 3 — Storage uploads return 403 (RLS) with the anon key, so use the service
-  // role key for the Storage requests ONLY. Everything else still uses the anon key.
-  const storageKey = SUPABASE_CONFIG.serviceKey || SUPABASE_CONFIG.key;
-  try {
-    const ext  = file.name.split('.').pop() || 'pdf';
-    const path = `${clientSlug}/${invoiceRef}.${ext}`;
-    const res  = await fetch(`${SUPABASE_CONFIG.url}/storage/v1/object/Invoices/${path}`, {
-      method:  'POST',
-      headers: {
-        'apikey':        storageKey,
-        'Authorization': 'Bearer ' + storageKey,
-        'Content-Type':  file.type || 'application/pdf',
-        'x-upsert':      'true',
-      },
-      body: file,
-    });
-    if(!res.ok) { console.warn('[AuditPro] PDF upload failed:', await res.text()); return null; }
-    // Return signed URL (private bucket — valid for 10 years)
-    const signRes = await fetch(`${SUPABASE_CONFIG.url}/storage/v1/object/sign/Invoices/${path}`, {
-      method:  'POST',
-      headers: {
-        'apikey':        storageKey,
-        'Authorization': 'Bearer ' + storageKey,
-        'Content-Type':  'application/json',
-      },
-      body: JSON.stringify({ expiresIn: 315360000 }), // 10 years in seconds
-    });
-    if(!signRes.ok) return null;
-    const { signedURL } = await signRes.json();
-    return signedURL ? SUPABASE_CONFIG.url + '/storage/v1' + signedURL : null;
-  } catch(e) {
-    console.error('[AuditPro] PDF upload error:', e);
-    return null;
+// r100 — THE UPLOAD MOVED SERVER-SIDE. This used to POST straight to Supabase Storage with
+// the service-role key from SUPABASE_CONFIG, which bypasses every RLS policy and shipped in
+// this public page's source to every visitor. Supabase is retiring the legacy
+// keys, and their replacement SECRET keys are refused outright when sent from a browser, so
+// the upload now goes through the Cloudflare Worker (worker/auditpro-proxi.js, route
+// /invoice-pdf). The Worker holds the secret key server-side, stores the PDF at
+// Invoices/<slug>/<ref>.pdf and signs a 10-year link, exactly as this function used to.
+// The old "service key, else anon key" fallback is gone as well: with the service key deleted it
+// would have fallen back to the anon key and failed with 403 — reported by a 1.8-second toast.
+const INVOICE_UPLOAD_URL        = 'https://auditpro-proxi.jeremyaibuid.workers.dev/invoice-pdf';
+// Must equal MAX_PDF_BYTES in worker/auditpro-proxi.js. The Worker ENFORCES it; this copy only
+// lets the app refuse — and say why — before sending a file it already knows is too big.
+const INVOICE_UPLOAD_MAX_BYTES  = 10 * 1024 * 1024;
+const INVOICE_UPLOAD_TIMEOUT_MS = 60000;
+
+// The ONE storage-key rule, mirrored by REF_RE in the Worker. It is exactly the sanitisation
+// attachInvoicePDF always applied. applyInvoiceToProducts used to pass the raw AI-parsed
+// invoice number, which is how "INV/26-27/0363" became a two-level folder in the bucket. A ref
+// already made of A-Z a-z 0-9 _ - (every other object in the bucket) maps to itself, so its
+// storage path is unchanged.
+function invoiceStorageRef(ref) {
+  return String(ref == null ? '' : ref).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 100);
+}
+
+// Invoices may be photographed (both upload inputs accept image/*) and the AI reads a photo
+// fine — but only a PDF is STORED. The Worker refuses anything else; checking here lets the
+// app say so plainly instead of sending a file that can only be refused.
+function isPdfFile(file) {
+  const type = String((file && file.type) || '').toLowerCase();
+  if (type.startsWith('image/')) return false;
+  return type === 'application/pdf' || /\.pdf$/i.test(String((file && file.name) || ''));
+}
+
+// ── r100 FIX 4 — a failed upload is LOUD and PERSISTENT, the r98 way — but it is NOT the r98
+// database banner. That banner says "your most recent change is not stored", its Retry re-runs
+// dbLoadAll, and an 'unreachable' report flips _dbDown, which refuses every database write in
+// the app. None of that is true when a FILE fails to reach the WORKER: the invoice itself was
+// saved normally. So the upload keeps its own state and its own banner, built on the same
+// fixed-top pattern, and never touches _dbDown or _dbSaveFail.
+let _uploadFails = [];   // [{ slug, rawRef, ref, name, type, size, reason, status, message, file, at }]
+
+function invoiceUploadRetryable(f) {
+  if (f.reason === 'unreachable' || f.reason === 'bad-response') return true;
+  if (f.reason === 'http') return ![400, 403, 413, 415].includes(f.status);
+  return false;
+}
+
+function invoiceUploadReasonText(f) {
+  switch (f.reason) {
+    case 'unreachable':
+      return 'the upload service (the Cloudflare Worker) could not be reached — no answer came back'
+        + (f.message ? ' (' + f.message + ')' : '') + '.';
+    case 'http':
+      return 'the upload service refused it — HTTP ' + f.status + (f.message ? ': ' + f.message : '') + '.';
+    case 'bad-response':
+      return 'the upload service answered but did not return a usable link'
+        + (f.message ? ' (' + f.message + ')' : '') + '.';
+    case 'not-pdf':
+      return 'it is not a PDF (' + (f.type || 'unknown type') + '). Only PDF invoices are stored: '
+        + 'a photo is read by the AI, but no copy of it is kept.';
+    case 'too-large':
+      return 'it is ' + (f.size / 1048576).toFixed(1) + ' MB, over the '
+        + (INVOICE_UPLOAD_MAX_BYTES / 1048576) + ' MB limit.';
+    default:
+      return f.message || 'it could not be stored.';
   }
+}
+
+// The ONE wording (the r80 noOpenPeriodText / r98 dbDownText pattern), so the banner, the
+// explanation and the console can never disagree about what happened.
+function invoiceUploadFailText() {
+  const list = _uploadFails;
+  if (!list.length) return '';
+  const anyRetry   = list.some(invoiceUploadRetryable);
+  // Before the r100 Worker is deployed, the OLD Worker answers this route by throwing (it
+  // parses every body as JSON) with no CORS header, which the browser reports as no answer.
+  const workerHint = list.some(f => f.reason === 'unreachable'
+    || (f.reason === 'http' && [404, 405, 500].includes(f.status)));
+  return 'INVOICE PDF NOT STORED\n\n'
+    + 'The invoice itself WAS imported — its lines, totals and purchases are saved. Only the copy '
+    + 'of the file did not reach storage, so its 📄 PDF button will be missing.\n\n'
+    + list.map(f => '• ' + (f.rawRef || f.ref) + (f.name ? ' (' + f.name + ')' : '') + ' — '
+        + invoiceUploadReasonText(f)).join('\n')
+    + (anyRetry ? '\n\nPress "Retry upload" in the banner — it re-sends the same file. Re-importing '
+        + 'the invoice will NOT re-send it.' : '')
+    + (workerHint ? '\n\nIf this is the first upload since build r100, the Cloudflare Worker has '
+        + 'probably not been updated yet: paste worker/auditpro-proxi.js into the Worker editor, '
+        + 'add its two secrets, deploy, then press Retry.' : '');
+}
+
+function renderUploadFailBanner() {
+  let b = document.getElementById('upload-fail-banner');
+  if (!_uploadFails.length) { if (b) b.remove(); return; }
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'upload-fail-banner';
+    b.style.cssText = 'position:fixed;left:0;right:0;z-index:10000;background:rgba(240,80,80,0.16);'
+      + 'border-bottom:1px solid rgba(240,80,80,0.45);padding:10px 20px;font-size:13px;color:#ffb4b4;'
+      + 'font-weight:600;display:flex;align-items:center;gap:14px;justify-content:center;flex-wrap:wrap;';
+    document.body.appendChild(b);
+  }
+  // Sit BELOW the r98 database banner when both are up, never on top of it.
+  const db = document.getElementById('db-down-banner');
+  b.style.top = (db ? db.offsetHeight : 0) + 'px';
+  const n    = _uploadFails.length;
+  const refs = _uploadFails.slice(0, 3).map(f => rptEsc(String(f.rawRef || f.ref))).join(', ')
+    + (n > 3 ? ', …' : '');
+  const btn  = 'padding:5px 14px;border-radius:6px;border:1px solid rgba(240,80,80,0.5);color:#ffd4d4;'
+    + 'font-size:12px;cursor:pointer;';
+  b.innerHTML = '<span style="max-width:900px;line-height:1.45;">⚠ '
+    + (n === 1 ? 'An invoice PDF was' : n + ' invoice PDFs were') + ' NOT stored (' + refs + ') — the '
+    + (n === 1 ? 'invoice itself is' : 'invoices themselves are') + ' saved; only the file copy failed.</span>'
+    + (_uploadFails.some(invoiceUploadRetryable)
+        ? '<button onclick="retryInvoiceUploads()" style="' + btn + 'background:rgba(240,80,80,0.22);font-weight:700;">↺ Retry upload</button>'
+        : '')
+    + '<button onclick="alert(invoiceUploadFailText())" style="' + btn + 'background:transparent;font-weight:600;">What does this mean?</button>'
+    + '<button onclick="dismissInvoiceUploadFails()" style="' + btn + 'background:transparent;font-weight:600;">Dismiss</button>';
+}
+
+function reportUploadFailure(f) {
+  f.at = Date.now();
+  _uploadFails = _uploadFails.filter(x => !(x.slug === f.slug && x.ref === f.ref)).concat([f]);
+  console.error('[AuditPro] r100 — INVOICE PDF NOT STORED:', f.rawRef || f.ref, '—', f.reason,
+                f.status || '', f.message || '');
+  renderUploadFailBanner();
+}
+
+function noteUploadOk(slug, ref) {
+  const before = _uploadFails.length;
+  _uploadFails = _uploadFails.filter(x => !(x.slug === slug && x.ref === ref));
+  if (_uploadFails.length !== before) renderUploadFailBanner();
+}
+
+function dismissInvoiceUploadFails() {
+  _uploadFails = [];
+  renderUploadFailBanner();
+}
+
+// Retry re-sends the SAME file, then re-resolves the venue and the invoice BY SLUG AND REF at
+// that moment — never a held object: a reload since the failure rebuilds `clients` wholesale
+// (pitfall #2), and saving a stale client object would overwrite newer work.
+async function retryInvoiceUploads() {
+  const pending = _uploadFails.filter(invoiceUploadRetryable);
+  for (const f of pending) {   // sequential — pitfall #3
+    const url = await uploadInvoicePDF(f.file, f.rawRef, f.slug);
+    if (!url) continue;        // uploadInvoicePDF has already re-reported it
+    const c    = (clients || []).find(x => clientSlug(x) === f.slug);
+    const hits = c ? (c.deliveries || []).filter(d => d && d.r === f.rawRef) : [];
+    if (!hits.length) {
+      console.warn('[AuditPro] r100 — PDF stored, but no invoice with ref', f.rawRef, 'was found to link it to');
+      alert('The PDF for ' + f.rawRef + ' is now stored, but no invoice with that reference was found '
+        + 'to link it to — it may have been deleted since.');
+      continue;
+    }
+    hits.forEach(d => { d.pdfUrl = url; });
+    dbSaveClient(c);
+    showPersistToast('✓ Invoice PDF saved');
+  }
+  if (document.getElementById('page-purchases')?.classList.contains('active')) renderPage('purchases');
+}
+
+// Store an invoice PDF through the Worker and return its signed URL.
+// RETURN CONTRACT (unchanged): the signed URL on success, null otherwise. A null is never silent
+// any more — every failure is reported HERE, once, in the persistent upload banner, so both
+// callers handle only success.
+async function uploadInvoicePDF(file, invoiceRef, clientSlug) {
+  if (!file || !SUPABASE_CONFIG.url) return null;
+  const slug = String(clientSlug || '');
+  const ref  = invoiceStorageRef(invoiceRef);
+  const base = { slug, rawRef: invoiceRef == null ? '' : String(invoiceRef), ref,
+                 name: file.name || '', type: file.type || '', size: file.size || 0, file };
+  const fail = (reason, status, message) => {
+    reportUploadFailure({ ...base, reason, status: status || 0, message: message || '' });
+    return null;
+  };
+  if (!/^[a-z0-9_]{1,64}$/.test(slug)) return fail('bad-ref', 0, 'the venue folder "' + slug + '" is not a valid storage name.');
+  if (!ref)                            return fail('bad-ref', 0, 'the invoice has no reference to file it under.');
+  if (!isPdfFile(file))                return fail('not-pdf');
+  if (file.size > INVOICE_UPLOAD_MAX_BYTES) return fail('too-large');
+  let res;
+  try {
+    res = await fetchWithTimeout(
+      INVOICE_UPLOAD_URL + '?slug=' + encodeURIComponent(slug) + '&ref=' + encodeURIComponent(ref),
+      { method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: file },
+      INVOICE_UPLOAD_TIMEOUT_MS);
+  } catch (e) {
+    return fail('unreachable', 0, (e && e.message) || String(e));
+  }
+  const body = await res.json().catch(() => null);
+  if (!res.ok) return fail('http', res.status, (body && body.message) || '');
+  // The link must be for THIS project's Invoices/<slug>/<ref>.pdf. A Worker configured for a
+  // different project would otherwise hand back a link that opens today and points elsewhere.
+  const expected = SUPABASE_CONFIG.url.replace(/\/+$/, '') + '/storage/v1/object/sign/Invoices/'
+    + slug + '/' + ref + '.pdf?';
+  if (!body || body.ok !== true || typeof body.url !== 'string' || body.url.indexOf(expected) !== 0) {
+    return fail('bad-response', res.status, 'the link returned does not point at this project\'s Invoices/'
+      + slug + '/' + ref + '.pdf');
+  }
+  noteUploadOk(slug, ref);
+  return body.url;
 }
 
 function clientSlug(c) {
   return c ? String(c.id || c.name || 'client').toLowerCase().replace(/[^a-z0-9]/g,'_') : 'client';
 }
 
+// NB (r100): this has NO caller — no button or onchange reaches it. Kept, and routed through the
+// Worker like the live path, because it is the only "attach a PDF to an existing invoice" code.
 async function attachInvoicePDF(idx, input) {
   const file = input?.files?.[0];
   const c    = activeClient;
   if(!file || !c) return;
   const d = c.deliveries?.[idx];
   if(!d) return;
-  const ref = (d.r || 'invoice-' + idx).replace(/[^a-z0-9_-]/gi, '_');
+  // r100 — the raw ref goes in; uploadInvoicePDF applies the ONE storage-key rule
+  // (invoiceStorageRef), which is exactly the sanitisation that used to sit on this line.
+  const ref = d.r || ('invoice-' + idx);
   showPersistToast('📎 Uploading PDF…');
   const url = await uploadInvoicePDF(file, ref, clientSlug(c));
   if(url) {
@@ -13406,9 +13573,8 @@ async function attachInvoicePDF(idx, input) {
     dbSaveClient(c);
     renderPage('purchases');
     showPersistToast('✓ PDF attached to invoice');
-  } else {
-    showPersistToast('⚠ Upload failed — check console');
   }
+  // r100 — a failure is reported by uploadInvoicePDF itself, in the persistent banner.
 }
 
 // RETURN CONTRACT (r80) — callers MUST test `=== false`, never truthiness.
@@ -14028,15 +14194,14 @@ function applyInvoiceToProducts(id) {
             dbSaveClient(c);
             console.log('[AuditPro] PDF stored:', url);
             showPersistToast('✓ Invoice PDF saved');
-          } else {
-            console.warn('[AuditPro] PDF upload returned no URL for', delivery.r);
-            showPersistToast('⚠ PDF upload failed — invoice saved without PDF');
           }
+          // r100 — no failure toast here any more: uploadInvoicePDF has already put a failure in
+          // the persistent upload banner, naming this invoice, with a Retry. The invoice is saved.
           // Always refresh purchases so the badge reflects the upload result
           if(document.getElementById('page-purchases')?.classList.contains('active')) renderPage('purchases');
         }).catch(e => {
-          console.error('[AuditPro] PDF upload error:', e);
-          showPersistToast('⚠ PDF upload error — see console');
+          // uploadInvoicePDF never rejects; this only catches a throw in the success block above.
+          console.error('[AuditPro] PDF upload follow-up error:', e);
         });
       } else if(!sourceFile && !delivery.pdfUrl) {
         console.warn('[AuditPro] No source PDF on card', id, '— PDF badge will show “View” until a PDF is attached');
@@ -16835,11 +17000,11 @@ function removeRow(btn) { btn.closest('tr').remove(); updateSessionLines(); }
 const SUPABASE_CONFIG = {
   url: 'https://hjtguzieguogfjbwikwt.supabase.co',
   key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqdGd1emllZ3VvZ2ZqYndpa3d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwMDg1NDUsImV4cCI6MjA5MDU4NDU0NX0.yH_TrwX6jdeSi6WNOWvvQ4yzkznoXvCWEmDKFg9-DEE',
-  // Service role key — used ONLY for Storage PDF uploads (uploadInvoicePDF), which
-  // hit a 403 RLS error with the anon key. ⚠ This bypasses ALL row-level security
-  // and is publicly visible in the deployed page source. Safer long-term: move the
-  // upload behind the Cloudflare Worker proxy so the service key stays server-side.
-  serviceKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqdGd1emllZ3VvZ2ZqYndpa3d0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTAwODU0NSwiZXhwIjoyMDkwNTg0NTQ1fQ.Iyt8MzLOjGI9StCysg-aPe1t5BsE6jdOnahPo8EdXo4',
+  // r100 — the service-role key that sat here is GONE. It bypassed every RLS policy and
+  // shipped in this public page to every visitor, for one job: uploadInvoicePDF's Storage
+  // requests. That upload now goes through the Cloudflare Worker (/invoice-pdf), which holds
+  // a Supabase SECRET key as a Cloudflare secret. Do not put a key back here: the new secret
+  // keys are refused when sent from a browser, so one here could only ever be a leak.
 };
 
 // ── Lightweight Supabase REST client (no SDK needed) ──
@@ -18098,7 +18263,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r99';
+const APP_VERSION = '2026-06-10-r100';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();
