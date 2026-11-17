@@ -7,7 +7,7 @@ apps with Supabase persistence. No framework, no build step — pure vanilla JS.
 
 **Owner:** Jeremy (non-technical, builds entirely through Claude prompting)
 
-**Build history:** the full per-build write-ups (r79–r99 — rationale, live measurements, harness results, deliberately-deferred items) are in `docs/build-history.md`, which is NOT auto-loaded; read the relevant section before changing that area.
+**Build history:** the full per-build write-ups (r79–r100 — rationale, live measurements, harness results, deliberately-deferred items) are in `docs/build-history.md`, which is NOT auto-loaded; read the relevant section before changing that area.
 
 ---
 
@@ -50,7 +50,7 @@ That is where fixes are designed, Claude Code prompts written, and results analy
 | Mobile PWA | https://jeremyaibuid.github.io/auditpro/mobile.html |
 | GitHub repo | https://github.com/JeremyAIBUID/auditpro |
 | Supabase project | https://hjtguzieguogfjbwikwt.supabase.co |
-| Cloudflare Worker proxy (Anthropic API) | https://auditpro-proxi.jeremyaibuid.workers.dev |
+| Cloudflare Worker `auditpro-proxi` (Anthropic proxy + `/invoice-pdf`) | https://auditpro-proxi.jeremyaibuid.workers.dev (source: `worker/auditpro-proxi.js`) |
 
 **Deploy process:** Edit local files in `C:\Users\Sculp\Documents\auditpro` → commit + push
 (GitHub Desktop or `git`) → GitHub Pages auto-deploys in ~1 min.
@@ -66,8 +66,8 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r99` | `index.html:18101` |
-| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r90` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86-r89 and r91-r97 are desktop-only**, so mobile correctly still reads the r90 mobile stamp) |
+| `index.html` | `2026-06-10-r100` | `index.html:18266` |
+| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r90` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86-r89 and r91-r100 are desktop-only**, so mobile correctly still reads the r90 mobile stamp) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
   Desktop logs it on load (`[AuditPro] build …`); mobile compares it against
@@ -161,6 +161,8 @@ that, instead of piping a heredoc, whenever the content contains backslash escap
 | `manifest-desktop.json` | name "Jeremyaibuild Stock Count". **Not linked from any page** — inert |
 | `manifest.json` (517 KB) | **misnamed junk** — it is a stale full HTML snapshot of the old desktop app, not a manifest |
 | `backup-pre-r18.json`, `backup-pre-r19.json` | old hand-taken client-data backups. `backup-pre-r18.json` is the **shape precedent** for r99's export (top-level `backup_taken` / `note` + table-named row arrays). **Backups r99 writes are NOT committed** — they are ~950 KB of venue data and can carry site codes from Client info, and this repo is public. |
+| `worker/auditpro-proxi.js` | the Cloudflare Worker source (r100). Holds **no** secrets — only `env.ANTHROPIC_KEY`, `env.SUPABASE_SECRET_KEY`, `env.SUPABASE_URL`, optional `env.ALLOWED_SLUGS`. **Pushing it does not deploy it.** |
+| `docs/build-history.md` | the full per-build write-ups — not auto-loaded |
 | `icon-512.png`, `README.md` | as named |
 
 ---
@@ -195,16 +197,22 @@ Each exists because skipping it once shipped a defect or a false claim.
    (public repo). **Never print a key value** into a transcript, doc, commit or artifact.
 
 ## Security — open items (Phase 4)
-1. **The Supabase SERVICE ROLE key is hard-coded in `index.html`** (`SUPABASE_CONFIG.serviceKey`,
-   ~line 14982) and ships to every browser that loads the public Pages site. It is used for
-   Storage uploads only (the anon key gets 403 on Storage), but it grants full DB access.
-   Needs to move behind the Worker proxy (or a Storage RLS policy) and then be rotated.
+1. **Service-role key: REMOVED from the page in r100, but NOT yet dead.** Uploads now go through
+   the Worker's `/invoice-pdf`, which holds a secret key as a Cloudflare secret. The old key is
+   still valid — it is in git history and every cached copy of r99 and earlier — until the legacy
+   keys are disabled in Supabase (key-rotation steps 3–6).
 2. **The anon key is hard-coded in several places**, including a second literal copy inside
-   `importByCode()` — anon is meant to be public, but the duplicate copies drift.
+   `importByCode()` — anon is meant to be public, but the duplicate copies drift. r101 swaps it
+   for the publishable key, desktop and mobile together.
 3. **A GitHub PAT is embedded in the git remote URL**
    (`https://<token>@github.com/JeremyAIBUID/auditpro.git`). It is in `.git/config` in
    plaintext. **Needs rotating**, then re-adding via a credential helper rather than the URL.
    Never echo `git remote -v` output unredacted into a transcript or an artifact.
+4. **The Worker has no caller auth.** Anyone with its URL (in the page source) can spend the
+   Anthropic credits and write ≤10 MB PDFs into `Invoices/<slug>/` — **including overwriting an
+   invoice's PDF**, which its existing link then serves. `ALLOWED_SLUGS` narrows the folder only.
+5. **Delete the `Invoices` bucket's two "allow public access" policies** (SELECT + INSERT on
+   `public`): they let the anon key list, read and upload; nothing has needed them since r100.
 
 ---
 
@@ -225,11 +233,10 @@ Invoice PDFs live in Supabase **Storage**, private bucket `Invoices`, path
 it from `SUPABASE_CONFIG.key` in `index.html` (literal copies also sit in `importByCode()` and in
 `mobile.html`'s `SUPABASE_KEY`).
 
-The **service role key** is in `index.html` (`SUPABASE_CONFIG.serviceKey`) — read it from there
-rather than pasting another copy into docs or scratch files.
-
-**RLS note:** RLS blocks SQL-Editor updates. Use the service role key via a browser-console
-fetch (or curl) for direct writes. **PATCH returns 204 even when RLS blocks the write — always
+**RLS note:** no service-role or secret key is in any app file since r100 (the Worker holds
+`SUPABASE_SECRET_KEY`). RLS blocks SQL-Editor updates, so a direct write needs a key from the
+dashboard sent with curl from a terminal — a `sb_secret_` key is **refused from a browser**. Never
+paste a key into docs or scratch files. **PATCH returns 204 even when RLS blocks the write — always
 verify with a GET after.**
 
 **Upsert pattern (required for all tables):**
@@ -562,6 +569,25 @@ exactly like an empty account.
   path (deliberate). Filename:
   `auditpro-backup_<venue>_<YYYY-MM-DD>[_rollover-<period>]_build-<APP_VERSION>.json`.
 
+## Invoice PDF storage — through the Worker (r100)
+- `uploadInvoicePDF(file, ref, slug)` POSTs the raw PDF to `INVOICE_UPLOAD_URL`
+  (`/invoice-pdf?slug=&ref=`); the Worker upserts `Invoices/<slug>/<ref>.pdf` and returns a
+  10-year signed link. Still returns URL or `null`. No key that bypasses RLS is in the browser.
+- **The route is narrow, not trusted:** PDF only (content type + `%PDF-` bytes), 10 MB enforced on
+  the bytes read, slug `[a-z0-9_]{1,64}`, ref `[A-Za-z0-9_-]{1,100}`; it builds and signs only its
+  own path. **Headers to Supabase are built, never copied** — a forwarded browser User-Agent makes
+  Supabase refuse the secret key (401).
+- **`invoiceStorageRef(ref)` is the ONE storage-key rule** — exactly `attachInvoicePDF`'s old
+  sanitisation. The raw AI-parsed ref once made `INV/26-27/0363` a nested folder.
+- **Only PDFs are stored.** Both invoice inputs accept photos and the AI reads them; a photo is
+  refused by name and no copy is kept.
+- **An upload failure is NOT a database failure.** Own persistent banner (`#upload-fail-banner`),
+  one wording (`invoiceUploadFailText`), never touches `_dbDown`/`_dbSaveFail` — r98's
+  `reportWriteFailure` would say the invoice wasn't saved and refuse every DB write.
+  **`retryInvoiceUploads()` is the ONLY recovery path:** re-importing an invoice skips the upload,
+  and `attachInvoicePDF` has **no caller**. Retry re-resolves the invoice by slug + ref.
+- Existing links are signed by Storage's own URL-signing key, not the API keys.
+
 ## Density Architecture
 **`ap_master_products` is the single source of truth for product density.** Venue rows
 (`ap_clients.data.products`) hold per-venue copies for counts/stock/prices, but their
@@ -802,7 +828,7 @@ full annotated list (as at r99) is in `docs/build-history.md`.
 navigate(page) / renderPage(page) / selectClientOnly(id) / selectClient(id)
 dbLoadAll()      // master + clients + sessions + batches; density merge; seq backfill
 dbSaveProducts(c) / dbSaveClient(c) / dbSaveSession(c, sess)   // all report failures (r98)
-uploadInvoicePDF(file, ref, slug)
+uploadInvoicePDF(file, ref, slug) / invoiceStorageRef(ref) / retryInvoiceUploads()   // r100 — via the Worker
 
 // Period lifecycle — currentSession = ACTIVE (writes); viewedSession = DISPLAY (reads only)
 currentSession(c) / viewedSession(c) / isClosedSession(s) / compareSessions(a, b)
@@ -876,27 +902,29 @@ saveToStorage() / resetForNextAudit() / updateCountUI() / editCountItem(idx)
 
 ## Constants in the Desktop App
 ```javascript
-// Line refs verified at r99. They drift on EVERY build — re-grep, never trust the number.
-const PROD_SUBCATS            // index.html:5809 — { Spirits:[…], Beer:[…], … }
-const CAT_ORDER_PROD          // :6280 — ['Spirits','Beer','Wine','RTD','Soft drinks','Food','Cocktails','Other']
-const CAT_COLORS_PROD         // :6281 — { Spirits:{bg,text,icon}, … }
-const SUBCAT_ORDER            // :6291
-const SUBCAT_ICONS            // :6296 — { Gin:'🌿', Vodka:'🫧', … }
-const SUBCAT_BREAKDOWN_CATS   // :7461 — new Set(['Spirits'])
-const DENSITY                 // :7485 — { spirits:0.9467, wine:0.9805, beer:1.014, liqueur:1.06 }
-const REPORT_CAT_THRESHOLDS   // :3861
-const VAR_PCT_MIN_EXPECTED    // :8676 — 1 unit; below this no variance % is quoted (r81)
-const AGG_PCT_MIN_EXPECTED_VAL // :3983 — r93: $1 of expected holding required to quote an AGGREGATE %
-const AGG_PCT_MAX_ABS         // :3984 — r93: 100%; a variance may not exceed the holding it measures
-const PACK_UNKNOWN_TITLE      // :8823 — the ONE unexpanded-case wording (r87)
-const ADJUSTMENT_REASONS      // :14258 — transfer_in/out, wastage, breakage, staff, promo, sample, other (r82)
-const INV_CONFIDENT_KINDS     // :12524 — r88: ['code','barcode','exact']: green + collapsed
-const BULK_PRICE_SOURCE       // :6529 — 'bulk price edit' (r96 costHistory provenance)
-const BP_BLANK_MEANS_TEXT     // :6534 — the ONE 'a blank box is not $0.00' wording (r96)
-const BACKUP_SCHEMA_VERSION   // :17727 — r99 export schema (1)
-const BACKUP_TABLES           // :17739 — the four tables dbLoadAll reads, and a backup must hold
-const BACKUP_NOT_INCLUDED     // :17749 — stated exclusions: Storage PDFs, ap_mobile_counts, keys
-const APP_VERSION             // :18101
+// Line refs re-grepped at r100. They drift on EVERY build — re-grep, never trust the number.
+const PROD_SUBCATS            // index.html:5841 — { Spirits:[…], Beer:[…], … }
+const CAT_ORDER_PROD          // :6315 — ['Spirits','Beer','Wine','RTD','Soft drinks','Food','Cocktails','Other']
+const CAT_COLORS_PROD         // :6316 — { Spirits:{bg,text,icon}, … }
+const SUBCAT_ORDER            // :6326
+const SUBCAT_ICONS            // :6331 — { Gin:'🌿', Vodka:'🫧', … }
+const SUBCAT_BREAKDOWN_CATS   // :7499 — new Set(['Spirits'])
+const DENSITY                 // :7523 — { spirits:0.9467, wine:0.9805, beer:1.014, liqueur:1.06 }
+const REPORT_CAT_THRESHOLDS   // :3890
+const VAR_PCT_MIN_EXPECTED    // :8714 — 1 unit; below this no variance % is quoted (r81)
+const AGG_PCT_MIN_EXPECTED_VAL // :4012 — r93: $1 of expected holding required to quote an AGGREGATE %
+const AGG_PCT_MAX_ABS         // :4013 — r93: 100%; a variance may not exceed the holding it measures
+const PACK_UNKNOWN_TITLE      // :8861 — the ONE unexpanded-case wording (r87)
+const ADJUSTMENT_REASONS      // :14464 — transfer_in/out, wastage, breakage, staff, promo, sample, other (r82)
+const INV_CONFIDENT_KINDS     // :12562 — r88: ['code','barcode','exact']: green + collapsed
+const BULK_PRICE_SOURCE       // :6564 — 'bulk price edit' (r96 costHistory provenance)
+const BP_BLANK_MEANS_TEXT     // :6569 — the ONE 'a blank box is not $0.00' wording (r96)
+const BACKUP_SCHEMA_VERSION   // :17892 — r99 export schema (1)
+const BACKUP_TABLES           // :17904 — the four tables dbLoadAll reads, and a backup must hold
+const BACKUP_NOT_INCLUDED     // :17914 — stated exclusions: Storage PDFs, ap_mobile_counts, keys
+const INVOICE_UPLOAD_URL      // :13361 — r100: the Worker's /invoice-pdf route
+const INVOICE_UPLOAD_MAX_BYTES // :13364 — r100: 10 MB; MUST equal MAX_PDF_BYTES in the Worker
+const APP_VERSION             // :18266
 ```
 
 ---
@@ -965,7 +993,8 @@ corrected closing into the successor's opening).
 This nukes the entire period chain (all history, all lifecycle state) and keeps only products.
 Prefer reopen/amend for anything short of a clean slate.
 ```javascript
-const svcKey = 'SERVICE_ROLE_KEY';   // read from SUPABASE_CONFIG.serviceKey in index.html
+const svcKey = 'SERVICE_ROLE_KEY';   // from the Supabase dashboard — NOT in index.html since r100.
+// A secret (sb_secret_) key is refused from a browser: once legacy keys are off, do this with curl.
 activeClient.auditSessions  = [];
 activeClient.deliveries     = [];
 activeClient.invoiceArchive = [];

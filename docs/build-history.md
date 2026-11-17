@@ -1,4 +1,4 @@
-# Jeremyaibuild — build history (r79 → r99)
+# Jeremyaibuild — build history (r79 → r100)
 
 > **Not auto-loaded.** These are the full per-build write-ups, moved verbatim out of `CLAUDE.md`
 > on 2026-11-17 when that file passed the 150k-character limit. `CLAUDE.md` keeps the standing
@@ -27,6 +27,7 @@
 - Invoice Matching Logic (the pre-split text)
 - Signed purchases, % floors, stock adjustments, type-ahead (r81 → r83)
 - Key Functions — Desktop (the full annotated list as at r99)
+- THE SERVICE-ROLE KEY LEAVES THE BROWSER (r100) — written here directly, not moved
 
 ---
 
@@ -2002,3 +2003,260 @@ saCloseProdLists(exceptI) / saMarkProdBinding(i) / saLineProductChanged(i) / saR
 
 **Dead code — do not "wire up":** `finalisePage_lock()` (index.html:3218) and
 `currentDeliveries()` (index.html:15346) both have zero call sites.
+
+---
+
+## THE SERVICE-ROLE KEY LEAVES THE BROWSER (r100)
+
+_Written directly into this file at r100 (not moved from `CLAUDE.md`)._
+
+**Key rotation, step 2 of 6.** Supabase is retiring its legacy API keys. The anon key and the
+service-role key are switched off together by one setting, and the service-role key's replacement
+(a **secret** key, `sb_secret_…`) is refused when sent from a browser — Supabase matches on the
+User-Agent and answers 401. The service-role key was used in exactly one place,
+`uploadInvoicePDF`, and it shipped in the public page to every visitor. Before r100 `CLAUDE.md`
+listed it as security item 1:
+
+> The Supabase SERVICE ROLE key is hard-coded in `index.html` (`SUPABASE_CONFIG.serviceKey`) and
+> ships to every browser that loads the public Pages site. It is used for Storage uploads only
+> (the anon key gets 403 on Storage), but it grants full DB access. Needs to move behind the
+> Worker proxy (or a Storage RLS policy) and then be rotated.
+
+### What was measured before anything changed
+- **The live Worker, probed** (OPTIONS, a POST with `{}`, a GET). OPTIONS → 200, empty body,
+  `Access-Control-Allow-Origin: *`, `Allow-Headers: Content-Type`, `Allow-Methods: POST, OPTIONS`.
+  POST → **HTTP 200 even though Anthropic returned an error** — the Worker re-wraps the JSON, which
+  is the "200 with an error envelope" `processInvoiceWithAI` already guards against. GET → an
+  uncaught-exception 500 (it calls `request.json()` without checking the method). The Worker's
+  source was never in the repo; these observations are what the r100 Anthropic branch reproduces.
+- **⚠ The Anthropic account was out of credit** — the probe's reply was "Your credit balance is too
+  low to access the Anthropic API". Every AI feature, including invoice parsing, was failing.
+- **The bucket, listed read-only with the public anon key** (which the "allow public access"
+  SELECT policy permits — the exposure itself): **14 objects, all `application/pdf`, all `.pdf`,
+  largest 93,858 bytes.** No photographed invoice has ever been stored. One object sat at
+  `c_1775024388916/INV/26-27/0363.pdf` — the raw AI-parsed ref `INV/26-27/0363` had created two
+  levels of folder, because `applyInvoiceToProducts` passed the ref unsanitised.
+- **All 7 stored `pdfUrl` links opened with no key and no headers** (206, `application/pdf`, body
+  `%PDF-`), tokens expiring in 2036. That is the baseline for "old links still work".
+- **`attachInvoicePDF` has ZERO callers** — no button, no `onchange`. The prompt named it as one
+  of the two callers; it is unreachable code.
+- **Re-importing an invoice never re-uploads its PDF.** The upload sits inside
+  `applyInvoiceToProducts`' `if(!alreadyAdded)` block, so a duplicate import skips it. With
+  `attachInvoicePDF` unreachable, **a failed upload had no recovery path in the app at all.**
+- **Both invoice inputs accept `.pdf,image/*`**, and `processInvoiceWithAI` / `processDumpFile` send
+  photos to the AI as images. The old upload stored whatever the source file was, under its own
+  extension.
+
+### FIX 1 — the Worker is versioned: `worker/auditpro-proxi.js`
+No secret values — `env.ANTHROPIC_KEY`, `env.SUPABASE_SECRET_KEY`, `env.SUPABASE_URL`, optional
+`env.ALLOWED_SLUGS`. Routing is by exact path: `OPTIONS` (any path) → the unchanged preflight;
+`/invoice-pdf` → the new route; **everything else → the Anthropic proxy, unchanged**, so the four AI
+call sites (`generateAIQuestions`, `genReportAIComments`, `processDumpFile`,
+`processInvoiceWithAI`) keep posting to the root and are byte-identical. The one thing the probe
+could not observe is the `anthropic-version` header the old code sent; r100 sends `2023-06-01`, the
+only stable version.
+
+### FIX 2 — narrow, not trusted
+There is no user auth, so nothing the browser sends can be secret. The route therefore accepts one
+thing and writes one place:
+- `application/pdf` only, **and** the body must start with `%PDF-` (a GIF or HTML labelled PDF is
+  415);
+- **10 MB cap** — ~110× the largest real invoice, room for a multi-page phone scan. Checked against
+  the declared `Content-Length` and **enforced on the bytes actually read**, so a body with no or a
+  lying length is cut off at the cap;
+- exactly two query parameters, `slug` and `ref`, each once; slug `[a-z0-9_]{1,64}` (what
+  `clientSlug()` produces), ref `[A-Za-z0-9_-]{1,100}` — no dot, slash, backslash, percent or
+  space, so there is nothing to traverse with;
+- **the Worker builds `Invoices/<slug>/<ref>.pdf` itself**, uploads with `x-upsert: true` (a
+  re-attach overwrites, as before) and **signs only the path it just wrote**; there is no
+  stand-alone sign, list, read or delete;
+- optional `ALLOWED_SLUGS` allow-list; `SUPABASE_URL` must look like `https://<ref>.supabase.co`;
+- every refusal is JSON `{ ok:false, error, message }` with 400/403/405/413/415, a misconfiguration
+  is 500, an upstream Storage failure is 502 naming the upstream status, and **a refused request
+  never reaches Supabase**.
+
+**What an abuser can still do** — the Worker URL is in the public page source:
+1. **Overwrite any invoice's stored PDF** whose folder and reference they can guess. The venue
+   folder (`c_1775024388916`) is readable through the anon key; invoice numbers are sequential
+   supplier numbers. **Every existing link to that path then serves their file** — a signed URL
+   names a path, not a version. They never see the original (signing happens only after their own
+   bytes are written).
+2. **Store arbitrary PDFs ≤10 MB** under any well-formed reference and get a 10-year link back —
+   free file hosting on this project's quota, and enough uploads (~100 × 10 MB) fill the free
+   tier's 1 GB. There is no rate limit.
+3. **Spend the Anthropic credits** through the root route — pre-existing, unchanged, and out of
+   r100's scope.
+4. **Exhaust the Worker's free request quota**, which takes the AI proxy down with it.
+
+They **cannot**: read or list existing PDFs through the Worker, write outside `Invoices/<slug>/`,
+write anything that is not a PDF, touch any database table, delete anything, choose Storage
+headers or credentials, or learn the secret key. `ALLOWED_SLUGS` confines writes to real venue
+folders; nothing short of user auth confines the caller.
+
+### FIX 3 — headers are built, never copied
+Both Storage requests carry exactly `apikey` + `Authorization: Bearer <same value>` (Supabase
+accepts a non-JWT key in `Authorization` only when it equals `apikey`) + `Content-Type`
+(+ `x-upsert` on the upload). Nothing from `request.headers` is forwarded — not the browser's
+User-Agent (which makes Supabase refuse a secret key with 401), not an attacker's
+`apikey`/`Authorization`, not `x-upsert: false`.
+
+### FIX 4 — the client
+- **`SUPABASE_CONFIG.serviceKey` is deleted**, and with it the `serviceKey || key` fallback, which
+  with the key gone would have fallen back to the anon key and failed with 403 behind a 1.8 s toast.
+  The removal script decoded the literal first and confirmed `role: service_role`; the key was never
+  printed. `index.html` now holds exactly two JWTs, both `role: anon` (r101's job).
+- `uploadInvoicePDF(file, ref, slug)` POSTs the raw file to `INVOICE_UPLOAD_URL`
+  (`…/invoice-pdf?slug=&ref=`, `Content-Type: application/pdf`) through `fetchWithTimeout` (60 s),
+  and accepts the reply only if `url` starts with **this project's**
+  `…/storage/v1/object/sign/Invoices/<slug>/<ref>.pdf?`. Return contract unchanged: URL or `null`.
+- **`invoiceStorageRef(ref)` is the ONE storage-key rule** — `[^A-Za-z0-9_-]` → `_`, ≤100 chars —
+  exactly what `attachInvoicePDF` always did. Every stored ref is already in that alphabet and maps
+  to itself (proven for all 13 flat objects plus minted `AUTO-…`/`ADJ-…` refs), **except
+  `INV/26-27/0363`**, which would now be written flat as `INV_26-27_0363.pdf`; its existing link
+  keeps pointing at the nested object. The old `.<ext from file name>` became a fixed `.pdf`.
+- **Photos are refused by name** (`isPdfFile`) before anything is sent: only PDFs are stored. An
+  oversize file is refused in the app too, with the same 10 MB number.
+- **A failed upload is NOT a database failure.** r98's banner says "your most recent change is not
+  stored", its Retry re-runs `dbLoadAll`, and an `unreachable` report flips `_dbDown` — refusing
+  every DB write in the app. All three are wrong when a FILE fails to reach the WORKER: the invoice
+  saved normally. So the upload has its own state (`_uploadFails`), its own persistent banner
+  (`#upload-fail-banner`, placed below `#db-down-banner` when both show), ONE wording
+  (`invoiceUploadFailText`), and never touches `_dbDown` / `_dbSaveFail`. Repeat failures for one
+  invoice are one entry; Dismiss clears.
+- **Retry is the only recovery path**, so it is real: `retryInvoiceUploads()` re-sends the same
+  file, then **re-resolves the venue and the invoice by slug + ref at that moment** (pitfall #2 —
+  saving a pre-reload client object would overwrite newer work) and stamps `pdfUrl` on the invoice
+  with that exact `d.r`. Not offered for photos, oversize files or 400/403/413/415 refusals.
+- Before the r100 Worker is deployed, the OLD Worker answers `/invoice-pdf` by throwing, with no
+  CORS header, so the browser reports it as unreachable. The wording names that case and says to
+  deploy the Worker and press Retry.
+- The `applyInvoiceToProducts` and `attachInvoicePDF` failure toasts are gone; their success paths
+  are unchanged.
+
+### FIX 5 — Storage policies, proven from the code
+- **Nothing in `index.html`, `mobile.html` or `mobile2.html` calls the Storage API with any key
+  after r100.** Before r100 the only Storage requests anywhere were `uploadInvoicePDF`'s two
+  `fetch`es; they are gone. Mobile has 8 `fetch` calls, all to `/rest/v1/`. (`info.storage` in
+  both apps is the venue's storage-area text on Client info — unrelated.)
+- The only remaining Storage interaction is **opening a stored `pdfUrl`** with `window.open` — a
+  bare navigation carrying no key and no header, authorised by the URL's own token.
+- **So the two "allow public access" policies (SELECT and INSERT on `public`) can be deleted.** The
+  Worker's secret key bypasses RLS and does not need them.
+- **Old links after the change — cannot be proven from the code.** Supabase's docs say Storage
+  signs URLs with its **own URL-signing key**, separate from the API keys and the Auth JWT secret,
+  and that disabling legacy keys or rotating the JWT secret does not invalidate them. All 7 opened
+  keyless before r100. It must still be **tested after each step** (policies deleted, then legacy
+  keys disabled) — see the steps below.
+
+### Verified — `verify-r100.mjs`, 186 checks, all passing (scratchpad, not committed)
+- **A — the Anthropic path** against the live probe: OPTIONS on three paths (header set exact, empty
+  body, no outbound call); the body shape of each of the four call sites forwarded byte-for-byte
+  with exactly `content-type` / `x-api-key` / `anthropic-version` and no browser header; upstream
+  400 and 529 both returned as HTTP 200 with the envelope verbatim; GET throws; other paths still
+  go to Anthropic; `/invoice-pdf/` (trailing slash) is not the upload route.
+- **B — a valid upload**: Storage path identical to the pre-r100 client formula; `x-upsert: true`;
+  bytes identical; signed for the same path with `expiresIn: 315360000`; returned URL identical in
+  shape to the old `pdfUrl`; a pre-prefixed `signedURL` not doubled; trailing-slash
+  `SUPABASE_URL`; a PDF of exactly 10 MB accepted.
+- **C — 37 refusal / configuration / upstream cases**, every one with its status and error code
+  **and zero calls to Supabase** (or exactly the expected calls for upstream failures): non-PDF
+  type, no type, GIF and HTML bodies labelled PDF, empty, oversize by one byte, oversize streamed
+  with no length, declared 50 MB, GET, extra `path`/`bucket` params, a doubled slug, missing ref,
+  traversal (`../c_other/x`, `..`, `a/../b`, `%2e%2e%2f`, backslash, dot, the live nested ref),
+  bad slugs; missing secret/URL, a non-supabase URL, `ALLOWED_SLUGS`; Storage refusing or
+  unreachable on upload and on sign, and signing a different path. No error reply contains the secret.
+- **D — no client header reaches Supabase**: a request carrying a Chrome User-Agent, Origin,
+  Referer, Cookie, a hostile `Authorization` and `apikey`, `x-upsert: false`, forwarding headers
+  and more produces outbound header NAMES of exactly `apikey/authorization/content-type/x-upsert`
+  (upload) and `apikey/authorization/content-type` (sign), no inbound VALUE, and no User-Agent.
+- **E — the REAL client functions**, extracted from the post-r100 `index.html` and run in a `vm`,
+  **wired end to end to the real Worker**: the happy path (the only header the browser sends is
+  `Content-Type`); all 15 live/minted refs at exactly their pre-r100 paths; unreachable, the
+  pre-r100 Worker, a 415, a photo, an oversize file and a wrong-project link each reported in the
+  persistent banner with the right wording and Retry offered only when it can help; r98 state
+  untouched; the banner survives timers; Retry after a simulated reload stamps the FRESH objects
+  and saves the fresh client; a vanished invoice is announced; de-duplication and Dismiss; stacking
+  under the database banner; `attachInvoicePDF` success and failure.
+- **S — structural**: mode-stack scanner over both builds — **461 → 471 functions, 458
+  byte-identical; changed exactly `uploadInvoicePDF`, `attachInvoicePDF`,
+  `applyInvoiceToProducts`; added exactly the ten upload helpers; none removed.** 43 CRITICAL
+  compute functions and all four AI call sites byte-identical; `applyInvoiceToProducts` differs
+  only inside its upload `.then/.catch`; every changed line of the file lies in PDF STORAGE,
+  `applyInvoiceToProducts`, `SUPABASE_CONFIG` or `APP_VERSION`. **Negative controls**: a
+  one-character edit inside `computeVariances`, and a changed AI call-site body, are both detected.
+- **F — key hygiene**: zero `serviceKey`; the only JWTs left are `role: anon`; no Storage `fetch`
+  in any app file; no secret-shaped value in the Worker; the two 10 MB constants agree.
+- `node --check` passes on every script block and on the Worker; brace balance 0; mobile twins
+  byte-identical.
+
+**Harness lesson:** the first run passed a check that asserted `true` — E1's "the browser never
+sends a key". It was replaced by an assertion on the request actually sent before the run was
+trusted. A green check that cannot fail is the r97 vacuous pass in its purest form.
+
+### Deployment steps (Worker first; the app was pushed with r100)
+The app went live with the r100 push. That is safe: until the Worker is updated, an upload fails
+**loudly** with a Retry and the invoice itself still saves — and invoice parsing needs Anthropic
+credit before any import can happen at all.
+
+0. **Back up the current Worker.** Cloudflare → Workers & Pages → `auditpro-proxi` → *Edit code*.
+   Select all, copy, save it in a local text file (`auditpro-proxi-pre-r100.js`). To undo
+   anything below, paste it back and Deploy. While there, note the `anthropic-version` value (and
+   any `anthropic-beta` line); r100 sends `2023-06-01` and nothing else.
+1. **Create the Supabase secret key.** Supabase → Project Settings → *API Keys* → create a new
+   **secret** key (if the project has no new-style keys yet, create them first). It starts
+   `sb_secret_`. Paste it nowhere except step 2.
+2. **Add the Worker's settings.** `auditpro-proxi` → Settings → *Variables and Secrets* → add
+   `SUPABASE_SECRET_KEY` (type **Secret**) = the `sb_secret_…` key, and `SUPABASE_URL` =
+   `https://hjtguzieguogfjbwikwt.supabase.co`. Optional hardening: `ALLOWED_SLUGS` =
+   `c_1775024388916`. Leave `ANTHROPIC_KEY` alone. (Settings first means the new code never runs
+   unconfigured.)
+3. **Deploy the new Worker.** *Edit code* → select all → paste the whole of
+   `worker/auditpro-proxi.js` (GitHub → the file → *Raw* → select all) → **Deploy**.
+4. **Check it is live** — the upload route answers with JSON instead of the old 500, and nothing is
+   written:
+   `curl -s -X POST "https://auditpro-proxi.jeremyaibuid.workers.dev/invoice-pdf?slug=x&ref=y" -H "Content-Type: text/plain" --data hi`
+   → `{"ok":false,"error":"not_pdf",…}` (or `slug_not_allowed` if `ALLOWED_SLUGS` is set). And the
+   AI route is unchanged: `curl -s -X POST https://auditpro-proxi.jeremyaibuid.workers.dev -H "Content-Type: application/json" --data "{}"`
+   → the same JSON error envelope as before.
+5. **Load the app** — https://jeremyaibuid.github.io/auditpro/index.html, hard refresh
+   (Ctrl+Shift+R); F12 console shows `[AuditPro] build 2026-06-10-r100`.
+6. **Re-attach an invoice's own PDF** (no AI needed). There is no button for this —
+   `attachInvoicePDF` has no caller — so paste into the F12 console with 1 Up selected:
+
+   ```javascript
+   (() => {
+     const ref = '94774304';   // an invoice that already has its PDF stored
+     const idx = activeClient.deliveries.findIndex(d => d.r === ref);
+     if (idx < 0) return console.log('No invoice', ref);
+     const inp = document.createElement('input');
+     inp.type = 'file'; inp.accept = '.pdf';
+     inp.style.cssText = 'position:fixed;top:70px;left:20px;z-index:99999;background:#fff;color:#000;padding:10px';
+     inp.onchange = () => attachInvoicePDF(idx, inp).then(() => inp.remove());
+     document.body.appendChild(inp);
+     console.log('Click the file box at the top left and choose the PDF for invoice', ref);
+   })();
+   ```
+   Choose **that same invoice's PDF** — the upload overwrites whatever is at
+   `Invoices/c_1775024388916/94774304.pdf`, and every link to that path then shows the new file, so
+   a wrong PDF here would replace the right one. Expect `✓ PDF attached to invoice`; its 📄 PDF
+   button opens the invoice. A failure shows the red "invoice PDF NOT stored" banner instead —
+   *What does this mean?* names the cause.
+7. **A brand-new upload end to end** (needs Anthropic credit): import the next real invoice the
+   normal way — upload → review → import. Expect `✓ Invoice PDF saved` and a working 📄 PDF.
+8. **Old links still work**: open an older invoice's 📄 PDF (e.g. July's `94681023`). Repeat after
+   step 9, and again after the legacy keys are switched off. If one stops opening, stop and report
+   it — the fix is a re-attach (step 6), not a rollback.
+9. **Delete the two "allow public access" policies** on the `Invoices` bucket (Storage → Policies):
+   the SELECT and the INSERT on `public`. Leave the four `invoices_full_access` policies. Then
+   repeat step 6 (must still work — the secret key bypasses RLS) and step 8.
+
+**Rolling back:** paste the step-0 copy into the Worker and Deploy. Reverting the app commit would
+put the service-role key back into the public page — don't, unless the key is about to be
+disabled anyway.
+
+### Deliberately NOT in this build
+The anon → publishable swap (r101, desktop and mobile together); any mobile change; the four AI
+call sites; the compute path; caller auth or rate limiting on the Worker; storing photographed
+invoices (a small Worker change — accept `image/jpeg`/`image/png` with their own magic bytes — if
+wanted); a UI button for `attachInvoicePDF`; the backup header's `restore` text, which still says
+"SERVICE ROLE key" and should say "secret key" once the legacy keys are off.
