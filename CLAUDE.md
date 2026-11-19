@@ -196,15 +196,14 @@ Each exists because skipping it once shipped a defect or a false claim.
    (public repo). **Never print a key value** into a transcript, doc, commit or artifact.
 
 ## Security — open items (Phase 4)
-1. **Legacy keys: no app file uses either one since r101, but both are NOT yet dead.** The
-   service-role key left the page in r100 (uploads go through the Worker's `/invoice-pdf`); the
-   anon key left in r101 (replaced by the publishable key, desktop and mobile together). Both
-   legacy JWTs stay valid — they are in git history and every cached copy of r100 and earlier —
-   until they are switched off in Supabase → Project Settings → API Keys (**key-rotation step 6**,
-   the last). Do that only once r101 is live everywhere: the desktop console shows
-   `build 2026-06-10-r101`, and every phone has opened the app online since the deploy. Then
-   repeat the r101 live checks (`docs/build-history.md`, r101 section): a device still on an old
-   build fails with 401 from that moment.
+1. ~~Legacy keys still valid~~ — **DEAD, measured 2026-11-19** (key-rotation step 6 complete).
+   The service-role key left the page in r100 and the anon key in r101. Both JWTs, taken from git
+   history, are now refused by the live REST API: a `GET ap_clients` with the service-role key as
+   `apikey` + `Bearer` → **401**; the publishable key as `apikey` with the service-role JWT as
+   `Bearer` → **401**; the anon key as `apikey` + `Bearer` → **401**. The copies in git history and
+   in cached pages are therefore inert. **Consequence:** any device still running r100 or earlier
+   (desktop) or r90 (phone) now gets 401 on every request — a hard refresh or reopen fixes it; it
+   is not a bug. Re-run the probe after any key change (statuses only, never a key value).
 2. **A Storage signed URL is in git history:** `Invoices/c_1775024388916/94681023.pdf`, in
    `backup-pre-r18.json` (89 commits), valid until 2036. r101 redacted it from the current file,
    but switching off the legacy keys does **not** revoke it — only deleting or moving that object
@@ -1011,8 +1010,10 @@ corrected closing into the successor's opening).
 This nukes the entire period chain (all history, all lifecycle state) and keeps only products.
 Prefer reopen/amend for anything short of a clean slate.
 ```javascript
-const svcKey = 'SERVICE_ROLE_KEY';   // from the Supabase dashboard — NOT in index.html since r100.
-// A secret (sb_secret_) key is refused from a browser: once legacy keys are off, do this with curl.
+// ⚠ OBSOLETE AS WRITTEN: the legacy service-role key is OFF (401, measured 2026-11-19), and its
+// replacement, a secret (sb_secret_) key, is refused from a browser. Do this with curl from a
+// terminal instead (GET → mutate → PATCH --data-binary @file → GET-verify). Shape kept for reference.
+const svcKey = 'SECRET_KEY';         // from the Supabase dashboard — never in any app file.
 activeClient.auditSessions  = [];
 activeClient.deliveries     = [];
 activeClient.invoiceArchive = [];
