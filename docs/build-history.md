@@ -1,4 +1,4 @@
-# Jeremyaibuild — build history (r79 → r100)
+# Jeremyaibuild — build history (r79 → r101)
 
 > **Not auto-loaded.** These are the full per-build write-ups, moved verbatim out of `CLAUDE.md`
 > on 2026-11-17 when that file passed the 150k-character limit. `CLAUDE.md` keeps the standing
@@ -28,6 +28,7 @@
 - Signed purchases, % floors, stock adjustments, type-ahead (r81 → r83)
 - Key Functions — Desktop (the full annotated list as at r99)
 - THE SERVICE-ROLE KEY LEAVES THE BROWSER (r100) — written here directly, not moved
+- THE APP STOPS USING THE LEGACY ANON KEY (r101) — written here directly
 
 ---
 
@@ -2260,3 +2261,162 @@ call sites; the compute path; caller auth or rate limiting on the Worker; storin
 invoices (a small Worker change — accept `image/jpeg`/`image/png` with their own magic bytes — if
 wanted); a UI button for `attachInvoicePDF`; the backup header's `restore` text, which still says
 "SERVICE ROLE key" and should say "secret key" once the legacy keys are off.
+
+---
+
+## THE APP STOPS USING THE LEGACY ANON KEY (r101)
+
+_Written directly into this file at r101._
+
+**Key rotation, step 5 of 6.** Supabase switches the two legacy API keys (anon and service-role)
+off **together**, with one setting. r100 took the service-role key out of the page. What remained
+was the legacy **anon** JWT, so before that switch can be flipped the apps must stop using it. Its
+replacement is the **publishable** key (`sb_publishable_…`), which is public by design. Before
+r101, `CLAUDE.md` security item 2 read:
+
+> The anon key is hard-coded in several places, including a second literal copy inside
+> `importByCode()` — anon is meant to be public, but the duplicate copies drift.
+
+The first r101 prompt arrived with the key left as a `<PASTE …>` placeholder. Every key-independent
+step was done and dry-run with a dummy key first; the real key was applied once Jeremy supplied it.
+
+### What was measured before anything changed
+- **Every copy of the anon key, compared by hash** (values never printed): four copies — desktop
+  `SUPABASE_CONFIG.key`, desktop `importByCode`'s private `SUPA_KEY`, and `SUPABASE_KEY` in each
+  mobile twin — all the **same** JWT (`role: anon`). Two more sat in the junk `manifest.json`.
+- **`CLAUDE.md` held no key.** The prompt's inventory was stale; history shows it held both the anon
+  and the service-role JWT in earlier commits.
+- **Every network call site, derived from the source** (a census over every `fetch(` and
+  `fetchWithTimeout(`, classified by target — not a hand-listed set). Desktop: **7 Supabase sites**
+  (`addToMasterCatalogue`, `importByCode`, the three in `DB`, `dbSaveClient`, `dbSaveProducts`) and
+  6 others — the four AI calls and the PDF upload, all to the Worker, plus the `fetchWithTimeout`
+  wrapper. Mobile: **8 Supabase sites** (`loadVenuesFromSupabase`, `loadProductsFromSupabase` ×2,
+  `pushProductToSupabase` ×2, `showSiteInfo`, `pushCountToSupabase` ×2). Every caller named in the
+  prompt — `deleteClient`, the r99 backup, `dbSaveSession` — reaches Supabase through `DB`.
+- **Header pairing:** every one of the 15 sites already sent the **same** value in `apikey` and
+  `Authorization: Bearer` (`DB.headers` builds both from `SUPABASE_CONFIG.key`). **None needed
+  fixing.** `importByCode` was the ONLY function holding its own URL or key.
+- **The key itself, probed read-only** before anything was committed, in the exact form the app
+  sends it (both headers, identical): `ap_clients` 200 / 1 row, `ap_master_products` 200 / 66,
+  `ap_audit_sessions` 200 / 3, `ap_batches` 200 / 0, `ap_mobile_counts` 200 / 2. So RLS lets the
+  publishable key's role see the live data. **Negative control:** a wrong publishable key →
+  `401 Invalid API key`.
+- **`manifest.json` references:** none in any tracked file. The only reference ever was
+  `sw.js`'s `FALLBACKS = ['/mobile', '/manifest.json']`, removed 2026-04-28 (`cbaa8c0`). No page
+  has ever linked a manifest (`rel="manifest"` never appears in history), and `sw.js` is not
+  registered.
+
+### FIX 1 / FIX 3 — the key swap
+`SUPABASE_CONFIG.key` (desktop) and `SUPABASE_KEY` (both mobile twins) now hold the publishable
+key, applied by one script that refuses anything not shaped `sb_publishable_…`, requires every
+replacement to match exactly once, and refuses to write if the twins would differ. Each copy carries
+an r101 comment: public by design, sent in both headers, must equal the other app's copy.
+Desktop `APP_VERSION` → `2026-06-10-r101`; mobile → `3.8-2026-06-10-r101`, which makes phones
+reload. Twins byte-identical (md5 `59fad8a9…`).
+
+### FIX 2 — `importByCode` reads `SUPABASE_CONFIG`
+Its private `SUPA_URL` / `SUPA_KEY` are gone; the one fetch now uses `SUPABASE_CONFIG.url` and sends
+`SUPABASE_CONFIG.key` in both headers, exactly like `dbSaveClient`. Nothing else in the function
+changed — **including its missing `res.ok` check** (a rejected key still reports "Code not found in
+cloud"; reported, not fixed — FIX 6).
+
+**Also reworded (text only, no behaviour):** the `HOW TO CONNECT` comment and the
+`showSupabaseSetup` prompt both asked for the "anon key"; they now ask for the publishable key.
+`showSupabaseSetup` is reachable only when no key is configured.
+
+### FIX 4 / FIX 5 — key values out of every committed file
+- **`manifest.json` deleted** (517 KB stale HTML snapshot of the old desktop app, two anon copies).
+- **`backup-pre-r18.json`'s one `pdfUrl` token redacted** (`?token=REDACTED_r101`). It was not an
+  API key but a Storage signed-URL token for `Invoices/c_1775024388916/94681023.pdf` (iat
+  2026-06-08, exp 2036-06-05). Nothing reads the file; the shape is unchanged.
+- **Result: no JWT of any kind in any tracked file** — a grep for the three-character prefix every JWT
+  starts with (`ey` + `J`) returns nothing. This write-up deliberately never spells the prefix out, so
+  the same grep stays a one-line gate for every future build.
+- **Git history (276 commits) holds exactly three JWTs:** the anon key (in 275 commit trees), the
+  service-role key (159 trees — `index.html` and old `CLAUDE.md`), and that signed-URL token (89
+  trees, `backup-pre-r18.json`). Expected. The two API keys die at step 6. **The signed URL does
+  not** — only deleting or moving the PDF object in Storage revokes it.
+
+### FIX 6 — untouched
+The Worker, the compute path, every behaviour beyond the swap. Proven structurally below.
+
+### Verified — `verify-r101.mjs`, 60 checks, all passing (scratchpad, not committed)
+- **K — key hygiene:** no JWT and exactly one publishable literal in each app file; the SAME
+  key in all three; it IS `SUPABASE_CONFIG.key` / `SUPABASE_KEY`; `SUPABASE_CONFIG` holds only
+  `url` + `key`; no `SUPA_URL`/`SUPA_KEY`; the project hostname in exactly one code literal per app
+  (the PRE desktop had two — the check can see a copy); both stamps; twins md5-identical.
+- **C — census:** every call site classified; no non-Supabase call carries a key; `PROXY_URL` and
+  `INVOICE_UPLOAD_URL` are the Worker.
+- **D / M — the REAL functions in a `vm`**, with every Supabase `fetch` token rewritten to a
+  per-site recorder, so each request is judged on the headers it **actually sent**. Desktop: 12
+  requests from all 7 sites; mobile: 8 requests from all 8 sites — **coverage is checked**, not
+  assumed. Every request carries the publishable key in both headers, identical. Non-vacuous: no
+  write reported failure, `importByCode` read its response and staged the count, the phone loaded
+  its product list and site info, and both pushes reported success.
+  - **CONFIG-FOLLOW:** change `SUPABASE_CONFIG.key` at runtime and **every** desktop request
+    follows it — so no private copy exists anywhere.
+  - **Negative controls:** config-follow on the **PRE** build flags exactly `importByCode`, carrying
+    the JWT; a mismatched `Authorization` planted in `dbSaveClient` (desktop) and in
+    `pushCountToSupabase` (mobile) is caught; an unexercised Supabase call site is reported as
+    uncovered; the PRE mobile build fails on every request.
+- **S — structural**, mode-stack scanner, pre vs post: desktop **471 → 471 functions, 469
+  byte-identical**; changed exactly `importByCode` (only where its URL/key come from) and
+  `showSupabaseSetup` (only its prompt label); none added or removed. **45 CRITICAL compute
+  functions and the four AI call sites byte-identical**; the `DB` object byte-identical;
+  `SUPABASE_CONFIG` differs only in the key value and comments. Every changed line lies in
+  `importByCode`, `showSupabaseSetup`, `SUPABASE_CONFIG`, the setup comment or `APP_VERSION`.
+  Mobile: **all 168 functions byte-identical**; changed lines only in the config block and line 8.
+  Negative controls: a 1-character edit inside `computeVariances`, and inside a mobile function,
+  are both detected.
+- `node --check` on every script block; brace balance 0.
+
+**Transcript slip:** one `git diff` of `mobile.html` was masked for the new key but not for JWTs,
+so the legacy anon key appeared once in that session's transcript. It is the key that has been in
+public page source and git history all along, and step 6 kills it. The rule stands — mask **both**
+key shapes in every diff.
+
+### Live checks for Jeremy (after the push — Pages takes ~1 min)
+**Desktop**
+1. Open https://jeremyaibuid.github.io/auditpro/index.html, press **Ctrl+Shift+R**, then **F12 →
+   Console**. Expect `[AuditPro] build 2026-06-10-r101` and
+   `[AuditPro] Supabase REACHABLE — ap_clients answered with 1 row(s).`
+   Still `r100` → a stale cache; wait a minute and hard-refresh again. Build `r101` but a red
+   "Database unreachable" banner, or a 401 in the console → the key is being refused: stop and
+   report.
+2. **F12 → Network**, type `rest/v1` in the filter box, press Ctrl+Shift+R. Click any request (for
+   example `ap_clients`) → **Headers → Request Headers**. Expect `apikey: sb_publishable_…` and
+   `authorization: Bearer sb_publishable_…` — the same value twice (the key Jeremy supplied), and no
+   long value starting `ey…` (the old JWT shape) anywhere.
+3. **A product edit saves and survives a reload:** Products → open one product → change something
+   harmless (e.g. its **Par level**) → Save. Expect the "saved" toast and no red banner. Ctrl+Shift+R, reopen
+   the product: the change is still there. Change it back and save again.
+
+**Phone**
+4. Fully close the app/tab and reopen `mobile.html` (online). Connect to 1 Up Sports Bar.
+   **Check the product list explicitly — this path fails silently:** open **🔍 Search** and type a
+   product you know is in the catalogue. It must appear. An empty list means the product load
+   failed: stop and report, even though no error showed.
+5. **A test count, end to end** — only when no real count is in progress on that phone **and none
+   is staged on desktop** (importing a code REPLACES the staged count; a real one can be re-imported
+   by its code afterwards). Count one item, tap **Accept & sync →**, and note the code. Expect
+   `✓ Synced to cloud — enter code AP-#### on desktop`. On desktop, Stocktake → **⬇ Import count by
+   code** → enter it. Expect `✓ Count imported — 1 lines from 1 Up Sports Bar`. Then clean up:
+   **✕ Reject count**, or just reload — staged rows live only in memory and are never written to
+   the period. On the phone, remove the test line (or 🗑 Reset for next audit if nothing else is on
+   it).
+   "Code not found in cloud" means a mistyped code **or** a refused key (`importByCode` does not
+   check `res.ok`) — the Network tab tells you which.
+
+### Step 6 — switch the legacy keys off (Jeremy, in the Supabase dashboard)
+Only after checks 1–5 pass, **and** every phone has opened the app online at least once since the
+deploy (a phone still running r90 sends the anon key, and starts failing the moment it is
+switched off). Then go to Supabase → Project Settings → API Keys → disable the legacy keys, and
+repeat checks 1, 4 and 5. Any device that fails after that is on a cached old build: hard-refresh
+or reopen it.
+
+### Deliberately NOT in this build
+`importByCode`'s missing `res.ok` check, and mobile's silent `loadProductsFromSupabase` failure
+(r98) — both make a refused key look like "no data". A visible build stamp on the phone (there is
+none, so "has this phone updated?" cannot be answered on the device). The backup header's `restore`
+text, which still says "SERVICE ROLE key". The Worker's lack of caller auth. Deleting the
+`94681023.pdf` object from Storage (a dashboard decision).

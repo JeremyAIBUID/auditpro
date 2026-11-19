@@ -66,8 +66,8 @@ the two stamps are usually different and that is correct — not a bug to "fix".
 
 | File | `APP_VERSION` | Location |
 |------|---------------|----------|
-| `index.html` | `2026-06-10-r100` | `index.html:18266` |
-| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r90` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; **r86-r89 and r91-r100 are desktop-only**, so mobile correctly still reads the r90 mobile stamp) |
+| `index.html` | `2026-06-10-r101` | `index.html:18274` |
+| `mobile.html` / `mobile2.html` | `3.8-2026-06-10-r101` | `mobile.html:8` (mobile keeps the `3.8-` app-generation prefix; r86-r89 and r91-r100 were desktop-only, **r101 touched both**, so the two stamps currently agree apart from that prefix) |
 
 - **Bump `APP_VERSION` on EVERY build** — it is the only way to confirm a deploy landed.
   Desktop logs it on load (`[AuditPro] build …`); mobile compares it against
@@ -159,8 +159,7 @@ that, instead of piping a heredoc, whenever the content contains backslash escap
 | `.nojekyll` | required — keeps GitHub Pages from running Jekyll |
 | `sw.js` | cache `auditpro-v11`. **Not registered by either app** — legacy, inert |
 | `manifest-desktop.json` | name "Jeremyaibuild Stock Count". **Not linked from any page** — inert |
-| `manifest.json` (517 KB) | **misnamed junk** — it is a stale full HTML snapshot of the old desktop app, not a manifest |
-| `backup-pre-r18.json`, `backup-pre-r19.json` | old hand-taken client-data backups. `backup-pre-r18.json` is the **shape precedent** for r99's export (top-level `backup_taken` / `note` + table-named row arrays). **Backups r99 writes are NOT committed** — they are ~950 KB of venue data and can carry site codes from Client info, and this repo is public. |
+| `backup-pre-r18.json`, `backup-pre-r19.json` | old hand-taken client-data backups. `backup-pre-r18.json` is the **shape precedent** for r99's export (top-level `backup_taken` / `note` + table-named row arrays); its one invoice `pdfUrl` token was redacted in r101 (`?token=REDACTED_r101`). **Backups r99 writes are NOT committed** — they are ~950 KB of venue data and can carry site codes from Client info, and this repo is public. |
 | `worker/auditpro-proxi.js` | the Cloudflare Worker source (r100). Holds **no** secrets — only `env.ANTHROPIC_KEY`, `env.SUPABASE_SECRET_KEY`, `env.SUPABASE_URL`, optional `env.ALLOWED_SLUGS`. **Pushing it does not deploy it.** |
 | `docs/build-history.md` | the full per-build write-ups — not auto-loaded |
 | `icon-512.png`, `README.md` | as named |
@@ -197,13 +196,19 @@ Each exists because skipping it once shipped a defect or a false claim.
    (public repo). **Never print a key value** into a transcript, doc, commit or artifact.
 
 ## Security — open items (Phase 4)
-1. **Service-role key: REMOVED from the page in r100, but NOT yet dead.** Uploads now go through
-   the Worker's `/invoice-pdf`, which holds a secret key as a Cloudflare secret. The old key is
-   still valid — it is in git history and every cached copy of r99 and earlier — until the legacy
-   keys are disabled in Supabase (key-rotation steps 3–6).
-2. **The anon key is hard-coded in several places**, including a second literal copy inside
-   `importByCode()` — anon is meant to be public, but the duplicate copies drift. r101 swaps it
-   for the publishable key, desktop and mobile together.
+1. **Legacy keys: no app file uses either one since r101, but both are NOT yet dead.** The
+   service-role key left the page in r100 (uploads go through the Worker's `/invoice-pdf`); the
+   anon key left in r101 (replaced by the publishable key, desktop and mobile together). Both
+   legacy JWTs stay valid — they are in git history and every cached copy of r100 and earlier —
+   until they are switched off in Supabase → Project Settings → API Keys (**key-rotation step 6**,
+   the last). Do that only once r101 is live everywhere: the desktop console shows
+   `build 2026-06-10-r101`, and every phone has opened the app online since the deploy. Then
+   repeat the r101 live checks (`docs/build-history.md`, r101 section): a device still on an old
+   build fails with 401 from that moment.
+2. **A Storage signed URL is in git history:** `Invoices/c_1775024388916/94681023.pdf`, in
+   `backup-pre-r18.json` (89 commits), valid until 2036. r101 redacted it from the current file,
+   but switching off the legacy keys does **not** revoke it — only deleting or moving that object
+   in Storage does. It is pre-reset test data (see the 2026-07-24 wipe).
 3. **A GitHub PAT is embedded in the git remote URL**
    (`https://<token>@github.com/JeremyAIBUID/auditpro.git`). It is in `.git/config` in
    plaintext. **Needs rotating**, then re-adding via a credential helper rather than the URL.
@@ -211,8 +216,8 @@ Each exists because skipping it once shipped a defect or a false claim.
 4. **The Worker has no caller auth.** Anyone with its URL (in the page source) can spend the
    Anthropic credits and write ≤10 MB PDFs into `Invoices/<slug>/` — **including overwriting an
    invoice's PDF**, which its existing link then serves. `ALLOWED_SLUGS` narrows the folder only.
-5. **Delete the `Invoices` bucket's two "allow public access" policies** (SELECT + INSERT on
-   `public`): they let the anon key list, read and upload; nothing has needed them since r100.
+5. ~~Delete the `Invoices` bucket's two "allow public access" policies~~ — **done** (reported by
+   Jeremy 2026-11-19, with a real upload and the old links both verified working afterwards).
 
 ---
 
@@ -229,9 +234,17 @@ Each exists because skipping it once shipped a defect or a false claim.
 Invoice PDFs live in Supabase **Storage**, private bucket `Invoices`, path
 `{clientSlug}/{invoiceRef}.pdf`, served via 10-year signed URLs (`uploadInvoicePDF()`).
 
-**Anon key:** public by design, but deliberately NOT reproduced in this file — copies drift. Read
-it from `SUPABASE_CONFIG.key` in `index.html` (literal copies also sit in `importByCode()` and in
-`mobile.html`'s `SUPABASE_KEY`).
+**Publishable key (r101):** `sb_publishable_…`, public by design — requests made with it run as the
+anon role, so RLS is unchanged — but deliberately NOT reproduced in this file, because copies drift.
+- **Exactly ONE copy per app:** `SUPABASE_CONFIG.key` in `index.html`, `SUPABASE_KEY` in
+  `mobile.html` / `mobile2.html`. The two must be equal.
+- **Every request sends it as BOTH `apikey` and `Authorization: Bearer`.** Supabase accepts a
+  publishable key in `Authorization` only when it equals `apikey` exactly (measured r101: a wrong
+  one is `401 Invalid API key`).
+- **Never give a function its own copy of the URL or key.** `importByCode` had one until r101, and
+  it would have failed on the day the anon key was switched off.
+- `importByCode` does not check `res.ok`, so a rejected key shows "Code not found in cloud", not an
+  auth error. Mobile `loadProductsFromSupabase` fails silently. Both are known and not yet fixed.
 
 **RLS note:** no service-role or secret key is in any app file since r100 (the Worker holds
 `SUPABASE_SECRET_KEY`). RLS blocks SQL-Editor updates, so a direct write needs a key from the
@@ -902,7 +915,7 @@ saveToStorage() / resetForNextAudit() / updateCountUI() / editCountItem(idx)
 
 ## Constants in the Desktop App
 ```javascript
-// Line refs re-grepped at r100. They drift on EVERY build — re-grep, never trust the number.
+// Line refs re-grepped at r101. They drift on EVERY build — re-grep, never trust the number.
 const PROD_SUBCATS            // index.html:5841 — { Spirits:[…], Beer:[…], … }
 const CAT_ORDER_PROD          // :6315 — ['Spirits','Beer','Wine','RTD','Soft drinks','Food','Cocktails','Other']
 const CAT_COLORS_PROD         // :6316 — { Spirits:{bg,text,icon}, … }
@@ -919,12 +932,12 @@ const ADJUSTMENT_REASONS      // :14464 — transfer_in/out, wastage, breakage, 
 const INV_CONFIDENT_KINDS     // :12562 — r88: ['code','barcode','exact']: green + collapsed
 const BULK_PRICE_SOURCE       // :6564 — 'bulk price edit' (r96 costHistory provenance)
 const BP_BLANK_MEANS_TEXT     // :6569 — the ONE 'a blank box is not $0.00' wording (r96)
-const BACKUP_SCHEMA_VERSION   // :17892 — r99 export schema (1)
-const BACKUP_TABLES           // :17904 — the four tables dbLoadAll reads, and a backup must hold
-const BACKUP_NOT_INCLUDED     // :17914 — stated exclusions: Storage PDFs, ap_mobile_counts, keys
+const BACKUP_SCHEMA_VERSION   // :17900 — r99 export schema (1)
+const BACKUP_TABLES           // :17912 — the four tables dbLoadAll reads, and a backup must hold
+const BACKUP_NOT_INCLUDED     // :17922 — stated exclusions: Storage PDFs, ap_mobile_counts, keys
 const INVOICE_UPLOAD_URL      // :13361 — r100: the Worker's /invoice-pdf route
 const INVOICE_UPLOAD_MAX_BYTES // :13364 — r100: 10 MB; MUST equal MAX_PDF_BYTES in the Worker
-const APP_VERSION             // :18266
+const APP_VERSION             // :18274
 ```
 
 ---
