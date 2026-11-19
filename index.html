@@ -15032,12 +15032,14 @@ async function importByCode() {
   closeModal('importCountModal');
 
   // Try Supabase first
-  const SUPA_URL = 'https://hjtguzieguogfjbwikwt.supabase.co';
-  const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqdGd1emllZ3VvZ2ZqYndpa3d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwMDg1NDUsImV4cCI6MjA5MDU4NDU0NX0.yH_TrwX6jdeSi6WNOWvvQ4yzkznoXvCWEmDKFg9-DEE';
+  // r101 — this was the ONE Supabase caller that kept its own copies of the project URL and
+  // key. A private copy is a key that drifts: rotate SUPABASE_CONFIG and this import path
+  // keeps the old key, then fails on the day that key is switched off. It now reads the one
+  // config, and sends the same value in apikey and Authorization like every other request.
   try {
     showPersistToast('Fetching count from cloud…');
-    const res  = await fetch(`${SUPA_URL}/rest/v1/ap_mobile_counts?code=eq.${encodeURIComponent(code)}&select=*`, {
-      headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY }
+    const res  = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/ap_mobile_counts?code=eq.${encodeURIComponent(code)}&select=*`, {
+      headers: { 'apikey': SUPABASE_CONFIG.key, 'Authorization': 'Bearer ' + SUPABASE_CONFIG.key }
     });
     const data = await res.json();
     if(data && data.length > 0) {
@@ -16991,7 +16993,7 @@ function removeRow(btn) { btn.closest('tr').remove(); updateSessionLines(); }
 // ───────────────────────────────────────────────────
 // HOW TO CONNECT:
 //  1. Go to https://supabase.com → New project
-//  2. Settings → API → copy Project URL and anon key
+//  2. Settings → API Keys → copy the Project URL and the PUBLISHABLE key (sb_publishable_…)
 //  3. Paste them below
 //  4. Run the SQL in the console (see DB.initSchema comments)
 //  5. Refresh — all data will now persist across sessions
@@ -16999,7 +17001,13 @@ function removeRow(btn) { btn.closest('tr').remove(); updateSessionLines(); }
 
 const SUPABASE_CONFIG = {
   url: 'https://hjtguzieguogfjbwikwt.supabase.co',
-  key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqdGd1emllZ3VvZ2ZqYndpa3d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwMDg1NDUsImV4cCI6MjA5MDU4NDU0NX0.yH_TrwX6jdeSi6WNOWvvQ4yzkznoXvCWEmDKFg9-DEE',
+  // r101 — the PUBLISHABLE key (sb_publishable_…), replacing the legacy anon JWT, which
+  // Supabase switches off together with the old service-role key. Public by design, and
+  // requests made with it run as the same anon role, so the RLS policies are unchanged.
+  // Supabase accepts it in `Authorization` only when it equals `apikey` exactly, so every
+  // request sends this one value in both. This is the ONLY copy in the desktop app —
+  // importByCode used to keep its own — and it must equal mobile.html's SUPABASE_KEY.
+  key: 'sb_publishable_rC9un0QvazwYtQMdFbBGxw_k3D2q6_t',
   // r100 — the service-role key that sat here is GONE. It bypassed every RLS policy and
   // shipped in this public page to every visitor, for one job: uploadInvoicePDF's Storage
   // requests. That upload now goes through the Cloudflare Worker (/invoice-pdf), which holds
@@ -18250,7 +18258,7 @@ function renderDbStatus() {
 function showSupabaseSetup() {
   const url = prompt('Supabase Project URL:\n(e.g. https://xyzabc.supabase.co)', SUPABASE_CONFIG.url || '');
   if (!url) return;
-  const key = prompt('Supabase Anon Key:\n(Settings → API → anon public)', SUPABASE_CONFIG.key || '');
+  const key = prompt('Supabase Publishable Key:\n(Settings → API Keys → Publishable key, sb_publishable_…)', SUPABASE_CONFIG.key || '');
   if (!key) return;
   SUPABASE_CONFIG.url = url.replace(/\/$/, '');
   SUPABASE_CONFIG.key = key;
@@ -18263,7 +18271,7 @@ function showSupabaseSetup() {
 // Build stamp — open DevTools console (F12) and check this matches the latest
 // deploy. If it shows an older value, you're on a cached version: hard-refresh
 // with Ctrl+Shift+R (Cmd+Shift+R on Mac) to load the new build.
-const APP_VERSION = '2026-06-10-r100';
+const APP_VERSION = '2026-06-10-r101';
 console.log('%c[AuditPro] build ' + APP_VERSION, 'color:#c8f064;font-weight:700;');
 DB.init();
 renderOverview();

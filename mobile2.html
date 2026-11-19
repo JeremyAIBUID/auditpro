@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <script>
 // Force reload if cached version is old
-const APP_VERSION = '3.8-2026-06-10-r90';
+const APP_VERSION = '3.8-2026-06-10-r101';
 if(localStorage.getItem('ap_version') !== APP_VERSION) {
   localStorage.setItem('ap_version', APP_VERSION);
   if(performance.navigation?.type !== 1) location.reload(true);
@@ -3897,8 +3897,13 @@ function toggleSensitive(btn) {
 }
 
 // Supabase connection for mobile
+// r101 — the PUBLISHABLE key (sb_publishable_…), replacing the legacy anon JWT, which
+// Supabase switches off together with the old service-role key. Public by design; every
+// request below sends it as both `apikey` and `Authorization: Bearer` — Supabase accepts a
+// publishable key in Authorization only when the two are identical. It must equal
+// index.html's SUPABASE_CONFIG.key.
 const SUPABASE_URL = 'https://hjtguzieguogfjbwikwt.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqdGd1emllZ3VvZ2ZqYndpa3d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwMDg1NDUsImV4cCI6MjA5MDU4NDU0NX0.yH_TrwX6jdeSi6WNOWvvQ4yzkznoXvCWEmDKFg9-DEE';
+const SUPABASE_KEY = 'sb_publishable_rC9un0QvazwYtQMdFbBGxw_k3D2q6_t';
 // ─── SCALE DEBUG PANEL — raw BLE protocol capture ─────────────────────────
 // Purely additive instrumentation: parseScaleValue() and all commit logic are left
 // untouched (FIX 4). onScaleReading() records _scaleDbgCtx (ms timestamp + source
