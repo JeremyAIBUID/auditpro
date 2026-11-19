@@ -209,10 +209,15 @@ Each exists because skipping it once shipped a defect or a false claim.
    `backup-pre-r18.json` (89 commits), valid until 2036. r101 redacted it from the current file,
    but switching off the legacy keys does **not** revoke it — only deleting or moving that object
    in Storage does. It is pre-reset test data (see the 2026-07-24 wipe).
-3. **A GitHub PAT is embedded in the git remote URL**
-   (`https://<token>@github.com/JeremyAIBUID/auditpro.git`). It is in `.git/config` in
-   plaintext. **Needs rotating**, then re-adding via a credential helper rather than the URL.
-   Never echo `git remote -v` output unredacted into a transcript or an artifact.
+3. **GitHub token: no longer in the remote URL — but was the old one REVOKED?** Measured
+   2026-11-19: the remote is SSH (`git@github.com:JeremyAIBUID/auditpro.git`), the r101 push
+   authenticated over SSH, and no token-shaped string remains in `.git/config`, `~/.gitconfig`
+   or any `insteadOf`/credential setting (`~/.git-credentials` does not exist; the only helper
+   is Git for Windows' default `manager`). The PAT that used to sit in the URL
+   (`https://<token>@github.com/…`) sat in plaintext in `.git/config`, so it must also be **revoked at
+   GitHub** → Settings → Developer settings → Personal access tokens. Whether that happened is
+   unknown — ask, don't assume. Still never echo a remote URL unredacted into a transcript or
+   an artifact.
 4. **The Worker has no caller auth.** Anyone with its URL (in the page source) can spend the
    Anthropic credits and write ≤10 MB PDFs into `Invoices/<slug>/` — **including overwriting an
    invoice's PDF**, which its existing link then serves. `ALLOWED_SLUGS` narrows the folder only.
