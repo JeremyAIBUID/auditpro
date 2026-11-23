@@ -1,0 +1,291 @@
+{
+	"rls": [
+		{
+			"table": "ap_mobile_counts",
+			"rls": true
+		},
+		{
+			"table": "ap_products",
+			"rls": true
+		},
+		{
+			"table": "ap_clients",
+			"rls": true
+		},
+		{
+			"table": "ap_audit_sessions",
+			"rls": true
+		},
+		{
+			"table": "ap_batches",
+			"rls": true
+		},
+		{
+			"table": "ap_master_products",
+			"rls": true
+		}
+	],
+	"policies": [
+		{
+			"schemaname": "public",
+			"tablename": "ap_mobile_counts",
+			"policyname": "allow all",
+			"roles": [
+				"public"
+			],
+			"cmd": "ALL",
+			"qual": "true",
+			"with_check": "true"
+		},
+		{
+			"schemaname": "public",
+			"tablename": "ap_products",
+			"policyname": "public_all",
+			"roles": [
+				"public"
+			],
+			"cmd": "ALL",
+			"qual": "true",
+			"with_check": "true"
+		},
+		{
+			"schemaname": "public",
+			"tablename": "ap_clients",
+			"policyname": "public_all",
+			"roles": [
+				"public"
+			],
+			"cmd": "ALL",
+			"qual": "true",
+			"with_check": "true"
+		},
+		{
+			"schemaname": "public",
+			"tablename": "ap_audit_sessions",
+			"policyname": "public_all",
+			"roles": [
+				"public"
+			],
+			"cmd": "ALL",
+			"qual": "true",
+			"with_check": "true"
+		},
+		{
+			"schemaname": "public",
+			"tablename": "ap_batches",
+			"policyname": "public_all",
+			"roles": [
+				"public"
+			],
+			"cmd": "ALL",
+			"qual": "true",
+			"with_check": "true"
+		},
+		{
+			"schemaname": "public",
+			"tablename": "ap_master_products",
+			"policyname": "public_all",
+			"roles": [
+				"public"
+			],
+			"cmd": "ALL",
+			"qual": "true",
+			"with_check": "true"
+		},
+		{
+			"schemaname": "storage",
+			"tablename": "objects",
+			"policyname": "invoices_full_access blin7q_3",
+			"roles": [
+				"service_role"
+			],
+			"cmd": "DELETE",
+			"qual": "true",
+			"with_check": null
+		},
+		{
+			"schemaname": "storage",
+			"tablename": "objects",
+			"policyname": "invoices_full_access blin7q_2",
+			"roles": [
+				"service_role"
+			],
+			"cmd": "UPDATE",
+			"qual": "true",
+			"with_check": null
+		},
+		{
+			"schemaname": "storage",
+			"tablename": "objects",
+			"policyname": "invoices_full_access blin7q_1",
+			"roles": [
+				"service_role"
+			],
+			"cmd": "INSERT",
+			"qual": null,
+			"with_check": "true"
+		},
+		{
+			"schemaname": "storage",
+			"tablename": "objects",
+			"policyname": "invoices_full_access blin7q_0",
+			"roles": [
+				"service_role"
+			],
+			"cmd": "SELECT",
+			"qual": "true",
+			"with_check": null
+		}
+	],
+	"grants": [
+		{
+			"table_name": "ap_audit_sessions",
+			"grantee": "anon",
+			"privs": "TRIGGER,SELECT,UPDATE,INSERT,DELETE,TRUNCATE,REFERENCES"
+		},
+		{
+			"table_name": "ap_audit_sessions",
+			"grantee": "authenticated",
+			"privs": "INSERT,TRIGGER,REFERENCES,TRUNCATE,DELETE,UPDATE,SELECT"
+		},
+		{
+			"table_name": "ap_batches",
+			"grantee": "anon",
+			"privs": "TRUNCATE,TRIGGER,REFERENCES,DELETE,UPDATE,SELECT,INSERT"
+		},
+		{
+			"table_name": "ap_batches",
+			"grantee": "authenticated",
+			"privs": "INSERT,SELECT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER"
+		},
+		{
+			"table_name": "ap_clients",
+			"grantee": "anon",
+			"privs": "INSERT,SELECT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER"
+		},
+		{
+			"table_name": "ap_clients",
+			"grantee": "authenticated",
+			"privs": "INSERT,SELECT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER"
+		},
+		{
+			"table_name": "ap_master_products",
+			"grantee": "anon",
+			"privs": "DELETE,INSERT,SELECT,UPDATE,TRUNCATE,REFERENCES,TRIGGER"
+		},
+		{
+			"table_name": "ap_master_products",
+			"grantee": "authenticated",
+			"privs": "INSERT,SELECT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER"
+		},
+		{
+			"table_name": "ap_mobile_counts",
+			"grantee": "anon",
+			"privs": "INSERT,TRIGGER,REFERENCES,TRUNCATE,DELETE,UPDATE,SELECT"
+		},
+		{
+			"table_name": "ap_mobile_counts",
+			"grantee": "authenticated",
+			"privs": "INSERT,TRIGGER,REFERENCES,TRUNCATE,DELETE,UPDATE,SELECT"
+		},
+		{
+			"table_name": "ap_products",
+			"grantee": "anon",
+			"privs": "SELECT,TRIGGER,REFERENCES,TRUNCATE,DELETE,UPDATE,INSERT"
+		},
+		{
+			"table_name": "ap_products",
+			"grantee": "authenticated",
+			"privs": "SELECT,TRIGGER,REFERENCES,TRUNCATE,DELETE,UPDATE,INSERT"
+		}
+	],
+	"constraints": [
+		{
+			"tbl": "ap_audit_sessions",
+			"conname": "ap_audit_sessions_pkey",
+			"def": "PRIMARY KEY (id)"
+		},
+		{
+			"tbl": "ap_audit_sessions",
+			"conname": "ap_audit_sessions_session_id_key",
+			"def": "UNIQUE (session_id)"
+		},
+		{
+			"tbl": "ap_batches",
+			"conname": "ap_batches_pkey",
+			"def": "PRIMARY KEY (id)"
+		},
+		{
+			"tbl": "ap_clients",
+			"conname": "ap_clients_pkey",
+			"def": "PRIMARY KEY (id)"
+		},
+		{
+			"tbl": "ap_clients",
+			"conname": "ap_clients_slug_key",
+			"def": "UNIQUE (slug)"
+		},
+		{
+			"tbl": "ap_master_products",
+			"conname": "ap_master_products_pkey",
+			"def": "PRIMARY KEY (id)"
+		},
+		{
+			"tbl": "ap_master_products",
+			"conname": "ap_master_products_slug_key",
+			"def": "UNIQUE (slug)"
+		},
+		{
+			"tbl": "ap_mobile_counts",
+			"conname": "ap_mobile_counts_code_key",
+			"def": "UNIQUE (code)"
+		},
+		{
+			"tbl": "ap_mobile_counts",
+			"conname": "ap_mobile_counts_pkey",
+			"def": "PRIMARY KEY (id)"
+		},
+		{
+			"tbl": "ap_products",
+			"conname": "ap_products_pkey",
+			"def": "PRIMARY KEY (id)"
+		}
+	],
+	"mobile_counts_columns": [
+		{
+			"column_name": "id",
+			"data_type": "bigint",
+			"is_nullable": "NO"
+		},
+		{
+			"column_name": "code",
+			"data_type": "text",
+			"is_nullable": "YES"
+		},
+		{
+			"column_name": "client",
+			"data_type": "text",
+			"is_nullable": "YES"
+		},
+		{
+			"column_name": "client_id",
+			"data_type": "text",
+			"is_nullable": "YES"
+		},
+		{
+			"column_name": "csv_data",
+			"data_type": "text",
+			"is_nullable": "YES"
+		},
+		{
+			"column_name": "lines",
+			"data_type": "integer",
+			"is_nullable": "YES"
+		},
+		{
+			"column_name": "created_at",
+			"data_type": "timestamp with time zone",
+			"is_nullable": "YES"
+		}
+	]
+}
