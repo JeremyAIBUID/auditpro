@@ -9,7 +9,7 @@ apps with Supabase persistence. No framework, no build step — pure vanilla JS.
 
 **Build history:** the full per-build write-ups (r79–r100 — rationale, live measurements, harness results, deliberately-deferred items) are in `docs/build-history.md`, which is NOT auto-loaded; read the relevant section before changing that area.
 
-**Auth design:** the agreed roles (owner / auditor / client — no others), the `private.*` helpers, the intended B5 table policies and the B0–B6 build plan are in `docs/auth-design.md`, which is NOT auto-loaded and is the **authority**. Read it before any auth, RLS, sign-in or Worker-auth work; never reconstruct the design from SQL or memory.
+**Auth design:** the agreed roles (owner / auditor / client — no others), the `private.*` helpers, the intended B5 table policies and the B0–B6 build plan are in `docs/auth-design.md`, which is NOT auto-loaded and is the **authority**. Read it before any auth, RLS, sign-in or Worker-auth work; never reconstruct the design from SQL or memory. **Status: B0 and B1 done as of 24 Nov 2026 (B1 applied live and verified); B2 is next.**
 
 ---
 
@@ -165,7 +165,7 @@ that, instead of piping a heredoc, whenever the content contains backslash escap
 | `worker/auditpro-proxi.js` | the Cloudflare Worker source (r100). Holds **no** secrets — only `env.ANTHROPIC_KEY`, `env.SUPABASE_SECRET_KEY`, `env.SUPABASE_URL`, optional `env.ALLOWED_SLUGS`. **Pushing it does not deploy it.** |
 | `docs/build-history.md` | the full per-build write-ups — not auto-loaded |
 | `docs/auth-design.md` | the agreed auth design (roles, helpers, B5 policies, B0–B6 plan) — not auto-loaded, and the authority |
-| `sql/b1-foundation.sql`, `b1-verify.sql`, `b1-rollback.sql`, `baseline-2026-11-24.json` | B1 auth foundation, run by Jeremy in the Supabase SQL Editor. Whether it has been run live is NOT recorded in git — ask, and have him re-run `b1-verify.sql`. |
+| `sql/b1-foundation.sql`, `b1-verify.sql`, `b1-rollback.sql`, `baseline-2026-11-24.json` | B1 auth foundation. **Applied live and verified 24 Nov 2026** (as committed in `a73dc67`): foundation returned "B1 foundation applied" (1 owner, 2 counts tagged, 0 untagged), `b1-verify.sql` all 30 checks ok, and r101 desktop load + phone sync + import-by-code confirmed working afterwards. The superseded `e1b4b70` draft was never run. Do NOT run `b1-foundation.sql` again (its guard refuses anyway); re-check the live state with the read-only `b1-verify.sql`. Run `b1-rollback.sql` only to deliberately undo B1, and only before anything (a B5 policy) depends on it. |
 | `icon-512.png`, `README.md` | as named |
 
 ---

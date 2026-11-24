@@ -81,12 +81,26 @@ Use these names everywhere: SQL headers, commits, prompts, CLAUDE.md, memory.
 | Build | What |
 |---|---|
 | **B0** | Pre-flight. **Done 24 Nov 2026** (the baseline capture, `sql/baseline-2026-11-24.json`). |
-| **B1** | Foundation SQL: `sql/b1-foundation.sql`, `b1-verify.sql`, `b1-rollback.sql`. Purely additive. |
+| **B1** | Foundation SQL: `sql/b1-foundation.sql`, `b1-verify.sql`, `b1-rollback.sql`. Purely additive. **Done 24 Nov 2026** (see below). |
 | **B2** | Worker **log-only** mode. It verifies logins and refuses nothing. |
 | **B3** | App **r102**: sign-in on desktop and phone. |
 | **B4** | Worker **enforce**. |
 | **B5.1–B5.6** | Lock the six tables **one at a time**, `ap_products` first and `ap_clients` last. |
 | **B6** | Close-out. |
+
+**Status as of 24 Nov 2026: B0 and B1 are done. B2 is next.**
+
+B1 was applied live on 24 Nov 2026 by Jeremy, in the Supabase SQL Editor, as committed in
+`a73dc67`.
+
+- `b1-foundation.sql` returned "B1 foundation applied": `owner_logins` 1, `counts_tagged_1up` 2,
+  `counts_untagged` 0.
+- `b1-verify.sql` returned **all 30 checks ok**.
+- Afterwards, r101 still worked: desktop load, phone sync and import-by-code.
+- The superseded `e1b4b70` draft was **never run** live.
+
+To re-check the live state at any time, run `b1-verify.sql`. It is read-only. A count synced by an
+r101 phone after B1 arrives without a venue tag, by design, and does not fail any check.
 
 **A separate gate comes before inviting anyone else:**
 
