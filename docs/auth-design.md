@@ -82,14 +82,17 @@ Use these names everywhere: SQL headers, commits, prompts, CLAUDE.md, memory.
 |---|---|
 | **B0** | Pre-flight. **Done 24 Nov 2026** (the baseline capture, `sql/baseline-2026-11-24.json`). |
 | **B1** | Foundation SQL: `sql/b1-foundation.sql`, `b1-verify.sql`, `b1-rollback.sql`. Purely additive. **Done 24 Nov 2026** (see below). |
-| **B2** | Worker **log-only** mode. It verifies logins and refuses nothing (§7). **Written and harness-tested 24 Nov 2026; NOT yet deployed** — Jeremy pastes it into Cloudflare. |
+| **B2** | Worker **log-only** mode. It verifies logins and refuses nothing (§7). **Done: deployed live 25 Nov 2026** (`271c1d6`, see below). |
 | **B3** | App **r102**: sign-in on desktop and phone. |
 | **B4** | Worker **enforce**. |
 | **B5.1–B5.6** | Lock the six tables **one at a time**, `ap_products` first and `ap_clients` last. |
 | **B6** | Close-out. |
 
-**Status as of 24 Nov 2026: B0 and B1 are done. B2 is written and harness-tested, awaiting
-deployment.**
+**Status as of 25 Nov 2026: B0, B1 and B2 are done. B3 (app r102, sign-in) is next.**
+
+B2 was deployed live on 25 Nov 2026 by Jeremy, by pasting `worker/auditpro-proxi.js` as
+committed in `271c1d6` into the Cloudflare editor. How that was checked is in §7, "Deployed,
+25 Nov 2026".
 
 B1 was applied live on 24 Nov 2026 by Jeremy, in the Supabase SQL Editor, as committed in
 `a73dc67`.
@@ -220,6 +223,27 @@ Each request gets exactly one result:
 - It holds **one** key: EC, P-256, ES256, `use: sig`.
 - Whether real login tokens are signed with that key shows only once r102 sends one. A legacy
   HS256 token would log `invalid reason=alg`.
+
+### Deployed, 25 Nov 2026
+
+B2 (`271c1d6`) is live. Checked three ways:
+
+- **A real AI call (Jeremy).** After an AI comments run, the Cloudflare log showed
+  `[auth] mode=report route=anthropic auth=missing`, and the comments came back normally. r101
+  sends no token, so `missing` is the correct result.
+- **The preflight (curl, no upstream call).** An `OPTIONS` asking for
+  `authorization, content-type`, on both `/` and `/invoice-pdf`, answered `200`, empty body,
+  with `Access-Control-Allow-Headers: Content-Type, Authorization`. r102's first request with a
+  token will therefore pass CORS.
+- **A junk-token upload (curl, nothing written).** A `POST /invoice-pdf` with
+  `Content-Type: application/pdf` and a body that is not a PDF, sent twice: once with no
+  `Authorization`, once with `Authorization: Bearer junk`.
+  - Both answered `415 not_pdf`. The status, body and headers were identical.
+  - So the token changed nothing, which is what report mode promises.
+  - The magic-byte check comes before any Storage call, so nothing could be written.
+  - Those two requests should log `auth=missing` and `auth=invalid reason=malformed`, on
+    `route=invoice-pdf`. Jeremy can see them in the Cloudflare log; from here only the
+    responses could be checked.
 
 ### Left for B4 (not decided here)
 
