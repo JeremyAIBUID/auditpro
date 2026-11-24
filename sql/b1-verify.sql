@@ -6,7 +6,7 @@
 -- It is ONE read-only SELECT. It changes nothing, so it is safe to run as often as you like.
 --
 -- WHAT YOU SHOULD SEE: one row per check, plus a last row "SUMMARY".
---   Every row has ok = true, and SUMMARY reads "all 27 checks ok".
+--   Every row has ok = true, and SUMMARY reads "all 30 checks ok".
 --   Any ok = false → copy the whole result to Claude. Do not roll back on your own.
 --   "relation ... does not exist" / "column client_slug does not exist" → B1 is not applied.
 --
@@ -15,6 +15,8 @@
 -- catalog views the baseline was captured from, so like is compared with like.
 -- Running it again after a phone count has synced is fine: a count synced after B1 arrives
 -- without a venue (r101 does not send one) and no check counts it as a failure.
+-- Areas A, E and F check the agreed design in docs/auth-design.md: roles auditor/client only,
+-- is_staff() with no venue, and the Worker RPCs executable by authenticated only.
 -- =====================================================================================
 with
 -- ── The baseline, transcribed by script from sql/baseline-2026-11-24.json — do not hand-edit ──
@@ -146,16 +148,17 @@ checks (n, area, check_name, expected, actual) as (
                      from live_policies
                     where schemaname = 'public' and tablename in ('ap_profiles', 'ap_memberships')), 'none')
   union all
-  -- Expected: the four helpers, all SECURITY DEFINER, and nothing else in the schema
+  -- Expected: the four helpers, all SECURITY DEFINER, and nothing else in the schema.
+  -- is_staff() takes NO venue (any auditor membership anywhere). "is_staff(p_slug text)" = the superseded draft.
   select 5, 'A new objects', 'helper functions in schema private',
-         'private.can_view(p_slug text) definer; private.can_work(p_slug text) definer; private.is_owner() definer; private.is_staff(p_slug text) definer',
+         'private.can_view(p_slug text) definer; private.can_work(p_slug text) definer; private.is_owner() definer; private.is_staff() definer',
          coalesce((select string_agg(fn || case when prosecdef then ' definer' else ' invoker' end, '; '
                                      order by fn collate "C")
                      from b1_functions where fn like 'private.%'), 'none')
   union all
   -- Expected: the two Worker RPCs, both SECURITY INVOKER (they add no power of their own)
   select 6, 'A new objects', 'Worker RPCs in schema public',
-         'public.ap_can_work(p_slug text) invoker; public.ap_is_staff(p_slug text) invoker',
+         'public.ap_can_work(p_slug text) invoker; public.ap_is_staff() invoker',
          coalesce((select string_agg(fn || case when prosecdef then ' definer' else ' invoker' end, '; '
                                      order by fn collate "C")
                      from b1_functions where fn like 'public.%'), 'none')
@@ -188,7 +191,7 @@ checks (n, area, check_name, expected, actual) as (
                      join auth.users u on u.id = p.user_id
                     where lower(u.email) = lower('jeremyaibuid@gmail.com')), 'no profile row')
   union all
-  -- Expected: 1 profile, 1 owner, 0 memberships (more only once you add staff yourself)
+  -- Expected: 1 profile, 1 owner, 0 memberships (more only once you add logins yourself)
   select 11, 'B owner', 'profiles / owners / memberships',
          '1 profile, 1 owner, 0 memberships',
          (select count(*) from public.ap_profiles) || ' profile, '
@@ -335,6 +338,31 @@ checks (n, area, check_name, expected, actual) as (
          coalesce((select string_agg(table_name || ': ' || privs, '; ' order by table_name collate "C")
                      from live_grants
                     where table_name in ('ap_profiles', 'ap_memberships') and grantee = 'authenticated'), 'none')
+  union all
+  -- Expected: authenticated ONLY, on both. Not anon, and not service_role: the secret key carries no
+  -- user, so a Worker wired to it must get a permission error rather than "no" for everyone.
+  select 35, 'E permissions', 'who may execute the two Worker RPCs (of anon / authenticated / service_role)',
+         'public.ap_can_work(p_slug text): authenticated; public.ap_is_staff(): authenticated',
+         coalesce((select string_agg(f.fn || ': ' || coalesce(
+                                       (select string_agg(r.rolname, ', ' order by r.rolname collate "C")
+                                          from (values ('anon'), ('authenticated'), ('service_role')) r (rolname)
+                                         where has_function_privilege(r.rolname, f.oid, 'EXECUTE')), 'nobody'),
+                                     '; ' order by f.fn collate "C")
+                     from b1_functions f where f.fn like 'public.%'), 'none')
+
+  -- ═══ F. The roles are the agreed ones (docs/auth-design.md §1) ═════════════════════════
+  union all
+  -- Expected: auditor and client ONLY. 'staff' / 'viewer' were the superseded draft's; owner is a flag, not a role.
+  select 40, 'F roles', 'ap_memberships.role may only be auditor or client',
+         'CHECK ((role = ANY (ARRAY[''auditor''::text, ''client''::text])))',
+         coalesce((select def from live_constraints
+                    where tbl = 'ap_memberships' and conname = 'ap_memberships_role_check'), 'absent')
+  union all
+  -- Expected: one role per login per venue
+  select 41, 'F roles', 'ap_memberships key: one role per login per venue',
+         'PRIMARY KEY (user_id, client_slug)',
+         coalesce((select def from live_constraints
+                    where tbl = 'ap_memberships' and conname = 'ap_memberships_pkey'), 'absent')
 )
 select n, area, check_name, expected, actual, (actual = expected) as ok
   from checks

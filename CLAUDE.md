@@ -9,6 +9,8 @@ apps with Supabase persistence. No framework, no build step — pure vanilla JS.
 
 **Build history:** the full per-build write-ups (r79–r100 — rationale, live measurements, harness results, deliberately-deferred items) are in `docs/build-history.md`, which is NOT auto-loaded; read the relevant section before changing that area.
 
+**Auth design:** the agreed roles (owner / auditor / client — no others), the `private.*` helpers, the intended B5 table policies and the B0–B6 build plan are in `docs/auth-design.md`, which is NOT auto-loaded and is the **authority**. Read it before any auth, RLS, sign-in or Worker-auth work; never reconstruct the design from SQL or memory.
+
 ---
 
 ## ⚠️ NAME SPLIT — display name vs functional identifiers (r69)
@@ -162,6 +164,8 @@ that, instead of piping a heredoc, whenever the content contains backslash escap
 | `backup-pre-r18.json`, `backup-pre-r19.json` | old hand-taken client-data backups. `backup-pre-r18.json` is the **shape precedent** for r99's export (top-level `backup_taken` / `note` + table-named row arrays); its one invoice `pdfUrl` token was redacted in r101 (`?token=REDACTED_r101`). **Backups r99 writes are NOT committed** — they are ~950 KB of venue data and can carry site codes from Client info, and this repo is public. |
 | `worker/auditpro-proxi.js` | the Cloudflare Worker source (r100). Holds **no** secrets — only `env.ANTHROPIC_KEY`, `env.SUPABASE_SECRET_KEY`, `env.SUPABASE_URL`, optional `env.ALLOWED_SLUGS`. **Pushing it does not deploy it.** |
 | `docs/build-history.md` | the full per-build write-ups — not auto-loaded |
+| `docs/auth-design.md` | the agreed auth design (roles, helpers, B5 policies, B0–B6 plan) — not auto-loaded, and the authority |
+| `sql/b1-foundation.sql`, `b1-verify.sql`, `b1-rollback.sql`, `baseline-2026-11-24.json` | B1 auth foundation, run by Jeremy in the Supabase SQL Editor. Whether it has been run live is NOT recorded in git — ask, and have him re-run `b1-verify.sql`. |
 | `icon-512.png`, `README.md` | as named |
 
 ---

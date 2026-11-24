@@ -15,11 +15,14 @@
 --   SUCCESS = one result row reading "B1 rolled back".
 --   FAILURE = a red error. Nothing was changed. Send the message to Claude.
 --
--- WHAT IS LOST: the owner row, any staff/memberships you added after B1, and the venue tag on
--- mobile counts. The counts themselves (codes, CSVs, line totals) are NOT touched.
+-- WHAT IS LOST: the owner row, any logins and auditor/client memberships you added after B1,
+-- and the venue tag on mobile counts. The counts themselves (codes, CSVs, line totals) are NOT
+-- touched.
 --
--- SAFETY: no CASCADE anywhere. If something built later (a B2 policy, say) depends on a B1
--- object, Postgres refuses and this whole file changes nothing — roll the later step back first.
+-- SAFETY: no CASCADE anywhere. If something built later (a B5 table policy, say) depends on a
+-- B1 object, Postgres refuses and this whole file changes nothing — roll the later step back first.
+-- This undoes THIS version of B1 only. If it refuses because the superseded first draft
+-- (commit e1b4b70) is applied, it has changed nothing: send the message to Claude.
 -- =====================================================================================
 
 begin;
@@ -37,11 +40,14 @@ begin
                     and column_name = 'client_slug') then
     raise exception 'ROLLBACK NOT RUN: ap_mobile_counts.client_slug is missing, so this is not the state B1 leaves. Nothing was changed. Send this message to Claude.';
   end if;
+  if to_regprocedure('private.is_staff(text)') is not null then
+    raise exception 'ROLLBACK NOT RUN: this database has the superseded FIRST DRAFT of B1 (commit e1b4b70, roles staff/viewer), which this file does not undo. Nothing was changed. Send this message to Claude.';
+  end if;
 end
 $guard$;
 
 -- The Worker RPCs first (nothing in B1 depends on them).
-drop function public.ap_is_staff(text);
+drop function public.ap_is_staff();
 drop function public.ap_can_work(text);
 
 -- The two tables, with their own policies, grants, indexes and keys. Their policies call
@@ -49,10 +55,11 @@ drop function public.ap_can_work(text);
 drop table public.ap_memberships;
 drop table public.ap_profiles;
 
--- The helpers, then the schema (which must now be empty — RESTRICT is the default).
-drop function private.can_work(text);
-drop function private.is_staff(text);
+-- The helpers (reverse of creation order), then the schema, which must now be empty —
+-- RESTRICT is the default.
 drop function private.can_view(text);
+drop function private.is_staff();
+drop function private.can_work(text);
 drop function private.is_owner();
 drop schema private;
 

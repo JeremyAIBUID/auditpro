@@ -1,6 +1,7 @@
 -- =====================================================================================
 -- B1 — AUTH FOUNDATION (purely additive)                            sql/b1-foundation.sql
 -- Jeremyaibuild (repo: auditpro) · written 2026-11-24 · baseline: sql/baseline-2026-11-24.json
+-- Design (the authority — roles, helpers, the B5 policies, the B0–B6 plan): docs/auth-design.md
 --
 -- HOW TO RUN: Supabase dashboard → SQL Editor → New query → paste this WHOLE file → Run.
 -- Run it ONCE. It is one transaction: it either all lands or none of it does.
@@ -11,11 +12,12 @@
 --
 -- WHAT THIS ADDS
 --   1. schema  private             — not exposed by the REST API; holds the helpers below.
---   2. table   public.ap_profiles    — one row per login (auth.users); is_owner flag.
---   3. table   public.ap_memberships — which login may do what at which venue.
---   4. private.is_owner() · private.can_view(slug) · private.is_staff(slug) · private.can_work(slug)
---      SECURITY DEFINER, fixed empty search_path. These are what later RLS policies will call.
---   5. public.ap_can_work(p_slug) · public.ap_is_staff(p_slug) — thin RPCs for the Worker.
+--   2. table   public.ap_profiles    — one row per login (auth.users); is_owner flag (GLOBAL).
+--   3. table   public.ap_memberships — one role per login per venue: 'auditor' or 'client'.
+--   4. private.is_owner() · private.can_work(slug) · private.is_staff() · private.can_view(slug)
+--      SECURITY DEFINER, fixed empty search_path. These are what the B5 RLS policies will call.
+--   5. public.ap_can_work(p_slug) · public.ap_is_staff() — thin RPCs for the Worker,
+--      executable by authenticated ONLY.
 --   6. Jeremy's owner row (from auth.users, by email — aborts if that user does not exist).
 --   7. public.ap_mobile_counts.client_slug — the venue a phone count belongs to,
 --      backfilled for the existing counts from the ClientId line the phone wrote into each CSV.
@@ -25,21 +27,32 @@
 --     "allow all" on ap_mobile_counts) and the anon/authenticated grants on them.
 --     Who can read or write ap_clients, ap_audit_sessions, ap_master_products,
 --     ap_mobile_counts, ap_batches and ap_products is EXACTLY what it was.
+--     ONE measured side effect: the two new foreign keys reference ap_clients, so a plain
+--     TRUNCATE of ap_clients is now refused (and TRUNCATE … CASCADE too, because only
+--     service_role may truncate ap_memberships). Nothing in either app, and no documented
+--     repair, truncates anything.
 --   - Storage and its four service_role invoices_full_access policies.
 --   - The UNIQUE (code) constraint on ap_mobile_counts, and its unused client_id column.
 --   - Anything in the apps. r101 desktop and phone keep working unchanged.
 --
--- ROLE MATRIX (who each helper says yes to)
---   The 20 Nov design was not written into the repo, so this matrix is RECONSTRUCTED. In B1
---   it is inert: Jeremy is the only login and he is the owner, so every helper says yes to
---   him and no to everyone else. Change it with CREATE OR REPLACE before B2 if it is wrong.
+-- ROLES — the design agreed 20 Nov 2026, recorded in docs/auth-design.md (that file decides)
+--   owner   — ap_profiles.is_owner, a GLOBAL flag. Everything at every venue, including venues
+--             created later, whatever memberships exist — nothing can be orphaned from Jeremy.
+--   auditor — PER VENUE (ap_memberships). All the work at that venue: desktop AND phone counting.
+--   client  — PER VENUE (ap_memberships), read-only, for report history. Reaches NO existing
+--             table: ap_clients holds site alarm/safe codes and costs, and RLS can't split JSON.
+--             A future ap_published_reports table will serve clients.
+--   There is no 'staff' and no 'viewer' role; the CHECK refuses both.
 --
---                          can_view   is_staff   can_work
---     owner (any venue)       yes        yes        yes     ← ap_profiles.is_owner
---     auditor (this venue)    yes        yes        yes     ← desktop audit work
---     staff   (this venue)    yes        yes        no      ← phone counts
---     viewer  (this venue)    yes        no         no      ← reads reports
---     no membership           no         no         no      ← and every anonymous caller
+--                              is_owner()  can_work(v)       is_staff()  can_view(v)
+--     owner                       yes      yes, every venue     yes      yes, every venue
+--     auditor of venue v          no       v only               yes      v only
+--     client  of venue v          no       no                   no       v only
+--     no membership / anonymous   no       no                   no       no
+--
+--   is_staff() takes NO venue: any auditor membership anywhere (the shared master catalogue,
+--   and AI spend). In B1 all of this is inert: no policy on an existing table calls a helper
+--   yet (that is B5), and Jeremy is the only login.
 --
 -- DECISION 1 — a NEW column client_slug, not the existing always-null client_id
 --   a. Every other venue-scoped table here already calls it client_slug (ap_audit_sessions,
@@ -50,7 +63,7 @@
 --      is a wrong-key bug waiting for the first policy written against it.
 --   c. Neither app reads or writes client_id (zero hits in index.html / mobile.html), and
 --      nothing records where it came from. Leaving it untouched keeps B1 purely additive;
---      removing it is a separate cleanup once B2 is live.
+--      removing it is a separate, later cleanup (no build is scheduled for it).
 --   d. The rollback becomes "remove one new column" instead of "re-null an old one".
 --
 -- DECISION 2 — KEEP UNIQUE (code); do NOT switch to UNIQUE (client_slug, code) yet
@@ -65,12 +78,17 @@
 --      constraint — so keeping it changes nothing on the sync path.
 --   Revisit in the build where BOTH apps send and filter by client_slug: only then is
 --   (client_slug, code) the right key (AP-1000..AP-9999 is 9,000 codes; shared across
---   venues they will collide).
+--   venues they will collide). The phone must send it before B5 locks ap_mobile_counts
+--   anyway: that table's INSERT policy requires client_slug IS NOT NULL.
 --
--- FOR THE WORKER (later): POST /rest/v1/rpc/ap_can_work  body {"p_slug":"c_…"}
+-- FOR THE WORKER (B2 logs, B4 enforces):
+--   POST /rest/v1/rpc/ap_can_work  body {"p_slug":"c_…"}   — may this login work at this venue?
+--   POST /rest/v1/rpc/ap_is_staff  body {}                  — may this login use AI / the catalogue?
 --   with apikey = the publishable key and Authorization = "Bearer <the USER's access token>".
---   With the secret key there is no user, so the answer is always false. Anonymous callers
---   are refused outright (no EXECUTE). Treat anything other than a literal true as "no".
+--   Only authenticated may EXECUTE them: an anonymous call AND a call made with the secret key
+--   (service_role, which has no user) are both refused with a permission error, so a Worker
+--   wired to the wrong key fails loudly instead of answering "no" for everyone.
+--   Treat anything other than a literal true as "no".
 -- =====================================================================================
 
 begin;
@@ -79,6 +97,10 @@ begin;
 do $guard$
 begin
   if to_regnamespace('private') is not null then
+    -- The superseded first draft (commit e1b4b70) had is_staff(text) and roles staff/viewer.
+    if to_regprocedure('private.is_staff(text)') is not null then
+      raise exception 'B1 NOT APPLIED: the superseded FIRST DRAFT of B1 (commit e1b4b70, roles staff/viewer) is already applied. Nothing was changed. Do not run sql/b1-rollback.sql; send this message to Claude.';
+    end if;
     raise exception 'B1 NOT APPLIED: a schema named "private" already exists, so B1 has probably been run already. Nothing was changed. Run sql/b1-verify.sql to check.';
   end if;
   if to_regclass('public.ap_profiles') is not null or to_regclass('public.ap_memberships') is not null then
@@ -120,7 +142,8 @@ create table public.ap_profiles (
 comment on table public.ap_profiles is
   'B1 — one row per Supabase Auth login. is_owner = may do everything at every venue. email is a display copy only; nothing decides access on it.';
 
--- ── 3. ap_memberships — who may do what at which venue ──────────────────────────────────────
+-- ── 3. ap_memberships — one role per login per venue: auditor or client ─────────────────────
+-- The owner needs no rows here: is_owner is global. 'owner', 'staff' and 'viewer' are refused.
 create table public.ap_memberships (
   user_id     uuid        not null,
   client_slug text        not null,
@@ -131,17 +154,17 @@ create table public.ap_memberships (
     references public.ap_profiles (user_id) on delete cascade,
   constraint ap_memberships_client_slug_fkey foreign key (client_slug)
     references public.ap_clients (slug) on update cascade on delete cascade,
-  constraint ap_memberships_role_check       check (role in ('auditor', 'staff', 'viewer'))
+  constraint ap_memberships_role_check       check (role in ('auditor', 'client'))
 );
 create index ap_memberships_client_slug_idx on public.ap_memberships (client_slug);
 comment on table public.ap_memberships is
-  'B1 — one role per login per venue: auditor (desktop work) | staff (phone counts) | viewer (reports). The owner needs no rows here.';
+  'B1 — one role per login per venue: auditor (all work at the venue, desktop and phone) | client (read-only; reaches no existing table — for the future ap_published_reports). The owner needs no rows here. Design: docs/auth-design.md';
 
 -- ── 4. Their own RLS, and their own grants ──────────────────────────────────────────────────
 -- Supabase's default privileges hand every new public table to anon AND authenticated with
 -- ALL rights (TRUNCATE included, which RLS does not govern). Take that back first, then give
--- signed-in users read-only access. Writes (adding staff, changing roles) stay with the SQL
--- Editor / service_role — so nobody can make themselves an owner from a browser.
+-- signed-in users read-only access. Writes (adding an auditor or a client, changing a role)
+-- stay with the SQL Editor / service_role — so nobody can make themselves an owner from a browser.
 alter table public.ap_profiles    enable row level security;
 alter table public.ap_memberships enable row level security;
 
@@ -151,7 +174,7 @@ grant all    on table public.ap_profiles, public.ap_memberships to service_role;
 
 -- ── 5. The helpers (SECURITY DEFINER: they read the two tables above without tripping RLS) ──
 -- Each always returns true or false, never NULL. auth.uid() is NULL for an anonymous caller,
--- so every helper says false to one.
+-- so every helper says false to one. Created in dependency order: can_view calls can_work.
 create function private.is_owner()
 returns boolean
 language sql
@@ -166,35 +189,6 @@ as $$
     false)
 $$;
 
-create function private.can_view(p_slug text)
-returns boolean
-language sql
-stable
-security definer
-set search_path = ''
-as $$
-  select private.is_owner()
-      or exists (select 1
-                   from public.ap_memberships m
-                  where m.user_id     = (select auth.uid())
-                    and m.client_slug = p_slug)
-$$;
-
-create function private.is_staff(p_slug text)
-returns boolean
-language sql
-stable
-security definer
-set search_path = ''
-as $$
-  select private.is_owner()
-      or exists (select 1
-                   from public.ap_memberships m
-                  where m.user_id     = (select auth.uid())
-                    and m.client_slug = p_slug
-                    and m.role in ('auditor', 'staff'))
-$$;
-
 create function private.can_work(p_slug text)
 returns boolean
 language sql
@@ -207,19 +201,48 @@ as $$
                    from public.ap_memberships m
                   where m.user_id     = (select auth.uid())
                     and m.client_slug = p_slug
-                    and m.role = 'auditor')
+                    and m.role        = 'auditor')
 $$;
 
-comment on function private.is_owner()      is 'B1 — true iff the caller''s ap_profiles row has is_owner.';
-comment on function private.can_view(text)  is 'B1 — owner, or any membership (auditor/staff/viewer) of the venue.';
-comment on function private.is_staff(text)  is 'B1 — owner, or an auditor/staff membership of the venue (may submit phone counts).';
-comment on function private.can_work(text) is 'B1 — owner, or an auditor membership of the venue (desktop audit work).';
+create function private.is_staff()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select private.is_owner()
+      or exists (select 1
+                   from public.ap_memberships m
+                  where m.user_id = (select auth.uid())
+                    and m.role    = 'auditor')
+$$;
+
+create function private.can_view(p_slug text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select private.can_work(p_slug)
+      or exists (select 1
+                   from public.ap_memberships m
+                  where m.user_id     = (select auth.uid())
+                    and m.client_slug = p_slug
+                    and m.role        = 'client')
+$$;
+
+comment on function private.is_owner()      is 'B1 — true iff the caller''s ap_profiles row has is_owner (global: every venue, including ones created later).';
+comment on function private.can_work(text) is 'B1 — owner, or an auditor membership of THIS venue: all work there, desktop and phone.';
+comment on function private.is_staff()      is 'B1 — owner, or an auditor membership of ANY venue: the shared master catalogue and AI spend.';
+comment on function private.can_view(text)  is 'B1 — can_work, or a client membership of this venue. For the future ap_published_reports only.';
 
 -- Functions are executable by PUBLIC (so by anon) the moment they exist. Take that back.
-revoke all on function private.is_owner(), private.can_view(text),
-                       private.is_staff(text), private.can_work(text) from public, anon;
-grant execute on function private.is_owner(), private.can_view(text),
-                          private.is_staff(text), private.can_work(text) to authenticated, service_role;
+revoke all on function private.is_owner(), private.can_work(text),
+                       private.is_staff(), private.can_view(text) from public, anon;
+grant execute on function private.is_owner(), private.can_work(text),
+                          private.is_staff(), private.can_view(text) to authenticated, service_role;
 
 -- ── 6. Read policies on the two new tables: your own row; the owner sees all ────────────────
 create policy ap_profiles_read_own_or_owner on public.ap_profiles
@@ -240,22 +263,23 @@ security invoker
 set search_path = ''
 as $$ select private.can_work(p_slug) $$;
 
-create function public.ap_is_staff(p_slug text)
+create function public.ap_is_staff()
 returns boolean
 language sql
 stable
 security invoker
 set search_path = ''
-as $$ select private.is_staff(p_slug) $$;
+as $$ select private.is_staff() $$;
 
 comment on function public.ap_can_work(text) is
-  'B1 — for the Worker: may the signed-in caller do audit work at this venue? Call with the USER''s token. Anonymous: refused.';
-comment on function public.ap_is_staff(text) is
-  'B1 — for the Worker: may the signed-in caller submit phone counts at this venue? Call with the USER''s token. Anonymous: refused.';
+  'B1 — for the Worker: may the signed-in caller do audit work at this venue? Call with the USER''s token. Anonymous and secret-key calls: refused.';
+comment on function public.ap_is_staff() is
+  'B1 — for the Worker: is the signed-in caller the owner or an auditor anywhere (AI spend, master catalogue)? Call with the USER''s token. Anonymous and secret-key calls: refused.';
 
--- Supabase's default privileges grant EXECUTE on new public functions to anon. Take it back.
-revoke all on function public.ap_can_work(text), public.ap_is_staff(text) from public, anon;
-grant execute on function public.ap_can_work(text), public.ap_is_staff(text) to authenticated, service_role;
+-- Supabase's default privileges grant EXECUTE on new public functions to anon, authenticated
+-- AND service_role. Take all of it back, then give it to signed-in users only (design §2).
+revoke all on function public.ap_can_work(text), public.ap_is_staff() from public, anon, service_role;
+grant execute on function public.ap_can_work(text), public.ap_is_staff() to authenticated;
 
 -- ── 8. Jeremy's owner row — fails loudly rather than inserting nothing ──────────────────────
 do $owner$
