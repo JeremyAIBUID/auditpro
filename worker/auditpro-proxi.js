@@ -1,4 +1,6 @@
-// auditpro-proxi — the Cloudflare Worker behind Jeremyaibuild (repo: auditpro). Build r100.
+// auditpro-proxi — the Cloudflare Worker behind Jeremyaibuild (repo: auditpro). Build B2
+// (= r100 + login checks in REPORT-ONLY mode; see the B2 section at the end of this file and
+// docs/auth-design.md §7).
 //
 // The source of truth for this Worker is THIS FILE. It is deployed by pasting it into the
 // Cloudflare dashboard editor (Workers & Pages → auditpro-proxi → Edit code). It contains
@@ -13,9 +15,15 @@
 //   env.ALLOWED_SLUGS        OPTIONAL — comma-separated venue folder names, e.g.
 //                            "c_1775024388916". When set, uploads to any other folder are
 //                            refused. When unset, any well-formed folder name is accepted.
+//   env.AUTH_MODE            B2, OPTIONAL — a plain variable. Unset or "report" = check the
+//                            caller's Supabase login and LOG the result, refusing nothing.
+//                            This build has no other mode: any other value is logged as
+//                            unsupported and treated exactly like "report". Enforcement is B4.
+//                            env.SUPABASE_URL is also what the login check trusts (issuer + keys).
 //
 // ROUTES
-//   OPTIONS  any path                     CORS preflight — unchanged from the pre-r100 Worker
+//   OPTIONS  any path                     CORS preflight — as pre-r100, but B2 also allows the
+//                                         Authorization header (r102 will send a login token)
 //   POST     /invoice-pdf?slug=…&ref=…    r100: store one invoice PDF and return its signed link
 //   anything else                         the Anthropic proxy — unchanged from the pre-r100 Worker
 //
@@ -41,17 +49,25 @@ const SLUG_RE = /^[a-z0-9_]{1,64}$/;
 // No dot, no slash, no backslash, no percent, no space: there is nothing to traverse WITH.
 const REF_RE  = /^[A-Za-z0-9_-]{1,100}$/;
 
+// B2 — Authorization is allowed so that r102's first request carrying a login token passes the
+// browser's preflight. This is the only response that carries Access-Control-Allow-Headers: it
+// is the only one a browser reads it from, so no other response needed (or got) a change.
 const CORS_PREFLIGHT_HEADERS = {
   'Access-Control-Allow-Origin':  '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: CORS_PREFLIGHT_HEADERS });
     }
+    // B2 — check who is calling and LOG it. This runs ALONGSIDE the request, never in front of
+    // it: whatever it finds, and even if it fails outright, the request below is served
+    // exactly as before. A preflight never carries a token (browsers do not send one), so it
+    // is neither checked nor logged.
+    reportAuth(request, env, ctx);
     const url = new URL(request.url);
     if (url.pathname === INVOICE_ROUTE) {
       return handleInvoicePdf(request, env, url);
@@ -240,3 +256,182 @@ function reply(status, body) {
     },
   });
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// B2 — LOGIN CHECK, REPORT ONLY (docs/auth-design.md §7)
+//
+// Nothing below can refuse, delay or change a request. reportAuth() starts the check, hands it
+// to ctx.waitUntil and returns at once; the request is then served by the unchanged code above.
+// Each checked request produces exactly ONE log line:
+//
+//   [auth] mode=report route=anthropic auth=missing
+//   [auth] mode=report route=invoice-pdf auth=ok sub=<the user's id>
+//   [auth] mode=report route=anthropic auth=invalid reason=bad_signature
+//   [auth] mode=report route=anthropic auth=expired
+//
+// The token is NEVER logged, nor any part of it, nor anything read out of a token that has not
+// passed every check: a reason is always one of the fixed words below, and sub is logged only
+// from a fully verified token, after it has matched the UUID pattern.
+//
+// A token is "ok" only if ALL of this holds (§7):
+//   - the header is "Authorization: Bearer <jwt>";
+//   - its alg is ES256 and its kid is a key in the project's JWKS
+//     (SUPABASE_URL + /auth/v1/.well-known/jwks.json);
+//   - the signature verifies (ECDSA P-256 / SHA-256, WebCrypto, no imports);
+//   - iss = SUPABASE_URL + /auth/v1; aud includes "authenticated"; role = "authenticated";
+//   - exp is in the future; iat is not in the future; sub is a UUID; is_anonymous is not true.
+// A signature-valid token that fails only on exp is "expired"; any other failure is "invalid".
+//
+// reasons: not_bearer · malformed · alg · no_kid · not_configured · jwks_unavailable ·
+//          unknown_kid · bad_signature · iss · aud · role · sub · anonymous · iat · exp · internal
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+const JWKS_PATH       = '/auth/v1/.well-known/jwks.json';
+const JWKS_TTL_MS     = 10 * 60 * 1000;   // a fetched key set is trusted for 10 minutes, no longer
+const JWKS_MIN_GAP_MS = 60 * 1000;        // and fetched at most once a minute, however many unknown kids arrive
+const JWKS_TIMEOUT_MS = 5000;
+// Supabase's and Cloudflare's clocks can differ by a second or two, so a token issued "now" must
+// not read as issued in the future. exp gets NO leeway.
+const IAT_LEEWAY_S    = 30;
+const SUPABASE_URL_RE = /^https:\/\/[a-z0-9-]+\.supabase\.co$/;   // the rule handleInvoicePdf applies
+const UUID_RE         = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const B64URL_RE       = /^[A-Za-z0-9_-]+$/;
+
+// The key set, cached per Worker instance. A new deploy starts new instances with an empty cache.
+let jwksCache = { url: '', keys: new Map(), fetchedAt: 0, triedAt: 0, inflight: null };
+
+function reportAuth(request, env, ctx) {
+  let job;
+  try {
+    const route = new URL(request.url).pathname === INVOICE_ROUTE ? 'invoice-pdf' : 'anthropic';
+    job = checkAuth(request, env, Date.now())
+      .catch(() => ({ result: 'invalid', reason: 'internal' }))
+      .then((a) => console.log(authLine(env, route, a)))
+      .catch(() => {});
+  } catch (e) {
+    return;   // the check must never be able to break the request
+  }
+  if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(job);
+}
+
+function authLine(env, route, a) {
+  const requested = env.AUTH_MODE == null ? '' : String(env.AUTH_MODE).trim();
+  let line = '[auth] mode=report';
+  if (requested !== '' && requested !== 'report') {
+    // This build only reports. Any other value is named in the log and changes nothing.
+    line += ' unsupported_auth_mode=' + (requested.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 20) || '?');
+  }
+  line += ' route=' + route + ' auth=' + a.result;
+  if (a.reason) line += ' reason=' + a.reason;
+  if (a.result === 'ok') line += ' sub=' + a.sub;
+  return line;
+}
+
+async function checkAuth(request, env, now) {
+  const header = request.headers.get('Authorization');
+  if (header === null || header.trim() === '') return { result: 'missing' };
+  const m = /^Bearer +(\S+)$/i.exec(header.trim());
+  if (!m) return invalid('not_bearer');
+  const parts = m[1].split('.');
+  if (parts.length !== 3 || !parts.every((p) => B64URL_RE.test(p))) return invalid('malformed');
+  const head   = jsonPart(parts[0]);
+  const claims = jsonPart(parts[1]);
+  if (!head || !claims) return invalid('malformed');
+  // Only ES256 is ever verified, and only with ECDSA, so no other alg can be smuggled in.
+  if (head.alg !== 'ES256') return invalid('alg');
+  if (typeof head.kid !== 'string' || head.kid === '') return invalid('no_kid');
+
+  const supabaseUrl = String(env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+  if (!SUPABASE_URL_RE.test(supabaseUrl)) return invalid('not_configured');
+  const found = await jwksKey(supabaseUrl, head.kid, now);
+  if (!found.key) return invalid(found.reason);
+
+  const sig = b64urlBytes(parts[2]);
+  if (!sig || sig.length !== 64) return invalid('bad_signature');
+  const signedPart = new TextEncoder().encode(parts[0] + '.' + parts[1]);
+  const genuine = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, found.key, sig, signedPart);
+  if (!genuine) return invalid('bad_signature');
+
+  // Only a token the project really signed gets this far. Now check what it says.
+  const nowS = now / 1000;
+  if (claims.iss !== supabaseUrl + '/auth/v1') return invalid('iss');
+  const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (!aud.includes('authenticated')) return invalid('aud');
+  if (claims.role !== 'authenticated') return invalid('role');
+  if (typeof claims.sub !== 'string' || !UUID_RE.test(claims.sub)) return invalid('sub');
+  if (claims.is_anonymous === true) return invalid('anonymous');
+  if (typeof claims.iat !== 'number' || !Number.isFinite(claims.iat) || claims.iat > nowS + IAT_LEEWAY_S) {
+    return invalid('iat');
+  }
+  if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp)) return invalid('exp');
+  if (claims.exp <= nowS) return { result: 'expired' };
+  return { result: 'ok', sub: claims.sub.toLowerCase() };
+}
+
+// → { key } or { reason: 'jwks_unavailable' | 'unknown_kid' }
+async function jwksKey(supabaseUrl, kid, now) {
+  const url = supabaseUrl + JWKS_PATH;
+  if (jwksCache.url !== url) {
+    jwksCache = { url, keys: new Map(), fetchedAt: 0, triedAt: 0, inflight: null };
+  }
+  const c = jwksCache;
+  const fresh = () => c.fetchedAt > 0 && now - c.fetchedAt < JWKS_TTL_MS;
+  if (c.inflight) {
+    await c.inflight;                       // another request is already fetching: share it
+  } else if (!(fresh() && c.keys.has(kid)) && (c.triedAt === 0 || now - c.triedAt >= JWKS_MIN_GAP_MS)) {
+    await refreshJwks(c, now);              // stale, or an unknown kid — at most once a minute
+  }
+  if (!fresh()) return { reason: 'jwks_unavailable' };
+  return c.keys.has(kid) ? { key: c.keys.get(kid) } : { reason: 'unknown_kid' };
+}
+
+function refreshJwks(c, now) {
+  c.triedAt = now;
+  const job = (async () => {
+    try {
+      // Headers are BUILT, never copied: nothing from the caller's request goes to Supabase.
+      const res = await fetch(c.url, {
+        headers: { 'Accept': 'application/json' },
+        signal:  AbortSignal.timeout(JWKS_TIMEOUT_MS),
+      });
+      if (!res.ok) return;
+      const body = await res.json();
+      const keys = new Map();
+      for (const k of (body && Array.isArray(body.keys)) ? body.keys : []) {
+        if (!k || k.kty !== 'EC' || k.crv !== 'P-256' || typeof k.kid !== 'string' || k.kid === '') continue;
+        if ((k.alg !== undefined && k.alg !== 'ES256') || (k.use !== undefined && k.use !== 'sig')) continue;
+        try {
+          keys.set(k.kid, await crypto.subtle.importKey('jwk', { kty: 'EC', crv: 'P-256', x: k.x, y: k.y },
+            { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']));
+        } catch (e) { /* a malformed key is skipped, not fatal */ }
+      }
+      c.keys = keys;
+      c.fetchedAt = now;
+    } catch (e) {
+      /* unreachable, timed out or not JSON: the cache is left alone and goes stale on schedule */
+    }
+  })();
+  c.inflight = job;
+  job.then(() => { if (c.inflight === job) c.inflight = null; });
+  return job;
+}
+
+function b64urlBytes(s) {
+  try {
+    const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4));
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  } catch (e) { return null; }
+}
+
+function jsonPart(s) {
+  const bytes = b64urlBytes(s);
+  if (!bytes) return null;
+  try {
+    const v = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
+  } catch (e) { return null; }
+}
+
+function invalid(reason) { return { result: 'invalid', reason }; }

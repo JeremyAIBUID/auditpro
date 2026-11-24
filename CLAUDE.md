@@ -162,7 +162,7 @@ that, instead of piping a heredoc, whenever the content contains backslash escap
 | `sw.js` | cache `auditpro-v11`. **Not registered by either app** — legacy, inert |
 | `manifest-desktop.json` | name "Jeremyaibuild Stock Count". **Not linked from any page** — inert |
 | `backup-pre-r18.json`, `backup-pre-r19.json` | old hand-taken client-data backups. `backup-pre-r18.json` is the **shape precedent** for r99's export (top-level `backup_taken` / `note` + table-named row arrays); its one invoice `pdfUrl` token was redacted in r101 (`?token=REDACTED_r101`). **Backups r99 writes are NOT committed** — they are ~950 KB of venue data and can carry site codes from Client info, and this repo is public. |
-| `worker/auditpro-proxi.js` | the Cloudflare Worker source (r100). Holds **no** secrets — only `env.ANTHROPIC_KEY`, `env.SUPABASE_SECRET_KEY`, `env.SUPABASE_URL`, optional `env.ALLOWED_SLUGS`. **Pushing it does not deploy it.** |
+| `worker/auditpro-proxi.js` | the Cloudflare Worker source (r100 + **B2**: report-only login check — verifies the caller's Supabase token and LOGS `[auth] … auth=ok|missing|expired|invalid`, refuses nothing; rules in `docs/auth-design.md` §7). Holds **no** secrets — only `env.ANTHROPIC_KEY`, `env.SUPABASE_SECRET_KEY`, `env.SUPABASE_URL`, optional `env.ALLOWED_SLUGS`, optional plain `env.AUTH_MODE` (unset/`report`). **Pushing it does not deploy it** — whether B2 is live is recorded in `docs/auth-design.md` §4. |
 | `docs/build-history.md` | the full per-build write-ups — not auto-loaded |
 | `docs/auth-design.md` | the agreed auth design (roles, helpers, B5 policies, B0–B6 plan) — not auto-loaded, and the authority |
 | `sql/b1-foundation.sql`, `b1-verify.sql`, `b1-rollback.sql`, `baseline-2026-11-24.json` | B1 auth foundation. **Applied live and verified 24 Nov 2026** (as committed in `a73dc67`): foundation returned "B1 foundation applied" (1 owner, 2 counts tagged, 0 untagged), `b1-verify.sql` all 30 checks ok, and r101 desktop load + phone sync + import-by-code confirmed working afterwards. The superseded `e1b4b70` draft was never run. Do NOT run `b1-foundation.sql` again (its guard refuses anyway); re-check the live state with the read-only `b1-verify.sql`. Run `b1-rollback.sql` only to deliberately undo B1, and only before anything (a B5 policy) depends on it. |
@@ -224,6 +224,7 @@ Each exists because skipping it once shipped a defect or a false claim.
 4. **The Worker has no caller auth.** Anyone with its URL (in the page source) can spend the
    Anthropic credits and write ≤10 MB PDFs into `Invoices/<slug>/` — **including overwriting an
    invoice's PDF**, which its existing link then serves. `ALLOWED_SLUGS` narrows the folder only.
+   **B2 does not change this:** it only LOGS who called. Refusing is B4, after r102 (B3) sends tokens.
 5. ~~Delete the `Invoices` bucket's two "allow public access" policies~~ — **done** (reported by
    Jeremy 2026-11-19, with a real upload and the old links both verified working afterwards).
 

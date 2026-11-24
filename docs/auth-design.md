@@ -82,13 +82,14 @@ Use these names everywhere: SQL headers, commits, prompts, CLAUDE.md, memory.
 |---|---|
 | **B0** | Pre-flight. **Done 24 Nov 2026** (the baseline capture, `sql/baseline-2026-11-24.json`). |
 | **B1** | Foundation SQL: `sql/b1-foundation.sql`, `b1-verify.sql`, `b1-rollback.sql`. Purely additive. **Done 24 Nov 2026** (see below). |
-| **B2** | Worker **log-only** mode. It verifies logins and refuses nothing. |
+| **B2** | Worker **log-only** mode. It verifies logins and refuses nothing (§7). **Written and harness-tested 24 Nov 2026; NOT yet deployed** — Jeremy pastes it into Cloudflare. |
 | **B3** | App **r102**: sign-in on desktop and phone. |
 | **B4** | Worker **enforce**. |
 | **B5.1–B5.6** | Lock the six tables **one at a time**, `ap_products` first and `ap_clients` last. |
 | **B6** | Close-out. |
 
-**Status as of 24 Nov 2026: B0 and B1 are done. B2 is next.**
+**Status as of 24 Nov 2026: B0 and B1 are done. B2 is written and harness-tested, awaiting
+deployment.**
 
 B1 was applied live on 24 Nov 2026 by Jeremy, in the Supabase SQL Editor, as committed in
 `a73dc67`.
@@ -152,3 +153,76 @@ baseline and ran r101's real request shapes against them.
    - Moving a count to another venue is refused.
    - `importByCode` with another venue's code returns no rows. Per-venue RLS therefore also
      closes the cross-venue import risk that keeps `UNIQUE (code)` in place today (§5).
+
+## 7. The Worker's login check (B2 reports it, B4 will enforce it)
+
+Recorded 24 Nov 2026 with B2. Its rules come from the B2 brief. The code is the B2 section of
+`worker/auditpro-proxi.js`. B4 must enforce **these same rules**, not a re-derivation of them.
+
+### What a token must be
+
+1. The request carries `Authorization: Bearer <jwt>`.
+2. The JWT header's `alg` is **ES256**, and its `kid` is a key in the project JWKS
+   (`SUPABASE_URL` + `/auth/v1/.well-known/jwks.json`).
+   - The key set is cached for **10 minutes**.
+   - On an unknown `kid` it is refetched **at most once a minute**.
+3. The signature verifies with WebCrypto (ECDSA P-256, SHA-256), with no imports.
+4. The claims check out:
+   - `iss` = `SUPABASE_URL` + `/auth/v1`;
+   - `aud` includes `authenticated`;
+   - `role` = `authenticated`;
+   - `exp` is in the future and `iat` is not;
+   - `sub` is a UUID;
+   - `is_anonymous` is not true.
+
+Each request gets exactly one result:
+
+| Result | Meaning |
+|---|---|
+| `ok` | passes every rule above |
+| `missing` | no Authorization header |
+| `expired` | genuinely signed, and fails only on `exp` |
+| `invalid` | anything else, with a short reason |
+
+### `AUTH_MODE` (a plain Cloudflare variable)
+
+- **Unset, or `report`:** check, log one line, then serve the request exactly as r100 did,
+  whatever the result.
+- **No other mode exists in B2.** Any other value, `enforce` included, is named in the log as
+  unsupported and changes nothing. Enforcement is written in B4.
+
+### Choices made while writing B2 (not in the brief)
+
+- **The check runs alongside the request, not in front of it** (`ctx.waitUntil`). A slow or
+  unreachable JWKS therefore can't delay or break an AI call or an upload.
+- **Preflights (OPTIONS) are not checked or logged.** Browsers never send Authorization on a
+  preflight.
+- **`Access-Control-Allow-Headers` changed only on the preflight response.** That is the only
+  response that carried it, and the only one a browser reads it from. Every other response is
+  byte-identical to r100. `Access-Control-Allow-Origin` stays `*` for now.
+- **`iat` gets 30 seconds of clock leeway. `exp` gets none.**
+- **A key set older than 10 minutes is not trusted**, even when the refetch fails: the result is
+  then `invalid reason=jwks_unavailable`. Refetches are limited to one a minute in every case.
+  Concurrent requests share one fetch. Only EC / P-256 / ES256 / `sig` keys are used.
+- **Log format** (the token and its parts are never logged):
+
+  ```
+  [auth] mode=report route=<anthropic|invoice-pdf> auth=<ok sub=<uuid>|missing|expired|invalid reason=<word>>
+  ```
+
+  The reason words are: `not_bearer`, `malformed`, `alg`, `no_kid`, `not_configured`,
+  `jwks_unavailable`, `unknown_kid`, `bad_signature`, `iss`, `aud`, `role`, `sub`, `anonymous`,
+  `iat`, `exp`, `internal`.
+
+### Measured, 24 Nov 2026
+
+- The project JWKS is public: it answers HTTP 200 without an API key.
+- It holds **one** key: EC, P-256, ES256, `use: sig`.
+- Whether real login tokens are signed with that key shows only once r102 sends one. A legacy
+  HS256 token would log `invalid reason=alg`.
+
+### Left for B4 (not decided here)
+
+- What enforce refuses, route by route. For example, whether AI calls need `ap_is_staff()` and
+  uploads need `ap_can_work(slug)` (§2).
+- Whether the allowed origin is tightened.
